@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PokéTFT — Agent System Design</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    /* ── Layout ── */
+    .sidebar {
+      position: fixed;
+      top: 0; left: 0;
+      width: 240px;
+      height: 100vh;
+      background: #161b22;
+      border-right: 1px solid #30363d;
+      padding: 24px 0;
+      overflow-y: auto;
+    }
+
+    .sidebar-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #8b949e;
+      text-transform: uppercase;
+      padding: 0 20px 12px;
+      border-bottom: 1px solid #21262d;
+      margin-bottom: 8px;
+    }
+
+    .sidebar a {
+      display: block;
+      padding: 6px 20px;
+      color: #8b949e;
+      text-decoration: none;
+      font-size: 13px;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .sidebar a:hover { color: #58a6ff; background: #1f2937; }
+    .sidebar a.active { color: #58a6ff; border-left-color: #58a6ff; background: #1c2a3a; }
+    .sidebar .section-label {
+      padding: 14px 20px 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: #484f58;
+      text-transform: uppercase;
+    }
+
+    main {
+      margin-left: 240px;
+      max-width: 860px;
+      padding: 48px 60px 80px;
+    }
+
+    /* ── Typography ── */
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      color: #f0f6fc;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #8b949e;
+      font-size: 15px;
+      margin-bottom: 40px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid #21262d;
+    }
+
+    .subtitle span {
+      display: inline-block;
+      background: #1f3a5f;
+      color: #58a6ff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #f0f6fc;
+      margin: 48px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #21262d;
+      scroll-margin-top: 24px;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e6edf3;
+      margin: 28px 0 10px;
+      scroll-margin-top: 24px;
+    }
+
+    h4 {
+      font-size: 13px;
+      font-weight: 700;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin: 20px 0 8px;
+    }
+
+    p { margin-bottom: 14px; color: #c9d1d9; }
+
+    a { color: #58a6ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    ul, ol {
+      margin: 10px 0 16px 20px;
+      color: #c9d1d9;
+    }
+    li { margin-bottom: 6px; }
+
+    strong { color: #e6edf3; }
+
+    /* ── Callout boxes ── */
+    .callout {
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin: 20px 0;
+      border-left: 3px solid;
+      font-size: 14px;
+    }
+
+    .callout.info    { background: #0d2137; border-color: #1f6feb; }
+    .callout.tip     { background: #0d2b1a; border-color: #3fb950; }
+    .callout.warning { background: #2b1a0d; border-color: #d29922; }
+    .callout.concept { background: #1a0d2b; border-color: #a371f7; }
+
+    .callout-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .callout.info    .callout-label { color: #58a6ff; }
+    .callout.tip     .callout-label { color: #3fb950; }
+    .callout.warning .callout-label { color: #d29922; }
+    .callout.concept .callout-label { color: #a371f7; }
+
+    /* ── Code ── */
+    pre {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      margin: 16px 0;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    code {
+      font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      font-size: 13px;
+    }
+
+    p code, li code {
+      background: #1c2128;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 1px 6px;
+      color: #e6edf3;
+      font-size: 12px;
+    }
+
+    /* syntax colors */
+    .kw  { color: #ff7b72; }
+    .fn  { color: #d2a8ff; }
+    .str { color: #a5d6ff; }
+    .cmt { color: #8b949e; font-style: italic; }
+    .num { color: #79c0ff; }
+    .typ { color: #ffa657; }
+
+    /* ── Diagram blocks ── */
+    .diagram {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 24px;
+      margin: 20px 0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.8;
+      color: #8b949e;
+      overflow-x: auto;
+    }
+
+    .diagram .node    { color: #e6edf3; font-weight: 600; }
+    .diagram .arrow   { color: #58a6ff; }
+    .diagram .label   { color: #3fb950; }
+    .diagram .faded   { color: #484f58; }
+
+    /* ── Cards ── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin: 20px 0;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px 18px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #e6edf3;
+      margin-bottom: 6px;
+    }
+
+    .card p { font-size: 13px; margin: 0; color: #8b949e; }
+
+    /* ── Table ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 13px;
+    }
+
+    th {
+      text-align: left;
+      padding: 8px 14px;
+      background: #1c2128;
+      color: #8b949e;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid #30363d;
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #21262d;
+      color: #c9d1d9;
+      vertical-align: top;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1c2128; }
+
+    /* ── Pill badges ── */
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 10px;
+      vertical-align: middle;
+      margin-left: 4px;
+    }
+    .badge.todo    { background: #2b1a0d; color: #d29922; border: 1px solid #5a3e0a; }
+    .badge.done    { background: #0d2b1a; color: #3fb950; border: 1px solid #1a5c30; }
+    .badge.wip     { background: #0d1f37; color: #58a6ff; border: 1px solid #1f6feb; }
+    .badge.gap     { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+
+    /* ── Section divider ── */
+    .divider {
+      border: none;
+      border-top: 1px solid #21262d;
+      margin: 40px 0;
+    }
+
+    /* ── Vote bars ── */
+    .vote-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 8px 0;
+      font-size: 13px;
+    }
+
+    .vote-label { width: 140px; color: #8b949e; flex-shrink: 0; }
+    .vote-bar-bg {
+      flex: 1;
+      height: 6px;
+      background: #21262d;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .vote-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: #3fb950;
+    }
+    .vote-count { color: #e6edf3; font-size: 12px; width: 40px; text-align: right; }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<nav class="sidebar">
+  <div class="sidebar-title">PokéTFT Agent System</div>
+
+  <div class="section-label">Overview</div>
+  <a href="#what-are-agents">What Are Agents?</a>
+  <a href="#why-agents">Why Agents for Balance?</a>
+
+  <div class="section-label">Architecture</div>
+  <a href="#three-layers">Three-Layer Design</a>
+  <a href="#simulation-agent">Simulation Agent</a>
+  <a href="#analysis-agent">Analysis Agent</a>
+  <a href="#proposal-agent">Proposal Agent</a>
+
+  <div class="section-label">How Agents Work</div>
+  <a href="#claude-api">Claude API Basics</a>
+  <a href="#tool-use">Tool Use</a>
+  <a href="#structured-output">Structured Output</a>
+  <a href="#stateless">Stateless Design</a>
+
+  <div class="section-label">Tools</div>
+  <a href="#deterministic-tools">Deterministic Tools</a>
+  <a href="#tool-schemas">Tool Schemas</a>
+
+  <div class="section-label">Voting System</div>
+  <a href="#upvoting">Upvoting System</a>
+  <a href="#voter-agents">Voter Agent Roles</a>
+  <a href="#blind-voting">Blind vs Open Voting</a>
+
+  <div class="section-label">Open Questions</div>
+  <a href="#gaps">Gaps to Fill</a>
+</nav>
+
+<!-- ── Main ── -->
+<main>
+
+  <h1>PokéTFT Agent System</h1>
+  <p class="subtitle">
+    <span>Living Doc</span>
+    Design reference and learning guide for the AI-powered balance engine.
+    Updated as the system is built.
+  </p>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="what-are-agents">What Are Agents?</h2>
+
+  <p>
+    An <strong>AI agent</strong> is a program that uses a language model (like Claude)
+    not just to answer a question, but to <em>take actions</em> — call functions,
+    read data, make decisions, and loop until a goal is reached.
+  </p>
+
+  <p>
+    The key difference between a plain LLM call and an agent:
+  </p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-title">Plain LLM call</div>
+      <p>You send a prompt, Claude replies with text. One shot. No memory of what happened before. Can't run code or fetch data.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Agent</div>
+      <p>Claude decides to call a tool (e.g. <code>run_simulation</code>), gets back structured data, reasons about it, maybe calls another tool, then produces a final output.</p>
+    </div>
+  </div>
+
+  <div class="callout concept">
+    <div class="callout-label">Core Concept</div>
+    The model doesn't just <em>talk</em> about balance — it <em>runs experiments</em>,
+    reads the results, and proposes changes backed by data. The language model
+    handles reasoning; deterministic code handles computation.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="why-agents">Why Agents for Balance?</h2>
+
+  <p>
+    TFT balance is hard for humans because the search space is enormous.
+    A single damage change on one unit affects hundreds of matchups across
+    all tier levels, synergy combinations, and item configurations.
+  </p>
+
+  <p>Agents solve this by:</p>
+
+  <ul>
+    <li><strong>Scale</strong> — running thousands of simulations quickly, far more than any human play-tester</li>
+    <li><strong>Consistency</strong> — applying the same evaluation criteria every time, with no fatigue or bias</li>
+    <li><strong>Explainability</strong> — every proposal cites the simulation data that motivated it</li>
+    <li><strong>Iteration speed</strong> — a full balance pass that would take days of play-testing runs in minutes</li>
+  </ul>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="three-layers">Three-Layer Architecture</h2>
+
+  <div class="diagram">
+<span class="faded">┌──────────────────────────────────────────────────────────┐</span>
+<span class="faded">│</span>                    <span class="node">BALANCE ENGINE</span>                        <span class="faded">│</span>
+<span class="faded">│</span>                                                          <span class="faded">│</span>
+<span class="faded">│</span>   <span class="node">Layer 1: Simulation Agents</span>                            <span class="faded">│</span>
+<span class="faded">│</span>   <span class="label">Run matchups → collect raw stats</span>                      <span class="faded">│</span>
+<span class="faded">│</span>            <span class="arrow">↓</span>                                              <span class="faded">│</span>
+<span class="faded">│</span>   <span class="node">Layer 2: Analysis Agents</span>                              <span class="faded">│</span>
+<span class="faded">│</span>   <span class="label">Read stats → flag problems → explain why</span>              <span class="faded">│</span>
+<span class="faded">│</span>            <span class="arrow">↓</span>                                              <span class="faded">│</span>
+<span class="faded">│</span>   <span class="node">Layer 3: Proposal Agents</span>                              <span class="faded">│</span>
+<span class="faded">│</span>   <span class="label">Suggest concrete number changes → vote → apply</span>        <span class="faded">│</span>
+<span class="faded">└──────────────────────────────────────────────────────────┘</span>
+
+         <span class="arrow">↑ All layers call into ↓</span>
+
+<span class="faded">┌──────────────────────────────────────────────────────────┐</span>
+<span class="faded">│</span>              <span class="node">Game Engine (TypeScript)</span>                      <span class="faded">│</span>
+<span class="faded">│</span>   <span class="label">run_simulation(), get_unit_definition(), etc.</span>         <span class="faded">│</span>
+<span class="faded">└──────────────────────────────────────────────────────────┘</span>
+  </div>
+
+  <p>
+    Each layer is independent — a simulation agent doesn't know about proposals,
+    a proposal agent doesn't run simulations itself (it calls the tool). This keeps
+    each agent small, focused, and easy to debug.
+  </p>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="simulation-agent">Layer 1 — Simulation Agent</h2>
+
+  <p>
+    The simplest agent. Its only job is to decide <em>which matchups to run</em>
+    and then call <code>run_simulation</code> on each. It returns structured data,
+    not text.
+  </p>
+
+  <h3>What it does</h3>
+  <ul>
+    <li>Given a unit ID (or a list), generates a set of representative matchups (different enemy compositions, tier levels)</li>
+    <li>Calls <code>run_simulation</code> repeatedly — typically 100 trials per matchup to get statistically stable win rates</li>
+    <li>Stores results tagged with the unit, tier, synergy context, and timestamp</li>
+  </ul>
+
+  <h3>Why it needs to be an agent and not just a script</h3>
+  <p>
+    A pure script would need to enumerate every possible matchup manually.
+    An agent can reason about which matchups are <em>most informative</em> —
+    for example, testing a tank unit against high-damage ranged units first,
+    because that's the matchup most likely to reveal balance problems.
+    The LLM handles that prioritization; the script just runs whatever it's told.
+  </p>
+
+  <div class="callout info">
+    <div class="callout-label">How it's built</div>
+    A single Claude API call with <code>tool_use</code> enabled.
+    The system prompt explains TFT matchup coverage.
+    The model outputs a series of <code>run_simulation</code> tool calls.
+    Our code executes each call against the game engine and feeds results back.
+    The model continues until it decides coverage is sufficient.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="analysis-agent">Layer 2 — Analysis Agent</h2>
+
+  <p>
+    Reads simulation data and flags issues. This is where the LLM's
+    reasoning is most valuable — translating raw numbers into a
+    human-readable problem statement with evidence.
+  </p>
+
+  <h3>Example output</h3>
+
+  <pre><code><span class="typ">AnalysisResult</span> {
+  unit: <span class="str">"vikavolt"</span>,
+  severity: <span class="str">"high"</span>,
+  issue: <span class="str">"Vikavolt T3 wins 78% of matchups across all enemy compositions tested.
+         Discharge deals 675 damage to an entire row — at T3 this one-shots
+         most non-tank units. Combined with a 3-second stun, the ability
+         effectively ends combat on cast."</span>,
+  evidence: {
+    avg_win_rate: <span class="num">0.78</span>,
+    worst_matchup: { enemy: <span class="str">"tropius + venusaur + tangela"</span>, win_rate: <span class="num">0.61</span> },
+    ability_proc_rate: <span class="num">1.2</span>, <span class="cmt">// fires 1.2 times per combat on average</span>
+  },
+  suggested_investigation: <span class="str">"Reduce base damage or stun duration. Do not touch both at once."</span>
+}</code></pre>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="proposal-agent">Layer 3 — Proposal Agent</h2>
+
+  <p>
+    Takes a flagged analysis and produces a concrete, testable change.
+    It must also run a <code>run_simulation_with_patch</code> to verify
+    the proposed change actually improves the numbers before submitting.
+  </p>
+
+  <h3>The loop</h3>
+
+  <div class="diagram">
+<span class="node">Proposal Agent receives:</span> AnalysisResult (unit + issue + evidence)
+
+  <span class="arrow">1.</span> <span class="label">Reason about the root cause</span>
+     "Damage too high? Stun too long? Both? Attack speed letting it cast too often?"
+
+  <span class="arrow">2.</span> <span class="label">Hypothesize a minimal change</span>
+     "Lower T3 damage from 675 → 550. Leave stun unchanged."
+
+  <span class="arrow">3.</span> <span class="label">call run_simulation_with_patch(patch, trials=200)</span>
+     Verify win rate drops to acceptable range (~50–55%)
+
+  <span class="arrow">4.</span> <span class="label">If still broken → iterate (adjust patch, re-run)</span>
+     Max 3 iterations to avoid runaway loops
+
+  <span class="arrow">5.</span> <span class="label">Submit proposal with evidence from both before and after</span>
+  </div>
+
+  <div class="callout tip">
+    <div class="callout-label">Why the agent runs its own verification</div>
+    Without self-verification, proposals are just guesses. By requiring the agent
+    to call <code>run_simulation_with_patch</code> before submitting, every proposal
+    arrives with proof that it actually fixes the problem — not just a theory.
+  </div>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="claude-api">How Claude API Calls Work</h2>
+
+  <p>
+    Every agent is built on the same foundation: a call to
+    <code>anthropic.messages.create()</code>. Here's the full structure:
+  </p>
+
+  <pre><code><span class="kw">const</span> response = <span class="kw">await</span> anthropic.<span class="fn">messages</span>.<span class="fn">create</span>({
+  model: <span class="str">"claude-opus-4-8"</span>,
+
+  <span class="cmt">// system: who this agent is and what "good" looks like</span>
+  system: <span class="str">`You are a TFT balance analyst. A healthy unit wins 45–55% of matchups
+    across a representative set of enemy compositions. Flag anything outside
+    this range as a problem. Always cite specific simulation data.`</span>,
+
+  <span class="cmt">// messages: the conversation so far (starts with just the task)</span>
+  messages: [
+    { role: <span class="str">"user"</span>, content: <span class="str">"Analyse Vikavolt's balance using available simulation data."</span> }
+  ],
+
+  <span class="cmt">// tools: what the model is allowed to call</span>
+  tools: [getSimulationHistory, runMatchupMatrix],
+
+  <span class="cmt">// how many tokens the model can think + respond with</span>
+  max_tokens: <span class="num">4096</span>,
+})</code></pre>
+
+  <p>
+    The response comes back with either a <code>text</code> block (the model's final answer)
+    or a <code>tool_use</code> block (the model wants to call one of your tools).
+    Your code handles the tool call, runs it, sends the result back, and loops
+    until the model produces a final text response.
+  </p>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="tool-use">Tool Use — The Core Mechanism</h2>
+
+  <p>
+    Tool use is how agents interact with the real world.
+    The model can't run simulations itself — it outputs a structured request,
+    and <em>your code</em> runs the actual function.
+  </p>
+
+  <div class="diagram">
+<span class="node">Your code</span>                      <span class="node">Claude</span>
+
+  <span class="arrow">→</span> "Analyse Vikavolt" + tool list
+
+                                 <span class="arrow">←</span> tool_use: <span class="label">run_simulation_history</span>
+                                    { unit_id: "vikavolt", days: 30 }
+
+  <span class="arrow">→</span> tool_result: { win_rates: [...] }
+
+                                 <span class="arrow">←</span> tool_use: <span class="label">run_matchup_matrix</span>
+                                    { unit_ids: ["vikavolt", "tangela", ...] }
+
+  <span class="arrow">→</span> tool_result: { matrix: [...] }
+
+                                 <span class="arrow">←</span> text: <span class="label">AnalysisResult { ... }</span>
+  </div>
+
+  <p>
+    The key insight: <strong>the model decides when to call tools and in what order.</strong>
+    You don't hard-code "call this tool, then that one." The model reads its
+    system prompt, understands what tools are available, and figures out the
+    right sequence to gather the information it needs.
+  </p>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="structured-output">Structured Output</h2>
+
+  <p>
+    Agents need to return machine-readable data, not prose.
+    The cleanest way to enforce this with Claude is to define a tool
+    called something like <code>submit_analysis</code> and tell the model
+    it <em>must</em> call that tool to finish its task.
+  </p>
+
+  <pre><code><span class="cmt">// Instead of asking Claude to "write an analysis", tell it to call this:</span>
+{
+  name: <span class="str">"submit_analysis"</span>,
+  description: <span class="str">"Submit your completed analysis. You must call this to finish."</span>,
+  input_schema: {
+    type: <span class="str">"object"</span>,
+    properties: {
+      unit:     { type: <span class="str">"string"</span> },
+      severity: { type: <span class="str">"string"</span>, enum: [<span class="str">"low"</span>, <span class="str">"medium"</span>, <span class="str">"high"</span>] },
+      issue:    { type: <span class="str">"string"</span> },
+      evidence: { type: <span class="str">"object"</span> },
+    },
+    required: [<span class="str">"unit"</span>, <span class="str">"severity"</span>, <span class="str">"issue"</span>, <span class="str">"evidence"</span>]
+  }
+}</code></pre>
+
+  <p>
+    This pattern — a "submit" tool with a strict schema — guarantees your
+    output is always parseable JSON, never free-form text you'd need to parse manually.
+  </p>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="stateless">Stateless Design</h2>
+
+  <p>
+    Each agent run starts fresh — no memory of previous runs.
+    <strong>All state lives in your database, not in the model's context.</strong>
+  </p>
+
+  <p>This is intentional:</p>
+  <ul>
+    <li>Makes agents cheap to run (short context = lower cost)</li>
+    <li>Makes failures recoverable (re-run from any point)</li>
+    <li>Keeps agents from accumulating biases across runs</li>
+    <li>Lets you run multiple agents in parallel without interference</li>
+  </ul>
+
+  <div class="callout warning">
+    <div class="callout-label">Common mistake</div>
+    Don't try to pass the previous agent's full output to the next agent as context.
+    Pass only what's relevant — the analysis result, not the raw simulation data.
+    Long context is slower and more expensive, and the model can get confused by noise.
+  </div>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="deterministic-tools">Deterministic Tools</h2>
+
+  <p>
+    These are the functions agents can call. They are <strong>pure, deterministic code</strong>
+    — the same input always produces the same output (modulo RNG in simulations, which
+    is handled by running many trials and returning averages).
+  </p>
+
+  <p>
+    The separation is important: <em>the model does reasoning, the tools do computation.</em>
+    You never want the model to guess a damage number — you want it to call
+    <code>run_simulation</code> and read the actual result.
+  </p>
+
+  <table>
+    <tr>
+      <th>Tool</th>
+      <th>Input</th>
+      <th>Returns</th>
+    </tr>
+    <tr>
+      <td><code>run_simulation</code></td>
+      <td>player units, enemy units, # trials</td>
+      <td>win rate, avg ticks, damage breakdown, ability proc count</td>
+    </tr>
+    <tr>
+      <td><code>run_simulation_with_patch</code></td>
+      <td>same + a list of stat overrides</td>
+      <td>same, but applied with the proposed changes</td>
+    </tr>
+    <tr>
+      <td><code>run_matchup_matrix</code></td>
+      <td>list of unit IDs</td>
+      <td>NxN win rate table for all pairwise combinations</td>
+    </tr>
+    <tr>
+      <td><code>get_unit_definition</code></td>
+      <td>unit ID</td>
+      <td>current stats, ability values, traits, tier scaling</td>
+    </tr>
+    <tr>
+      <td><code>get_simulation_history</code></td>
+      <td>unit ID, days</td>
+      <td>win rate over time — shows whether unit is drifting</td>
+    </tr>
+    <tr>
+      <td><code>get_trait_units</code></td>
+      <td>trait ID</td>
+      <td>all units in the trait + active thresholds</td>
+    </tr>
+    <tr>
+      <td><code>get_open_proposals</code></td>
+      <td>—</td>
+      <td>all proposals awaiting votes</td>
+    </tr>
+    <tr>
+      <td><code>submit_proposal</code></td>
+      <td>unit, field, old value, new value, reasoning, evidence run ID</td>
+      <td>proposal ID</td>
+    </tr>
+    <tr>
+      <td><code>cast_vote</code></td>
+      <td>proposal ID, vote (approve/reject), reasoning</td>
+      <td>updated vote tally</td>
+    </tr>
+  </table>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="tool-schemas">Tool Schemas (JSON Schema)</h2>
+
+  <p>
+    Every tool needs a JSON Schema definition so Claude knows exactly
+    what arguments it can pass. Here's a full example:
+  </p>
+
+  <pre><code>{
+  <span class="str">"name"</span>: <span class="str">"run_simulation_with_patch"</span>,
+  <span class="str">"description"</span>: <span class="str">"Run combat simulations with temporary stat overrides applied.
+    Use this to test whether a proposed balance change actually improves win rates
+    before submitting it as a proposal."</span>,
+  <span class="str">"input_schema"</span>: {
+    <span class="str">"type"</span>: <span class="str">"object"</span>,
+    <span class="str">"properties"</span>: {
+      <span class="str">"player_units"</span>: {
+        <span class="str">"type"</span>: <span class="str">"array"</span>,
+        <span class="str">"items"</span>: { <span class="str">"type"</span>: <span class="str">"object"</span>,
+          <span class="str">"properties"</span>: {
+            <span class="str">"id"</span>:   { <span class="str">"type"</span>: <span class="str">"string"</span> },
+            <span class="str">"tier"</span>: { <span class="str">"type"</span>: <span class="str">"integer"</span>, <span class="str">"enum"</span>: [<span class="num">1</span>, <span class="num">2</span>, <span class="num">3</span>] }
+          }
+        }
+      },
+      <span class="str">"enemy_units"</span>: { <span class="str">"type"</span>: <span class="str">"array"</span>, <span class="str">"items"</span>: { <span class="str">"$ref"</span>: <span class="str">"#unit"</span> } },
+      <span class="str">"patch"</span>: {
+        <span class="str">"type"</span>: <span class="str">"array"</span>,
+        <span class="str">"description"</span>: <span class="str">"Stat overrides to apply before running"</span>,
+        <span class="str">"items"</span>: {
+          <span class="str">"type"</span>: <span class="str">"object"</span>,
+          <span class="str">"properties"</span>: {
+            <span class="str">"unit_id"</span>: { <span class="str">"type"</span>: <span class="str">"string"</span> },
+            <span class="str">"field"</span>:   { <span class="str">"type"</span>: <span class="str">"string"</span>,
+              <span class="str">"description"</span>: <span class="str">"e.g. 'ability.damageValues[2]' or 'baseStats.attack'"</span> },
+            <span class="str">"value"</span>:   { <span class="str">"type"</span>: <span class="str">"number"</span> }
+          },
+          <span class="str">"required"</span>: [<span class="str">"unit_id"</span>, <span class="str">"field"</span>, <span class="str">"value"</span>]
+        }
+      },
+      <span class="str">"trials"</span>: { <span class="str">"type"</span>: <span class="str">"integer"</span>, <span class="str">"default"</span>: <span class="num">100</span> }
+    },
+    <span class="str">"required"</span>: [<span class="str">"player_units"</span>, <span class="str">"enemy_units"</span>, <span class="str">"patch"</span>]
+  }
+}</code></pre>
+
+  <p>
+    The <code>description</code> fields matter a lot — they tell the model
+    <em>when</em> to use this tool and <em>how</em> to use it correctly.
+    Bad descriptions lead to the model calling tools with wrong arguments.
+  </p>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="upvoting">The Upvoting / Voting System</h2>
+
+  <p>
+    A single agent proposing and applying its own changes is dangerous —
+    it might "fix" a problem in one matchup while breaking three others.
+    The voting system adds a layer of independent review before anything changes.
+  </p>
+
+  <h3>How it works</h3>
+  <ol>
+    <li>A Proposal Agent submits a change with evidence</li>
+    <li>Four specialized Voter Agents each receive the proposal independently</li>
+    <li>Each voter runs <code>run_simulation_with_patch</code> on their own to verify the claim</li>
+    <li>Each voter casts a typed vote: <code>approve</code>, <code>reject</code>, or <code>abstain</code> with reasoning</li>
+    <li>If 3 of 4 approve → the change is applied (or queued for human review)</li>
+    <li>If any voter rejects with a new finding → a new analysis cycle begins</li>
+  </ol>
+
+  <h3>Example vote tally</h3>
+
+  <div class="card" style="margin: 16px 0; padding: 20px;">
+    <div class="card-title" style="margin-bottom: 14px;">
+      Proposal: Vikavolt T3 damage 675 → 550
+    </div>
+    <div class="vote-row">
+      <span class="vote-label">Early Game Agent</span>
+      <div class="vote-bar-bg"><div class="vote-bar-fill" style="width:100%"></div></div>
+      <span class="vote-count" style="color:#3fb950">✓ approve</span>
+    </div>
+    <div class="vote-row">
+      <span class="vote-label">Late Game Agent</span>
+      <div class="vote-bar-bg"><div class="vote-bar-fill" style="width:100%"></div></div>
+      <span class="vote-count" style="color:#3fb950">✓ approve</span>
+    </div>
+    <div class="vote-row">
+      <span class="vote-label">Synergy Agent</span>
+      <div class="vote-bar-bg"><div class="vote-bar-fill" style="width:100%; background:#d29922"></div></div>
+      <span class="vote-count" style="color:#d29922">~ abstain</span>
+    </div>
+    <div class="vote-row">
+      <span class="vote-label">Counterplay Agent</span>
+      <div class="vote-bar-bg"><div class="vote-bar-fill" style="width:100%"></div></div>
+      <span class="vote-count" style="color:#3fb950">✓ approve</span>
+    </div>
+    <p style="margin-top:14px; font-size:13px; color:#3fb950">→ Passed 3/4 — change applied</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="voter-agents">Voter Agent Roles</h2>
+
+  <p>
+    Each voter agent has a different system prompt that gives it a distinct perspective.
+    The goal is to cover blind spots that a single agent would miss.
+  </p>
+
+  <table>
+    <tr>
+      <th>Agent</th>
+      <th>Focus</th>
+      <th>What it checks</th>
+    </tr>
+    <tr>
+      <td><strong>Early Game Agent</strong></td>
+      <td>Tier 1 & first cast</td>
+      <td>Is the unit too strong / weak at 1-star? Does it first-cast too early or too late?</td>
+    </tr>
+    <tr>
+      <td><strong>Late Game Agent</strong></td>
+      <td>Tier 3 scaling</td>
+      <td>Does T3 feel game-winning but not instantly win? Is the T3 numbers spike proportionate?</td>
+    </tr>
+    <tr>
+      <td><strong>Synergy Agent</strong></td>
+      <td>Trait interactions</td>
+      <td>Does this change break a trait combo? Does it buff jungle/volcanic/etc. too much?</td>
+    </tr>
+    <tr>
+      <td><strong>Counterplay Agent</strong></td>
+      <td>Counterplay options</td>
+      <td>After this change, is there still a way to beat the unit? Or does it become unanswerable?</td>
+    </tr>
+  </table>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="blind-voting">Blind vs Open Voting</h2>
+
+  <p>
+    In <strong>blind voting</strong>, voters don't see each other's votes before casting.
+    In <strong>open voting</strong>, they do.
+  </p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-title">Blind voting</div>
+      <p>Each agent reaches its conclusion independently. No anchoring bias — the Late Game Agent can't just agree with the Early Game Agent because it saw that vote first. More honest signal.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Open voting</div>
+      <p>Agents can see dissenting opinions and respond to them. Useful for catching genuine conflicts ("this helps early game but I found it breaks Jungle trait at T3"). More nuanced but risks groupthink.</p>
+    </div>
+  </div>
+
+  <div class="callout gap">
+    <div class="callout-label">Open Question</div>
+    Which mode to use, or whether to do a hybrid (blind first round, open second round
+    if there's a split) — TBD.
+  </div>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2 id="gaps">Open Questions / Gaps</h2>
+
+  <p>Things that need decisions before the system can be built:</p>
+
+  <table>
+    <tr>
+      <th>Question</th>
+      <th>Status</th>
+    </tr>
+    <tr>
+      <td>What triggers a balance run? (Scheduled? On unit add? Manual?)</td>
+      <td><span class="badge gap">gap</span></td>
+    </tr>
+    <tr>
+      <td>What are the target win rate ranges per cost tier? (Cost-1 units should probably sit ~48–55%, cost-5 higher variance)</td>
+      <td><span class="badge gap">gap</span></td>
+    </tr>
+    <tr>
+      <td>Do approved proposals auto-apply or go to a human review queue first?</td>
+      <td><span class="badge gap">gap</span></td>
+    </tr>
+    <tr>
+      <td>Does the vote threshold scale with change severity? (Reducing damage by 5 = easier to pass than reworking an ability)</td>
+      <td><span class="badge gap">gap</span></td>
+    </tr>
+    <tr>
+      <td>Blind vs open voting (or hybrid)?</td>
+      <td><span class="badge gap">gap</span></td>
+    </tr>
+    <tr>
+      <td>Storage layer for proposals, votes, and simulation history</td>
+      <td><span class="badge gap">gap</span></td>
+    </tr>
+    <tr>
+      <td>How many trials per simulation run is "enough"?</td>
+      <td><span class="badge gap">gap</span></td>
+    </tr>
+    <tr>
+      <td>Champion roles — which role maps to which units, and does role affect balance targets?</td>
+      <td><span class="badge gap">gap</span></td>
+    </tr>
+  </table>
+
+</main>
+
+<script>
+  // Highlight active sidebar link based on scroll position
+  const headings = document.querySelectorAll('h2[id], h3[id]')
+  const links = document.querySelectorAll('.sidebar a')
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'))
+        const match = document.querySelector(`.sidebar a[href="#${entry.target.id}"]`)
+        if (match) match.classList.add('active')
+      }
+    })
+  }, { rootMargin: '-20% 0px -70% 0px' })
+
+  headings.forEach(h => observer.observe(h))
+</script>
+
+</body>
+</html>

@@ -1,0 +1,429 @@
+Doc format is Trait, trait effect, pokemon in trait with thier abilities
+
+Champion roles:
+
+Attack
+- Attack Marksman : attacks grant 10 mana
+- Attack Caster : attacks grant 7 mana. gain 2 mana regen
+- Attack Fighter : attacks grant 10 mana. gain 5-30% atk spd based on stage
+- Attack Assassin : attacks grant 10 mana. take 15% less damage from all enemies excepot current target
+- Attack Tank : attacks grant 5 mana. gain mana from being attacked. more likely to be targeted
+- Attack Specialist : generate resources in special ways
+
+Magic
+- Magic Marksman : attacks grant 10 mana
+- Magic Caster : attacks grant 7 mana. gain 2 mana regen
+- Magic Fighter : attacks grant 10 mana. gain 5-30% atk spd based on stage
+- Magic Assassin : attacks grant 10 mana. take 15% less damage from all enemies excepot current target
+- Magic Tank : attacks grant 5 mana. gain mana from being attacked. more likely to be targeted
+- Magic Specialist : generate resources in special ways
+
+Hybrid
+- Hybrid Marksman : attacks grant 10 mana
+- Hybrid Caster : attacks grant 7 mana. gain 2 mana regen
+- Hybrid Fighter : attacks grant 10 mana. gain 5-30% atk spd based on stage
+
+
+Jungle Trait 
+
+Increase heal and shield power.
+Jungle pokemon gain additional heal and shield power
+
+(3) 5% extra heal/shield power for team, 10% for jungle pokemon
+(5) 8% extra heal/shield power for team, 15% for jungle pokemon
+(7) 8% extra heal/shield power for team, 25% for jungle pokemon
+
+Tangela : Leaf Guard
+melee 
+Gain a 400/525/685 (special) shield for 4 second. If any shield remains after 4 seconds, heal for 50% of the remaining shield value
+
+
+Ribombee : Pollen Puff
+ranged
+Launch 2 pollen puffs, one at the lowest health ally and one at the nearest enemy. Allies hit heal for 100/175/300. Enemies take 100/175/300 special damage and reduces their attack speed by 30% for 1 second 
+
+
+Venusaur : Leech Seed
+melee
+Launch leech seeds at 2/2/3 of the nearest targets. Leech seeds deal 80/100/120 special damage and heal Venusaur for 40/50/60 health each second. Already seeded targets take 50% less damage and heal for 50% less
+
+
+Vigoroth : Fury Swipes
+melee
+Jump to the furthest target in a 4 hex range and and gain a 150/200/250 shield. While the shield holds, Vigoroth gains 20/30/50% attack speed and auto attacks deal an extra 50/75/100 bonus attack damage
+
+
+Vikavolt : Discharge
+ranged
+Deal 400/500/ 675 damage to all enemies in the most populated row, stunning them for 1.5/2/3 seconds. Does 33% extra damage to shields
+
+
+Toucannon : Beak Blast
+ranged
+Launch a beak blast at the current enemy. It explodes and deals 300/475/2000 physical damage and explodes in a 1 hex radius. Allies in the explosion heal for 75/100/500, and surrounding enemies take 200/275/600 damage
+
+
+Tropius : Leaf Tornado
+melee
+Fly up and launch a 3 hex wide tornado in a straight line, knocking up all enemies hit for 2/2/5 seconds and dealing 200/275/800 special damage. For each enemy hit, gain a 100/130/400 health shield 
+
+Tapu Bulu : Nature's Madness
+melee
+Double health and gain 30/50/500 armor and magic resist for the rest of combat. In this form, attack speed is set to 0.5. Each attack does an extra 5/8/50% true damage scaling with health. Every third attack heals Tapu Bulu for 300/500/2000 health. If Grassy terrain is active, gain extra armor and magic resist and every third attack also heals all allies for 50% effectiveness. 
+
+
+
+Beacy Trait 
+
+Beachy pokemon gain some base health. Each beach pokemon’s cast buffs their abilities
+
+(2) 150 health, +1 spell buff per cast
+(4) 300 health, +2 spell buff per cast
+(6) 450 health, +3 spell buff per cast
+
+Kingler : Crabhammer
+melee
+Kingler’s next attack deals 200/350/500 + % spell buff physical damage   
+
+
+A-Raichu : Surge Surfer
+ranged
+Raichi dashes to safety and sends out a bolt to the 2 nearest enemies that does 60/80/100 magic damage. Send out + spell buff additional bolts each time raichu dashes. 
+
+
+Palossand : Scorching Sands
+melee
+Explode sand underneath the 3/3/4 nearest enemies. Deal 75/150/300 damage and spell buff  % burn them 4 seconds
+
+
+A-Exeggutor : Egg Bomb
+ranged
+Launch an egg that does 600/800/1000 magic damage to and does % spell buff extra true damage
+
+
+Blastoise : Hydro Cannons
+ranged
+For the next 5 seconds, gain 50/75/2000% attack speed. During this time, Blastoise’s auto attacks trigger twice, dealing 75%/100%/500% + %spell buff attack damage as magic damage on the second attack.
+
+
+Tapu Fini : Nature's Madness
+ranged
+Create a whirlpool under a unit (prioritizing non whirpooled units) that reduces enemy armor and magic resist by 2/3/20% + spell buff. Deals 100/150/5000 special damage per second and heals for 33/33/85% of damage done. If misty terrain is active, tapu fini double casts
+
+
+Volcanic Trait
+
+Volcanic pokemon summon the sun, burning enemies for a few seconds. Gain adaptive force and health, increased 50% under the sun
+
+(3) 350 health and 30 adaptive force, summon sun after 10 seconds
+(5) 500 health and 45 adaptive force, summon sun after 5 seconds
+(7) 800 health and 75 adaptive force, instantly summon sun
+
+Typhlosion : Eruption
+ranged
+Deal 200/350/500 attack damage to the nearest 1/2/3 enemies. 
+
+
+Graveler : Iron Defense
+melee
+Passive: Gain a 200/350/500 health shield, scaling with health. When the shield breaks, gain 10/20/50 defense
+
+
+Torkoal : White smoke
+melee
+Heal 200/300/450 health. Send a smoke cloud to the enemy who has dealt the most damage so far this combat. Deal 100/150/250 special damage and blind them for 2/2/3 seconds
+
+Gible : Bite
+melee
+Gible leaps a random unit in a 4 hex range and stuns them for 1.5/2/2.5 seconds and does 150/200/275 attack damage to them
+
+
+Armarouge : Armor Cannon
+ranged
+Deal 200/300/500 attack damage to all enemies in a line, targeting the farthest unit. Gain 7/10/15 attack for every enemy hit for the rest of combat. Armarouges attacks for the next 3 seconds have 25/30/45 % attack speed and do 15/25/33% of their damage in a 1 hex aoe
+
+
+A-Marowak : Shadow Bone
+melee
+Marowak empowers his next 3 auto attacks. The two auto attacks do 300/450/700 bonus magic damage. The third does 450/600/850 bonus magic damage and heals marowak for 50% of the damage dealt
+
+
+Wheezing : Poison Gas
+melee
+For the next 5 seconds, spew poison gas every 0.5 seconds in a one hex range around him, poison enemies Each puff does 8/10/12 special damage and shreds and sunders. For every enemy hit, heal 50/75/200
+
+
+Charizard : Blast Burn
+ranged
+Send out 3/4/10 balls of fire that mark nearby enemies. On the next cast, send out 1/1/10 powerful blasts that instantly kills the marked enemy with the highest remaining health. The other marks explode and deal 500/700/3000 attack damage
+
+
+Sky Striker Trait
+
+Sky Strikers convert some atkspd to adaptive force on cast. The first sky soarer to cast summons tailwind, granting atkspd to all sky strikers. Sky strikers execute low health units, and double tailwind atkspd on kill for 3 second
+
+(2) Gain 30% atkspd in tailwind, 10% execute  
+(4) Gain 45% atkspd in tailwind, 15% execute
+(6) Gain 60% atkspd in tailwind, 20% execute
+
+Pidgeotto : Dual Wingbeat
+melee
+The next auto strikes twice, each doing 110/120/150% attack and applying on hit effects
+
+
+Wailord : Bounce
+melee
+Bounce up, gaining a 400/475/575 special% shield, and slam down on the target, stunning them for 1/1/1.5 seconds and dealing 80/120/180 special
+
+
+Talonflame : Brave Bird
+melee
+Hit the current target for 200/325/500, attack, increased by 60% against Tanks. If the target dies, immediately recast dealing 75% damage.
+
+
+Noivern : Boomburst
+ranged
+Let out a massive screech, hitting all enemies within 3 rows range for 400/650/2000 special. 
+
+
+Rayquaza : Dragon Ascent
+melee
+Mega evolve, and then take the currently targeted unit and ascend to the skies, rendering both untargetable. After a short delay, slam down with the enemy towards the farthest unit. The slam deals 300/450/9999  + 2/5/999% of the unit’s max health in a 1 hex radius. Enemies in a 2-3 hex radius take 50% damage.  
+
+
+Cave Crawler Trait
+
+Cave crawlers cause earthquakes on the board every 5 seconds, hitting all enemies. Damage is increased by cave crawlers star level
+
+(3) Earthquakes deal 300 damage, +10% per cave crawler star levels
+(5) Every second earthquake increases the enemies mana cost by 30
+
+Zubat : Poison sting
+ranged
+Send out a poison dart, dealing 200/350/600 special. It poisons the target, dealing 20/50/75 special over the next 4 seconds. This effect can stack
+
+
+Druddigon : Dragon Tail
+melee
+Strike with a powerful tail swipe, doing 300/450/700 attack, and if it would kill they are knocked back 2 hexes. Enemies the unit knocks into take 30% damage 
+
+
+Sableye : Power Gem
+ranged
+Alternate between 2 gem casts. The first will send out 2 gems to the lowest % health allies, shieling them for 250/325/425. The other cast sends out two gems to the two nearest enemies, dealing 200/300/550 special
+
+
+Ferrothorn : Iron Barbs
+melee
+Gain 25/30/40% durability for the next 4 seconds. Enemies who auto attack ferrothorn during these 4 seconds take 75/150/225 special damage
+
+
+Excadrill : Drill Run
+melee
+Tunnel to the furthest enemy within 3 hexes, knocking them up for 0.5 seconds and deal 250/375/500 attack damage to them. The next 3 attacks hit adjacent enemies and deal 110/165/300 physical damage.
+
+
+River Trait
+
+The strongest river pokemon gains Aqua Ring.  Aqua rings grants the pokemon a buff, and is passed to the next strongest river pokemon on death
+
+(2) Gain 10% durability, 15% omnivamp, and explode on death dealing 10% max health to all enemies within 1 hex
+(3) Gain 15% durability, 25% omnivamp, and explode on death dealing 15% max health to all enemies within 1 hex
+(4) Increases size and hp by 10% 
+
+Drednaw : Razor Shell
+melee
+For the next 5 seconds, dreadnaught's slashes instead of autos, doing 110/160/235 to any units in a 1 hex radius and ignoring 30% armor
+
+
+Bellibolt : Electrophoresis
+melee
+Passive: Gain charge while being hit, up to 10. Gain 5 defense and spdef resist per stack. On cast, discharge in a one hex radius, doing 50/90/120% of combined defense and spdef as special damage
+
+
+Quagsire : Unaware
+melee
+On cast, gain a 800/1250/3000 health shield for every enemy in a 2 hex radius enemy and taunt every enemy in a one hex radius. When the shield expires, deal 200/350/600 special damage in a one hex radius and chill by 30%
+
+
+Barraskewda : Fishous Rend
+melee
+Dash to the lowest Health enemy within 2 hexes. Strike viciously, dealing 200/320/550 attack damage. Subsequent strikes have the mana cost reduced by 10, up to a floor of 30
+
+
+Temporal Woods Trait
+
+Temporal Forest pokemon’s ability damage cause unique effects
+
+(2) Charm, reducing attack and special for 1.5 seconds
+(4) Heal block, reducing healing and shielding by 33% for 3 seconds
+(6) Confuse, causing the enemy to take 100 magic damage each time they autoattack for the 3 seconds
+
+Morelul : Strength Sap
+ranged
+Deal 300/450/700 special damage to target, and lower their attack by 33% for 3 seconds. Heal the ally nearest the the target for 85/100/130% of the target’s attack
+
+
+
+Morgrem : Spirit Break
+melee
+Gain 350/430/550 Shield for 3 seconds.Then create a 1 hex aura for 3 seconds, which drains 2/3/5 mana every 0.5 second from enemies in the aura. At the end of the aura, Morgem strikes it’s target for 50/100/150 + total mana drained special damage
+
+
+Oranguru : Stored Power
+ranged
+For the next 5 seconds, oranguru attacks are replaced by psychic waves, dealing 80/100/120% of special instead of attack. Every 5th auto attack in this phase grants oranguru 1/2/5 permanent special for the rest of combat
+
+
+Celebi : Future Sight
+ranged
+Mark the nearest unmarked enemy. Marked enemies take 10/20/30% increased damage for 2 seconds from all sources. Once the 2 seconds end, the mark detonates, dealing 450/600/900 special 
+
+
+Fezandipiti : Toxic Chain
+ranged
+Send out toxic chains to all enemies in a 3 hex radius, for 4 seconds. Affected enemies take 20/30/90 damage, doubled each second. Fezandipiti gains 40/50/90% durability and heals 370/516/1589 over this time.  All affected units are stunned for 1 second when the effect ends
+
+
+Tapu Lele : Nature's Madness
+ranged
+Channel for 2 seconds and then psystrike the closest 4/5/10 enemy units on the board for 500/750/5000 damage. If psychic terrain is active, this spell ignores 30/45/100% of the targets magic resist
+
+
+Ruiner Trait
+
+When your team loses 20% of their Health, the Golem awakens. It gains 25% Health and 10% Ability Power for each Ruiners star level.
+
+(3) Summon Gollet
+(5) Summon Golurk
+(7) Summon Mega Golurk
+
+Unown : Hidden Power
+ranged
+Deal 150/200/300 special, Randomly choose between 3 hidden powers on cast
+
+HP Ice: Chill the target for 1.5 seconds
+HP Fire: Will always critically strike
+HP Electric: Adjacent enemies take 50% damage
+
+
+Stonjourner : Power Spot
+melee
+Restore 250/350/450 health and  gain 33% of the nearest allies defense and spDef for the rest of combat   
+
+
+Absol : Night Slash
+melee
+Dash 1 hex towards the largest group of enemies and slash in a one hex radius around absol, dealing 100/150/250 attack. The slash heals absol 50/75/100 for every enemy hit
+
+
+Xatu : Magic Bounce 
+melee
+Gain a 400/475/600 health shield. Store all damage dealt to the shield. Once the shield break or expires, Xatu next attack deals 90/120/150% of the stored damage
+
+
+Claydol : Gravity
+ranged
+Channel and pick up two of the nearest enemies rendering them airborne, and then after a brief delay slam them down, doing 400/600/1000 special and 50% of the damage to nearby enemies
+
+
+Spiritomb : Destiny Bond
+melee
+Each second, deal 75/100/500 special damage to enemies within 1 Hex and restore 20/40/100 for each enemy hit. On cast, mark an enemy outside of spiritomb’s 1 hex radius for the rest of combat. This marked enemy takes damage and heals spiritomb as if they are in it’s radius. 
+
+
+Runerigus : Wandering Spirit
+ranged
+Reach out with ghostly hands and pass along wandering spirit. This renders the target unable to use its ability for the rest of combat. When a unit would cast, they instead take 550/875/7000 special damage
+
+
+Golet : Shadow Punch
+melee
+Passive: Autos do bonus 30% bonus special damage. 
+
+Active: Gain a 200/250/325 health shield.Golet’s next auto does 200/250/350 damage in a i hex radius. After 2 seconds, a shadow punch does 100/150/200 damage to the target again
+
+
+Golurk : Poltergeist
+melee
+Passive: Autos do bonus 40% bonus special damage. 
+
+Active: Gain a 225/300/375 health shield. Golurk’s next auto does 225/300/375 damage in a i hex radius and knocks up for 1 sec. After 2 seconds, a shadow punch does 125/175/250 damage to the targets again
+
+
+Mega Golurk : Phantom Force
+melee
+Passive: Autos do bonus 55% bonus special damage. 
+
+Active: Gain a 300/400/550 health shield. Mega Golurk’s next auto does 300/400/550 damage to all enemies and knocks up for 1 sec. After 2 seconds, a shadow punch does 175/275/450 damage to the targets again
+
+
+Ascender Trait
+
+Raise targetable, placeable cliffs. Adjacent allies gain armor and magic resist. When a cliff dies, it falls forward, deals true damage, and stuns all enemies in its line for 2 seconds. Cliff health scales with stage
+
+(2) Summon one cliff. Adjacent allies gain 20 armor and mr. Does 300 damage on fall
+(4) Summon two cliffs. Adjacent allies gain 30 armor and mr. Does 500 damage on fall
+
+Klawf : Anger Shell
+melee
+Jump to the furthest enemy in 2 hexes and for 4 seconds gain 25/35/45% attack, and a 100/200/300 health shield
+
+
+Gogoat : Grass Pelt
+melee
+Gogoat’s next 3 auto attacks heal for 105/145/200 special health, and allies in a 1 hex radius heal for 50% of this amount. The autos deal 50/80/120 attack. 
+
+
+Sneasler :  Dire Claw
+melee
+Swipe the hexes in front of sneasler, doing 200/325/525 attack and poisons them, dealing 20/50/75 special over the next 4 seconds. If the target is already poisoned, the swipe critically strikes. 
+
+
+Aerodactyl : Ancient Power
+melee
+Boost attack, special, atk spd, defense, spDef, and move speed by 30/45/80%  for the rest of combat. Attacks now launch a rock from the target to the unit furthest, dealing 30/40/100% attack damage
+
+
+Froststone Trait
+
+Froststone pokemon’s auto attacks mark enemies and do bonus true damage depending on number of marks, up to 5 times. Once fully stacked, froststone’s next ability consumes the mark for bonus damage and cause the enemy to be be chilled for 3 seconds.  
+
+(2) initial 50; plus 50 per mark, 100 bonus damage 
+(4) initial 75; plus 75 per mark, 150 bonus damage
+(6) initial 100; plus 100 per mark, 200 bonus damage
+
+Snorunt :  Ice Body
+melee
+Gain a 150/200/300 shield for 3 seconds. Once the shield is broken or expires, it explodes into ice shards, dealing 100/125/200 special damage in 1 hex radius around Snorunt
+
+
+Froslass : Icy Wind
+ranged
+Send out a cold wind in a line in front of froslass. It does the 200/300/550 special  to the first unit hit, and does 25% less damage to each target hit afterwards
+
+
+Weavile : Triple Axel
+melee
+Weavlies next three attacks are empowered. The first does 100/150/250 bonus physical damage. The next spins in a 1 hex around weavile dealing 150/200/275 special damage. The last does 10/10/15% max health damage and knocks up the unit hit
+
+
+H-Avalugg : Mountain Gale
+melee
+Call down an avalanche, stunning the 3 closest enemies for 1.5/2/3 seconds and dealing 85/120/200 damage to them.
+
+
+Abomasnow : Blizzard
+ranged
+Target the largest group of enemies in a I hex radius with a blizzard, dealing 300/450/800 damage, then causing enemies in the blizzard to take 75/100/200 magic damage every 0.5 seconds for 4 seconds. If an enemy dies in blizzard, a second is added. If cast again while active, refresh duration
+
+Mamoswine : Thick Fat
+melee
+Gain 50/75/200 increased armor and mr for 5 seconds. During this time, Mamoswine’s auto attacks deal 45/65/100% of mamoswines resistances bonus special damage
+
+
+
+
+
+
+

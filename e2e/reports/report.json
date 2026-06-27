@@ -1,0 +1,131 @@
+[
+  {
+    "description": "",
+    "elements": [
+      {
+        "description": "",
+        "id": "vikavolt---discharge;tiebreaker-targets-row-with-lowest-total-hp",
+        "keyword": "Scenario",
+        "line": 16,
+        "name": "Tiebreaker targets row with lowest total HP",
+        "steps": [
+          {
+            "keyword": "Before",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 1173279199
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 4,
+            "name": "the battle simulator is open in test mode",
+            "match": {
+              "location": "e2e\\step_definitions\\setup.ts:7"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 139296799
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 17,
+            "name": "vikavolt is placed as player at col 3 row 5 at tier 1",
+            "match": {
+              "location": "e2e\\step_definitions\\setup.ts:11"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 630555699
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "And ",
+            "line": 18,
+            "name": "a low dummy is placed at col 3 row 1",
+            "match": {
+              "location": "e2e\\step_definitions\\setup.ts:19"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 372684299
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "And ",
+            "line": 19,
+            "name": "a high dummy is placed at col 3 row 2",
+            "match": {
+              "location": "e2e\\step_definitions\\setup.ts:19"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 393037700
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 20,
+            "name": "I start combat and wait 15 seconds",
+            "match": {
+              "location": "e2e\\step_definitions\\setup.ts:41"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 15215108900
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 21,
+            "name": "combat should have run without JavaScript errors",
+            "match": {
+              "location": "e2e\\step_definitions\\setup.ts:60"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 949499
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "And ",
+            "line": 22,
+            "name": "a screenshot is taken named \"vikavolt_tiebreaker_low_hp\"",
+            "match": {
+              "location": "e2e\\step_definitions\\setup.ts:68"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 110210399
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 48178799
+            }
+          }
+        ],
+        "tags": [],
+        "type": "scenario"
+      }
+    ],
+    "id": "vikavolt---discharge",
+    "line": 1,
+    "keyword": "Feature",
+    "name": "Vikavolt - Discharge",
+    "tags": [],
+    "uri": "e2e\\features\\abilities\\vikavolt.feature"
+  }
+]

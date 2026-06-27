@@ -1,0 +1,77 @@
+---
+import '../styles/global.css'
+
+interface Props {
+  title: string
+  description?: string
+  image?: string
+}
+
+const {
+  title,
+  description = 'A Pokemon-themed auto-battler — design devlog.',
+  image,
+} = Astro.props
+
+const canonicalURL = Astro.site
+  ? new URL(Astro.url.pathname, Astro.site).href
+  : Astro.url.href
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalURL} />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalURL} />
+    {image && <meta property="og:image" content={image} />}
+
+    <!-- Favicon placeholder — replace public/favicon.svg with your own -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+
+  <body>
+    <header class="site-header">
+      <a href="/" class="site-logo-link" aria-label="PokéTFT — home">
+        <!--
+          Save your logo PNG as: public/logo.png
+          If the file is missing the text fallback renders instead.
+        -->
+        <img
+          src="/logo.png"
+          alt="PokéTFT"
+          class="site-logo"
+          onerror="this.style.display='none'; document.getElementById('logo-fallback').style.display='block'"
+        />
+        <span id="logo-fallback" class="site-logo-text">PokéTFT</span>
+      </a>
+
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/" aria-current={Astro.url.pathname === '/' ? 'page' : undefined}>Home</a>
+        <a href="/blog" aria-current={Astro.url.pathname.startsWith('/blog') ? 'page' : undefined}>Blog</a>
+        <a href="/about" aria-current={Astro.url.pathname === '/about' ? 'page' : undefined}>About</a>
+      </nav>
+    </header>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        © {new Date().getFullYear()} PokéTFT ·
+        <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+      </p>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,342 @@
+Ready for review
+Select text to add comments on the plan
+PokéTFT: Full Ability Implementation Plan
+Context
+The user has a Pokemon TFT simulator with 8 Jungle abilities already implemented. The goal is to implement all ~45 remaining abilities from the design PowerPoint across 9 more traits (Beachy, Volcanic, Sky Striker, Cave Crawler, River, Temporal Woods, Ruiner, Ascender, Froststone) plus misc units — using clean, modular, reusable code.
+
+Additionally, an HTML architecture diagram page (public/architecture.html) should be created showing combat flow and ability system structure.
+
+Critical Files
+src/core/types.ts — all interfaces (needs new fields on Unit, StatusEffect, CombatState)
+src/core/combatEngine.ts — main tick loop (needs 2 new tick steps + silence guard)
+src/core/systems/statusEffect.ts — refactor from switch-case to callback dispatch
+src/core/systems/attack.ts — integrate AttackModifier queue + blind check
+src/core/systems/targeting.ts — add 6 new targeting helpers
+src/core/systems/damage.ts — track damageTakenThisCombat, add damage multiplier hook
+src/core/unitFactory.ts — initialize new Unit fields, add new stat modifier cases
+src/core/systems/ability.ts — add silence check before cast
+Phase 1: Core Infrastructure
+These changes unblock the majority of abilities. Do all of these before implementing any new abilities.
+
+1A. Extend src/core/types.ts
+Add to StatusEffect interface (enables callback-driven effects instead of hardcoded switch):
+
+onExpire?: (unit: Unit, state: CombatState) => void
+tickEffect?: (unit: Unit, state: CombatState) => void
+tickInterval?: number   // only fire tickEffect every N ticks (default: 1)
+Add AttackModifier interface (enables "next N attacks empowered" pattern):
+
+export interface AttackModifier {
+  id: string
+  remainingCharges: number
+  bonusDamage?: number
+  bonusDamageType?: DamageType
+  aoeRadius?: number            // if > 0: splash AoE around target on hit
+  knockUp?: boolean
+  maxHealthPercent?: number     // bonus = target.maxHp * this
+  onHit?: (source: Unit, target: Unit, state: CombatState) => void
+}
+Add PassiveAttackHandler interface (enables per-attack passives like Tapu Koko chain lightning):
+
+export interface PassiveAttackHandler {
+  id: string
+  onAttack(source: Unit, target: Unit, state: CombatState): void
+}
+Add UnitMark interface (enables Future Sight delayed detonation, Blast Burn two-phase):
+
+export interface UnitMark {
+  id: string
+  sourceUnitId: string
+  durationTicks: number        // -1 = permanent; counts down to auto-detonate
+  magnitude?: number           // damage multiplier, stored damage, etc.
+  onDetonate?: (marked: Unit, source: Unit | undefined, state: CombatState) => void
+}
+Add PersistentAoEZone interface (enables Blizzard, Whirlpool, Wheezing gas zones):
+
+export interface PersistentAoEZone {
+  id: string
+  center: OffsetCoord
+  radius: number
+  sourceUnitId: string
+  damagePerInterval: number
+  intervalTicks: number
+  damageType: DamageType
+  durationTicks: number
+  lastFiredTick: number
+  targetTeam: Team              // which team's units to damage
+  armorReduction?: number       // Tapu Fini whirlpool debuff
+  spDefReduction?: number
+  onExpire?: (state: CombatState) => void
+}
+Add TerrainState interface (enables Tapu terrain synergies):
+
+export interface TerrainState {
+  electric: boolean
+  psychic: boolean
+  grassy: boolean
+  misty: boolean
+}
+Add new fields to Unit interface:
+
+attackModifiers: AttackModifier[]
+passiveAttackHandlers: PassiveAttackHandler[]
+attackCount: number                // total autos fired this combat
+damageTakenThisCombat: number      // cumulative pre-mitigation, for Torkoal targeting
+silenced: boolean                  // Runerigus: blocks ability casting
+whirlpooled: boolean               // Tapu Fini: prevents double-targeting
+marks: UnitMark[]
+incomingDamageMult: number         // default 1.0; Celebi Future Sight amplification
+Add new fields to CombatState interface:
+
+terrain: TerrainState
+spellBuffCounters: Map<string, number>   // unitId → Beachy cast stack count
+persistentAoEZones: PersistentAoEZone[]
+Extend UnitState type:
+
+export type UnitState = 'idle' | 'moving' | 'leaping' | 'attacking' | 'casting' 
+  | 'stunned' | 'knockedUp' | 'ascended' | 'dead'
+// 'ascended' = Rayquaza/Claydol: both units removed from targeting, return on slam
+Extend CombatEvent union with new VFX/status events as needed per ability.
+
+1B. Refactor src/core/systems/statusEffect.ts
+Replace the hardcoded if (fx.id === 'burn') and if (fx.id === 'leech_seed') blocks with callback dispatch. Migrate burn and leech_seed to use tickEffect closures in their respective ability files (or keep inline but route through the new tickEffect path).
+
+New tick loop structure:
+
+// Periodic tick effects (replaces switch-case)
+if (fx.tickEffect) {
+  const interval = fx.tickInterval ?? 1
+  if (state.tick % interval === 0) {
+    fx.tickEffect(unit, state)
+  }
+}
+
+// Expiry
+if (fx.durationTicks !== -1) {
+  fx.durationTicks--
+  if (fx.durationTicks <= 0) {
+    if (fx.onExpire) fx.onExpire(unit, state)
+    // remove effect...
+  }
+}
+Also add handling: when stun/knockUp expires, transition unit state to 'idle' via the new onExpire callback (remove the hardcoded block).
+
+1C. Extend src/core/systems/attack.ts
+After windup fires (before the melee/ranged branch), insert:
+
+unit.attackCount++
+
+// Fire passive handlers (chain lightning, Oranguru waves, etc.)
+for (const handler of unit.passiveAttackHandlers) {
+  handler.onAttack(unit, target, state)
+}
+
+// Consume and apply next attack modifier
+if (unit.attackModifiers.length > 0) {
+  const mod = unit.attackModifiers[0]
+  // apply mod.bonusDamage, mod.aoeRadius, mod.knockUp, mod.onHit, etc.
+  mod.remainingCharges--
+  if (mod.remainingCharges <= 0) unit.attackModifiers.shift()
+}
+Add blind miss check after windup:
+
+const isBlind = unit.statusEffects.some(fx => fx.id === 'blind')
+if (isBlind && Math.random() < (blinding_effect.magnitude ?? 1.0)) {
+  state.events.push({ type: 'miss', sourceId: unit.id, targetId: target.id })
+  // reset timer and return without dealing damage
+  return
+}
+1D. Extend src/core/systems/targeting.ts
+Add these exported helpers (move findNearestEnemies and findFurthestEnemyInRange from individual ability files):
+
+export function findNearestEnemies(unit: Unit, state: CombatState, count: number): Unit[]
+export function findFurthestEnemyInRange(unit: Unit, state: CombatState, maxRange: number): Unit | null
+export function findLowestHealthEnemy(unit: Unit, state: CombatState): Unit | null
+export function findUnitsInRadius(center: OffsetCoord, state: CombatState, radius: number, team: Team | 'both'): Unit[]
+export function findLargestEnemyCluster(unit: Unit, state: CombatState, radius: number): { center: OffsetCoord; units: Unit[] }
+export function findHighestDamageDealerEnemy(unit: Unit, state: CombatState): Unit | null
+export function findEnemiesInLine(from: OffsetCoord, to: OffsetCoord, state: CombatState, team: Team): Unit[]
+export function findNearestUnmarkedEnemies(unit: Unit, state: CombatState, count: number, markId: string): Unit[]
+export function findNearestAlly(unit: Unit, state: CombatState): Unit | null
+export function findLowestHealthAlly(unit: Unit, state: CombatState): Unit | null
+Add taunt override at the top of tickTargeting:
+
+const tauntFx = unit.statusEffects.find(fx => fx.id === 'taunt')
+if (tauntFx) { unit.targetId = tauntFx.sourceUnitId; return }
+1E. Extend src/core/systems/damage.ts
+In applyDamage, before mitigation:
+
+// Apply incoming damage multiplier (Future Sight, etc.)
+if (target.incomingDamageMult !== 1.0) {
+  baseAmount = Math.round(baseAmount * target.incomingDamageMult)
+}
+// Track cumulative damage taken
+target.damageTakenThisCombat += preMitigDamage
+1F. Add src/core/systems/heal.ts (new file)
+Centralizes all healing so healBlock is respected everywhere:
+
+export function applyHeal(unit: Unit, amount: number, sourceId: string, state: CombatState): number {
+  const healBlock = unit.statusEffects.find(fx => fx.id === 'healBlock')
+  const effective = healBlock ? Math.round(amount * (1 - (healBlock.magnitude ?? 0.33))) : amount
+  const actual = Math.min(effective, unit.maxHp - unit.currentHp)
+  unit.currentHp += actual
+  if (actual > 0) state.events.push({ type: 'heal', targetId: unit.id, amount: actual, sourceId })
+  return actual
+}
+1G. Add src/core/systems/marks.ts (new file)
+export function addMark(unit: Unit, mark: UnitMark): void
+export function removeMark(unit: Unit, markId: string): void
+export function hasMark(unit: Unit, markId: string): boolean
+export function tickMarks(units: Map<string, Unit>, state: CombatState): void
+  // decrements durationTicks; when <= 0, calls mark.onDetonate and removes it
+1H. Add src/core/systems/persistentAoE.ts (new file)
+export function createPersistentAoEZone(state: CombatState, opts: PersistentAoEZone): void
+export function removePersistentAoEZone(state: CombatState, id: string): void
+export function tickPersistentAoEZones(state: CombatState): void
+  // for each zone: check interval, deal damage to units in radius, decrement duration
+1I. Add src/core/systems/terrain.ts (new file)
+export function setTerrain(state: CombatState, type: keyof TerrainState, active: boolean): void
+export function isTerrainActive(state: CombatState, type: keyof TerrainState): boolean
+1J. Add src/core/systems/spellBuff.ts (new file, Beachy trait mechanic)
+export function getSpellBuff(unit: Unit, state: CombatState): number
+export function incrementSpellBuff(unit: Unit, state: CombatState): void
+  // each Beachy ability calls this at end of onCast
+1K. Update src/core/combatEngine.ts
+Wire in new tick systems and initialize new state fields:
+
+// createCombatState — add:
+return {
+  ...existing,
+  terrain: { electric: false, psychic: false, grassy: false, misty: false },
+  spellBuffCounters: new Map(),
+  persistentAoEZones: [],
+}
+
+// runCombat tick loop — add after step 1:
+tickMarks(state.units, state)          // Step 1b
+tickPersistentAoEZones(state)          // Step 2b (after tickShields)
+
+// triggerAbility guard — add:
+if (unit.silenced) return  // Runerigus silence blocks casts
+1L. Update src/core/unitFactory.ts
+Initialize all new Unit fields in makeUnit:
+
+attackModifiers: [],
+passiveAttackHandlers: [],
+attackCount: 0,
+damageTakenThisCombat: 0,
+silenced: false,
+whirlpooled: false,
+marks: [],
+incomingDamageMult: 1.0,
+Add new cases to computeStats stat modifier switch:
+
+case 'sunder':        defense   = Math.max(0, defense - mag);   break
+case 'shred':         spDefense = Math.max(0, spDefense - mag); break
+case 'charm':         attack  -= Math.round(attack  * mag);
+                      special -= Math.round(special * mag);     break
+case 'atk_reduction': attack   = Math.max(0, attack - mag);    break
+case 'atk_buff_pct':  attack  += Math.round(attack  * mag);    break
+case 'chill':         attackSpeed *= (1 - mag);                 break
+// blind, healBlock, confuse, silence: handled at effect sites, not in computeStats
+Phase 2: Ability Implementations
+One file per unit in src/core/abilities/. Register each handler in src/core/systems/ability.ts.
+
+Standardized Status Effect IDs
+ID	What it does	Key field
+'burn'	periodic true dmg (tickEffect)	magnitude = dmg/tick, tickInterval = 60
+'poison'	stackable periodic magic dmg	magnitude = dmg/tick, unique stackId per cast
+'blind'	auto-attack miss chance	magnitude = miss probability (0.8 = 80%)
+'chill'	attack speed slow	magnitude = slow fraction (0.3 = 30%)
+'taunt'	force target override	sourceUnitId = taunting unit's id
+'sunder'	flat armor reduction	magnitude = armor removed
+'shred'	flat spDef reduction	magnitude = spDef removed
+'healBlock'	reduce healing received	magnitude = fraction blocked (0.33)
+'charm'	reduce attack+special	magnitude = fraction reduced
+'confuse'	self-dmg on auto	magnitude = fraction of attack as self-dmg
+'silence'	blocks ability casting	no magnitude
+'atk_reduction'	flat attack debuff	magnitude = flat reduction
+'atk_buff_pct'	% attack buff	magnitude = fraction bonus
+'damageTakenMult'	amplifies incoming dmg	magnitude = added multiplier
+Ability File List (with complexity)
+Simple — use only existing primitives (applyDamage, addStatusEffect, shields):
+
+typhlosion.ts — applyDamage to 1/2/3 nearest enemies
+graveler.ts — passive shield (hp-scaled) with onExpire armor grant
+zubat.ts — damage projectile + stackable poison effect
+snorunt.ts — shield with onExpire AoE ice shards
+kingler.ts — AttackModifier (1 charge) with spellBuff damage bonus
+morelull.ts — applyDamage + atk_reduction + applyHeal to nearest ally
+druddigon.ts — applyDamage + conditional knockback if target HP < self HP
+stonjourner.ts — applyHeal + steal % of nearest ally's armor/spDef as buff
+pidgeotto.ts — two AttackModifiers (1 charge each, on-hit effects)
+morgrem.ts — shield + mana-drain zone (per-tick mana reduction via tickEffect) + final strike
+Medium — need 1–2 new helpers or patterns:
+
+torkoal.ts — applyHeal + blind + target findHighestDamageDealerEnemy
+gible.ts — startLeap to random unit in 4-hex range + stun + applyDamage on land
+froslass.ts — findEnemiesInLine with 25% damage falloff per unit hit
+sableye.ts — alternating casts (track parity via stackId on permanent status effect)
+ferrothorn.ts — timed retaliation effect: store 75/150/225 in status; fire damage on attacker in tickAttack check
+wailord.ts — startLeap + special%-scaled shield + stun + applyDamage on land
+excadrill.ts — startLeap furthest-in-3-hexes + knockUp + 3x AttackModifier with AoE splash
+gogoat.ts — 3x AttackModifier with self-heal + radius ally heal + bonus attack damage
+weavile.ts — 3 distinct AttackModifiers: (1) bonus physical, (2) AoE spin magic, (3) % max HP + knockUp
+sneasler.ts — applyDamage + poison; if already poisoned: canCrit: true override
+h_avalugg.ts — knockUp 3 nearest enemies + applyDamage
+absol.ts — move 1 hex toward largest cluster + AoE slash + applyHeal per enemy hit
+xatu.ts — shield that accumulates stored damage; onExpire creates AttackModifier with stored amount
+araichu.ts — startLeap + fire (2 + spellBuff) projectiles to nearest enemies
+a_exeggutor.ts — damage projectile with onHit applying spellBuff% extra true damage
+oranguru.ts — passiveAttackHandler active for 5-second window, replaces attack with special wave; every 5th internal count grants permanent special
+klawf.ts — startLeap furthest-in-2-hexes + decaying atkSpd buff (tickEffect reduces magnitude) + shield + atk boost
+drednaw.ts — timed mode: AttackModifiers for 5-second window that add AoE splash and armor-ignore
+Complex — require multiple new infrastructure pieces:
+
+palossand.ts — multi-target AoE + burn effect (tickEffect closure with spellBuff% magnitude)
+blastoise.ts — passiveAttackHandler active 5 seconds: double-fires each auto; second shot is magic, scales with spellBuff
+grapploct.ts — multi-target stun + applyDamage + permanent atk_buff_pct from spellBuff
+tapufini.ts — PersistentAoEZone (whirlpool, 1 unit at a time, armor/MR reduction) + misty terrain double-cast
+noivern.ts — AoE all enemies within 4 rows (findUnitsInRadius across rows)
+talonflame.ts — applyDamage with onHit recast on kill (recursive call with 0.75 damage multiplier)
+rayquaza.ts — set caster + target to 'ascended' state; after delay slam deals radius AoE with falloff
+bellibolt.ts — passiveAttackHandler on other units that increments Bellibolt's charge stacks; on cast discharge for def+spDef % damage
+quagsire.ts — shield per enemy in 2-hex radius + taunt enemies in 1-hex + onExpire AoE + chill
+barraskewda.ts — startLeap lowest-HP-in-2-hexes + applyDamage + reduce maxMana by 10 per cast (floor 30)
+celebi.ts — addMark with 120-tick detonation timer + incomingDamageMult buff on marked unit
+fezandipiti.ts — PersistentAoEZone-style per-enemy toxic chains (doubling damage each second) + durability buff + stun on expiry
+tapulele.ts — 120-tick cast time + multi-target applyDamage + psychic terrain MR ignore
+charizard.ts — two-phase: first cast adds UnitMarks; second cast executes highest-HP marked, AoEs others
+wheezing.ts — PersistentAoEZone (every 30 ticks) dealing damage + sunder + shred; on each tick gain defense/spDef
+abomasnow.ts — PersistentAoEZone (blizzard) extending on kills inside it; recast refreshes duration
+mamoswine.ts — armorBuff/spDefBuff for 5 seconds + passiveAttackHandler during window dealing def+spDef as bonus special
+tapukoko.ts — passiveAttackHandler: every 3rd auto fires chain lightning to 4 enemies; on cast: next auto + chain lightning stun + bonus damage; electric terrain stacking atkspd
+spiritomb.ts — self-centered PersistentAoEZone + addMark to distant enemy that mirrors zone effects
+runerigus.ts — addMark target with 'wandering_spirit'; in ability.ts triggerAbility check: if unit has this mark, deal damage instead of casting
+a_marowak.ts — 3x AttackModifier: first two bonus magic, third bonus magic + applyHeal 50%
+claydol.ts — lift 2 enemies to 'ascended' state, delayed slam with AoE + splash
+aerodactyl.ts — permanent % buff to all stats + passiveAttackHandler adding rock projectile that bounces to furthest unit
+Ruiner summons (after src/core/systems/summon.ts is built):
+
+summon.ts — spawnSummon(definitionId, summoner, state, tier) placing unit adjacent to summoner
+Golet/Golurk/Mega Golurk unit definitions in units.ts
+Each golem's ability: passiveAttackHandler (bonus special on autos) + shield + AoE auto + delayed follow-up
+Phase 3: HTML Architecture Diagram
+Create public/architecture.html — a self-contained HTML page with inline CSS and SVG/canvas showing:
+
+Combat Loop flowchart — the 5 tick steps (status effects → shields → unit state machines → projectiles → win check) with their sub-steps
+Unit State Machine — the 8 states (idle, moving, attacking, casting, leaping, stunned, knockedUp, dead) with transition arrows and conditions
+Ability Lifecycle — mana fills → isReadyToCast → triggerAbility → castTimeTicks countdown → onCast fires → manaLock → reset
+Damage Pipeline — source stat lookup → base + scaling → crit roll → incomingDamageMult → mitigation formula → shield absorption → HP reduction → damageTakenThisCombat → death check
+New Systems diagram — how AttackModifiers, PassiveAttackHandlers, Marks, PersistentAoEZones, and Terrain hook into the main loop
+Trait/Ability Registry — how abilities register and look up at cast time
+Use distinct color coding per system. No external dependencies — pure HTML/CSS/SVG.
+
+Implementation Order
+Phase 1A–1L: type extensions + infrastructure (all 12 steps)
+Phase 2 simple abilities (10 units)
+Phase 2 medium abilities (15 units)
+Phase 2 complex abilities (20 units)
+Phase 3: HTML diagram
+Verification
+After each ability: run npx vitest run to confirm existing tests still pass. For new abilities, use src/core/combatTest.ts helpers to set up a 1v1 or 1v3 scenario and confirm the ability fires, deals expected damage, and cleans up status effects correctly. The combat test harness supports verbose: true for tick-by-tick logging.

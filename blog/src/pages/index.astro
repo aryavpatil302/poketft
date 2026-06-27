@@ -1,0 +1,81 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import { getCollection } from 'astro:content'
+
+const allPosts = await getCollection('posts', ({ data }) => !data.draft)
+const posts = allPosts
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
+  .slice(0, 3)
+
+function formatDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+---
+
+<BaseLayout title="PokéTFT — A Pokemon Auto-Battler Devlog">
+  <div class="page page--wide">
+
+    <!-- Intro -->
+    <section class="intro">
+      <div class="intro-text">
+        <h1 class="intro-headline">
+          Building a Pokemon<br /><em>auto-battler</em><br />from scratch.
+        </h1>
+        <div class="intro-body">
+          <p>
+            PokéTFT is an original auto-battler set in the Pokemon world —
+            every unit, trait, and mechanic designed from the ground up.
+          </p>
+          <p>
+            This blog documents the thinking behind it: how I pick Pokemon for
+            each trait, how abilities translate from the games, how I approach
+            balance, and what it actually takes to build a competitive game.
+          </p>
+        </div>
+      </div>
+
+      <div class="intro-image">
+        <!--
+          Add a gameplay screenshot here:
+          public/images/game-screenshot.png
+          If the file is missing this column is hidden.
+        -->
+        <img
+          src="/images/game-screenshot.png"
+          alt="PokéTFT gameplay"
+          class="intro-screenshot"
+          onerror="this.parentElement.style.display='none'"
+        />
+      </div>
+    </section>
+
+    <!-- Latest posts -->
+    <section class="post-list-section">
+      <p class="section-label">Recent posts</p>
+      <ul class="post-list" role="list">
+        {posts.map((post) => (
+          <li class="post-item">
+            <div class="post-meta">
+              <time class="post-date" datetime={post.data.date.toISOString()}>
+                {formatDate(post.data.date)}
+              </time>
+              {post.data.tags.slice(0, 1).map((tag) => (
+                <span class="tag">{tag}</span>
+              ))}
+            </div>
+            <a href={`/blog/${post.slug}`} class="post-title-link">
+              <h2 class="post-list-title">{post.data.title}</h2>
+            </a>
+            <p class="post-excerpt">{post.data.description}</p>
+            <a href={`/blog/${post.slug}`} class="read-more">Read</a>
+          </li>
+        ))}
+      </ul>
+    </section>
+
+  </div>
+</BaseLayout>
