@@ -92,7 +92,11 @@ export const WailordAbility: AbilityHandler = {
       // Return leap back home
       const dist2  = Math.max(1, hexDistance(u.hexPos, returnHex))
       const haste2 = Math.max(0, (TICK_RATE * dist2) / (RETURN_TICKS * u.moveSpeed) - 1)
-      startLeap(u, returnHex, s, haste2)
+      startLeap(u, returnHex, s, haste2, () => {
+        // Snap state back to idle on landing so combat resumes normally
+        u.state = 'idle'
+      })
+      u.state = 'leaping'
 
       // Restore enemy's hex occupancy (startLeap freed it when Wailord leaves)
       if (tgt && tgt.state !== 'dead') {
