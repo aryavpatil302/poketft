@@ -3,54 +3,90 @@ import type { CombatState, Unit } from '../types'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
-import { hexId } from '../hexGrid'
-import { findNearestEnemies } from '../systems/targeting'
+import { hexDistance } from '../hexGrid'
 
 export const FezandiptiAbility: AbilityHandler = {
   abilityId: 'fezandipiti_toxic_chain',
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const targetCounts = [2, 3, 4] as const
-    const hpArmors     = [150, 225, 350] as const
+    const damagePerSec  = [20,  30,  90  ] as const   // sec 1; doubles each sec
+    const durabilityPct = [0.40, 0.50, 0.90] as const  // defense + spDef %
+    const healTotals    = [370, 516, 1589] as const
 
-    const count   = targetCounts[tier - 1]
-    const hpBonus = hpArmors[tier - 1]
+    const baseDmg   = damagePerSec[tier - 1]
+    const durPct    = durabilityPct[tier - 1]
+    const totalHeal = healTotals[tier - 1]
+    const DURATION  = 4 * TICK_RATE
 
-    const targets = findNearestEnemies(unit, state, count)
+    // Short rumble before chains fly
+    addStatusEffect(unit, {
+      id: 'fez_rumble', sourceUnitId: unit.id,
+      durationTicks: 20, magnitude: 20, stackId: 'fez_rumble',
+    })
 
+    // Collect all enemies in 3-hex radius
+    const targets: Unit[] = []
+    for (const other of state.units.values()) {
+      if (other.team === unit.team || other.state === 'dead') continue
+      if (hexDistance(unit.hexPos, other.hexPos) <= 3) targets.push(other)
+    }
+
+    // Apply toxic chain to each target
     for (const target of targets) {
-      let damage = 50
-      let tick   = 0
+      let dmg = baseDmg
+      let elapsed = 0
 
       addStatusEffect(target, {
-        id: 'poison',
+        id: `fez_chain_${target.id}`,
         sourceUnitId: unit.id,
-        durationTicks: 4 * TICK_RATE,
-        magnitude: 50,
-        tickInterval: TICK_RATE,
+        durationTicks: DURATION,
+        magnitude: baseDmg,
+        stackId: `fez_chain_${target.id}`,
         tickEffect: (u, st) => {
-          u.currentHp = Math.max(0, u.currentHp - damage)
-          st.events.push({ type: 'damage', targetId: u.id, amount: damage, damageType: 'magic', isCrit: false, sourceId: unit.id })
-          if (u.currentHp <= 0) {
-            u.currentHp = 0; u.state = 'dead'
-            st.hexOccupancy.delete(hexId(u.hexPos))
-            st.events.push({ type: 'death', unitId: u.id, sourceId: unit.id, abilityId: 'fezandipiti_toxic_chain' })
+          elapsed++
+          if (elapsed % TICK_RATE === 0) {
+            if (u.state !== 'dead') {
+              applyDamage(unit, u, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityId: 'fezandipiti_toxic_chain' }, st)
+            }
+            dmg *= 2
           }
-          damage *= 2  // double each second
-          tick++
         },
-        onExpire: (u, st) => {
+        onExpire: (u, _st) => {
           if (u.state === 'dead') return
-          addStatusEffect(u, { id: 'stun', sourceUnitId: unit.id, durationTicks: 1.5 * TICK_RATE, stackId: `fez_stun_${u.id}`, onExpire: (x) => { if (x.state === 'stunned') x.state = 'idle' } })
+          addStatusEffect(u, {
+            id: 'stun', sourceUnitId: unit.id,
+            durationTicks: TICK_RATE,
+            stackId: `fez_stun_${u.id}`,
+          })
         },
-        stackId: `fez_chain_${target.id}_${state.tick}`,
       })
     }
 
-    // Durability buff
-    unit.maxHp     += hpBonus
-    unit.currentHp += hpBonus
-    addStatusEffect(unit, { id: 'armorBuff', sourceUnitId: unit.id, durationTicks: 4 * TICK_RATE, magnitude: hpBonus / 10, stackId: 'fez_armorBuff' })
+    // Durability buff — defense + spDefense ×(1 + durPct) for 4 seconds
+    // suppressManaGain: Fezandipiti cannot gain mana while chains are active
+    addStatusEffect(unit, {
+      id: 'fez_durability', sourceUnitId: unit.id,
+      durationTicks: DURATION, magnitude: durPct, stackId: 'fez_durability',
+      suppressManaGain: true,
+    })
+    unit._computedStats = null
+
+    // Gradual heal over 4 seconds
+    let healTick = 0
+    addStatusEffect(unit, {
+      id: 'fez_heal', sourceUnitId: unit.id,
+      durationTicks: DURATION, stackId: 'fez_heal',
+      tickEffect: (u, st) => {
+        healTick++
+        const target = Math.round(totalHeal * healTick / DURATION)
+        const prev   = Math.round(totalHeal * (healTick - 1) / DURATION)
+        const gain   = target - prev
+        if (gain > 0) {
+          u.currentHp = Math.min(u.maxHp, u.currentHp + gain)
+          st.events.push({ type: 'heal', targetId: u.id, amount: gain, sourceId: u.id, abilityId: 'fezandipiti_toxic_chain' })
+        }
+      },
+    })
   },
 }

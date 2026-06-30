@@ -21,20 +21,13 @@ export const TapuFiniAbility: AbilityHandler = {
     const shredPct  = reductionPct[tier - 1] + spellBuff * 0.01
     const finiId    = unit.id
 
-    const castWhirlpool = () => {
-      const enemies = [...state.units.values()].filter(u => u.team !== unit.team && u.state !== 'dead')
-      // Prefer current attack target; fall back to first non-whirlpooled enemy; then any enemy
-      const attackTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
-      const target = (attackTarget && !attackTarget.whirlpooled && attackTarget.state !== 'dead')
-        ? attackTarget
-        : (enemies.find(u => !u.whirlpooled) ?? enemies[0])
-      if (!target) return
+    const castWhirlpoolOn = (target: Unit) => {
+      if (target.whirlpooled) return
 
       target.whirlpooled = true
 
       state.events.push({ type: 'vfx', effectId: 'tapufini_whirlpool', x: target.visualPos.x, y: target.visualPos.y, unitId: target.id, sourceId: unit.id })
 
-      // Capture base stats — each tick reduces by shredPct of the original base
       const baseDefense   = target.defense
       const baseSpDefense = target.spDefense
       const armorPerTick  = Math.round(baseDefense   * shredPct)
@@ -50,7 +43,6 @@ export const TapuFiniAbility: AbilityHandler = {
           const fini = st.units.get(finiId)
           if (!fini || fini.state === 'dead') return
 
-          // Directly reduce the unit's base stats so damage calc and UI both reflect it
           tgt.defense   = Math.max(0, tgt.defense   - armorPerTick)
           tgt.spDefense = Math.max(0, tgt.spDefense - spDefPerTick)
           tgt._computedStats = null
@@ -74,11 +66,21 @@ export const TapuFiniAbility: AbilityHandler = {
       })
     }
 
-    castWhirlpool()
+    const enemies = [...state.units.values()].filter(u => u.team !== unit.team && u.state !== 'dead')
 
-    // Misty terrain double-cast — disabled for now
-    const MISTY_TERRAIN_ACTIVE = false
-    if (MISTY_TERRAIN_ACTIVE) castWhirlpool()
+    if (tier === 3) {
+      // 3★ — whirlpool every enemy at once
+      for (const enemy of enemies) {
+        castWhirlpoolOn(enemy)
+      }
+    } else {
+      // 1★/2★ — prefer current attack target, fall back to first non-whirlpooled enemy
+      const attackTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
+      const target = (attackTarget && !attackTarget.whirlpooled && attackTarget.state !== 'dead')
+        ? attackTarget
+        : (enemies.find(u => !u.whirlpooled) ?? enemies[0])
+      if (target) castWhirlpoolOn(target)
+    }
 
     incrementSpellBuff(unit, state)
   },

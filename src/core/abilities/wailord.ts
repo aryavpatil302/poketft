@@ -4,7 +4,7 @@ import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
 import { startLeap } from '../systems/movement'
-import { hexDistance, hexId } from '../hexGrid'
+import { hexDistance } from '../hexGrid'
 import { findNearestEnemies } from '../systems/targeting'
 
 // 5 cast + 30 outbound + 25 return ≈ 60 ticks = 1 second
@@ -18,7 +18,7 @@ export const WailordAbility: AbilityHandler = {
   castTimeTicks: CAST_TICKS,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const shieldValues = [400, 475, 575] as const
+    const shieldValues = [75, 150, 300] as const
     const damageValues = [80,  120, 180] as const
     const stunSeconds  = [1,   1,   1.5] as const
 
@@ -53,12 +53,12 @@ export const WailordAbility: AbilityHandler = {
     const returnHex = { ...unit.hexPos }
     const enemyHex  = { ...target.hexPos }
 
-    // Outbound: leap directly onto the enemy's hex
-    const dist1 = Math.max(1, hexDistance(unit.hexPos, enemyHex))
+    // Outbound: sprite leaps to the enemy's hex — visual only, hexPos never moves
+    const dist1  = Math.max(1, hexDistance(unit.hexPos, enemyHex))
     const haste1 = Math.max(0, (TICK_RATE * dist1) / (OUTBOUND_TICKS * unit.moveSpeed) - 1)
 
     startLeap(unit, enemyHex, state, haste1, (u: Unit, s: CombatState) => {
-      // Apply damage and stun on landing
+      // Apply damage and stun when sprite reaches enemy
       const tgt = s.units.get(target.id)
       if (tgt && tgt.state !== 'dead') {
         applyDamage(u, tgt, {
@@ -89,20 +89,14 @@ export const WailordAbility: AbilityHandler = {
         stackId: 'wailord_squash',
       })
 
-      // Return leap back home
-      const dist2  = Math.max(1, hexDistance(u.hexPos, returnHex))
-      const haste2 = Math.max(0, (TICK_RATE * dist2) / (RETURN_TICKS * u.moveSpeed) - 1)
+      // Return: hexPos is still at returnHex (visualOnly kept it there), so
+      // hexDistance would be 0. Target RETURN_TICKS directly via the haste formula.
+      const haste2 = Math.max(0, TICK_RATE / (RETURN_TICKS * u.moveSpeed) - 1)
       startLeap(u, returnHex, s, haste2, () => {
-        // Snap state back to idle on landing so combat resumes normally
         u.state = 'idle'
-      })
+      }, undefined, true)
       u.state = 'leaping'
-
-      // Restore enemy's hex occupancy (startLeap freed it when Wailord leaves)
-      if (tgt && tgt.state !== 'dead') {
-        s.hexOccupancy.set(hexId(enemyHex), tgt.id)
-      }
-    })
+    }, undefined, true)
 
     unit.state = 'leaping'
   },

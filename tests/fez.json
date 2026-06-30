@@ -1,0 +1,96 @@
+{
+  "label": "fez",
+  "units": [
+    {
+      "id": "fezandipiti",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 0,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 1,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 5,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 6,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 5,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 4,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 3,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 2,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 1,
+      "row": 2,
+      "team": "enemy"
+    }
+  ]
+}

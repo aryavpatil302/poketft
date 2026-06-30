@@ -118,7 +118,6 @@ import { GrapploctAbility }   from '../abilities/grapploct'
 import { WailordAbility }     from '../abilities/wailord'
 import { BlastoiseAbility }   from '../abilities/blastoise'
 import { TapuFiniAbility }    from '../abilities/tapufini'
-import { TyphlosionAbility }  from '../abilities/typhlosion'
 import { QuagsireAbility }    from '../abilities/quagsire'
 
 // Temporal Woods
@@ -193,7 +192,6 @@ registerAbility(GrapploctAbility)
 registerAbility(WailordAbility)
 registerAbility(BlastoiseAbility)
 registerAbility(TapuFiniAbility)
-registerAbility(TyphlosionAbility)
 registerAbility(QuagsireAbility)
 registerAbility(MorelullAbility)
 registerAbility(GogoatAbility)

@@ -1,0 +1,19 @@
+{
+  "label": "bounce",
+  "units": [
+    {
+      "id": "wailord",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

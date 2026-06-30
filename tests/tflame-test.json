@@ -1,0 +1,61 @@
+{
+  "label": "tflame test",
+  "units": [
+    {
+      "id": "wailord",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 2,
+      "col": 1,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "talonflame",
+      "tier": 2,
+      "col": 4,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "wheezing",
+      "tier": 1,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "tangela",
+      "tier": 2,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "palossand",
+      "tier": 2,
+      "col": 1,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "graveler",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "a_exeggutor",
+      "tier": 1,
+      "col": 0,
+      "row": 0,
+      "team": "enemy"
+    }
+  ]
+}

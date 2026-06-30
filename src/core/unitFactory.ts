@@ -117,6 +117,27 @@ export function computeStats(unit: Unit, _traitBonuses?: Partial<UnitBaseStats>)
       case 'atk_buff_pct':
         attack += Math.round(attack * mag)
         break
+      case 'iron_barbs_durability':
+        defense   = Math.round(defense   * (1 + mag))
+        spDefense = Math.round(spDefense * (1 + mag))
+        break
+      case 'bellibolt_charge':
+        defense   += mag * 5
+        spDefense += mag * 5
+        break
+      case 'oranguru_sp_buff':
+        special += mag
+        break
+      case 'fez_durability':
+        defense   = Math.round(defense   * (1 + mag))
+        spDefense = Math.round(spDefense * (1 + mag))
+        break
+      case 'rayquaza_mega_atk':
+        attack += mag
+        break
+      case 'rayquaza_mega_aspd':
+        attackSpeed += attackSpeed * mag
+        break
     }
   }
 

@@ -21,64 +21,89 @@ export const MorgremAbility: AbilityHandler = {
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const shieldValues  = [120, 180, 280] as const
-    const damageValues  = [150, 225, 350] as const
+    const shieldValues    = [350, 430, 550] as const
+    const baseDamages     = [50,  100, 150] as const
+    const manaDrainValues = [2,   3,   5  ] as const
 
     const shieldAmount = shieldValues[tier - 1]
-    const burstDamage  = damageValues[tier - 1]
-    const casterId     = unit.id
-    const casterTeam   = unit.team
+    const baseDamage   = baseDamages[tier - 1]
+    const manaDrain    = manaDrainValues[tier - 1]
 
-    const attackTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
-    const target = (attackTarget && attackTarget.state !== 'dead' && attackTarget.team !== unit.team)
-      ? attackTarget
-      : findNearestEnemy(unit, state)
+    // Rumble on cast
+    addStatusEffect(unit, {
+      id: 'morgrem_rumble',
+      sourceUnitId: unit.id,
+      durationTicks: 14,
+      magnitude: 14,
+      stackId: 'morgrem_rumble',
+    })
 
-    // Apply mana drain tickEffect on nearest enemy for 4 sec
-    if (target) {
-      addStatusEffect(target, {
-        id: 'taunt',
-        sourceUnitId: unit.id,
-        durationTicks: 4 * TICK_RATE,
-        magnitude: 5,
-        tickInterval: TICK_RATE,
-        tickEffect: (u: Unit) => {
-          u.currentMana = Math.max(0, u.currentMana - 5)
-        },
-        onExpire: (u: Unit, st: CombatState) => {
-          // Find nearest enemy of the original caster and deal burst damage
-          let blastTarget: Unit | null = null
-          let bestDist = Infinity
-          const casterUnit = st.units.get(casterId)
-          if (!casterUnit || casterUnit.state === 'dead') return
-          for (const other of st.units.values()) {
-            if (other.team === casterTeam || other.state === 'dead') continue
-            const d = hexDistance(casterUnit.hexPos, other.hexPos)
-            if (d < bestDist) { bestDist = d; blastTarget = other }
-          }
-          if (blastTarget) {
-            applyDamage(casterUnit, blastTarget, {
-              baseAmount: burstDamage,
-              damageType: 'magic',
-              canCrit: false,
-              abilityId: 'morgrem_spirit_break',
-            }, st)
-          }
-        },
-        stackId: `morgrem_spirit_break_${target.id}_${state.tick}`,
-      })
-    }
-
-    // Grant self a shield
-    const shieldId = `morgrem_spirit_break_shield_${unit.id}_${state.tick}`
+    // Shield (3 seconds)
     const shield: Shield = {
-      id: shieldId,
+      id: `morgrem_shield_${unit.id}_${state.tick}`,
       sourceAbility: 'morgrem_spirit_break',
       value: shieldAmount,
       maxValue: shieldAmount,
-      durationTicks: 4 * TICK_RATE,
+      durationTicks: 3 * TICK_RATE,
     }
     unit.shields.push(shield)
     state.events.push({ type: 'shield', unitId: unit.id, amount: shieldAmount })
+
+    // Aura: drains mana from enemies in 1-hex radius every 0.5s for 3s
+    let totalDrained = 0
+
+    addStatusEffect(unit, {
+      id: 'morgrem_spirit_break_aura',
+      sourceUnitId: unit.id,
+      durationTicks: 3 * TICK_RATE,
+      magnitude: 0,
+      stackId: 'morgrem_spirit_break_aura',
+      suppressManaGain: true,
+      tickInterval: Math.round(TICK_RATE / 2),
+      tickEffect: (u: Unit, _st: CombatState) => {
+        for (const other of _st.units.values()) {
+          if (other.team === u.team || other.state === 'dead') continue
+          if (hexDistance(u.hexPos, other.hexPos) > 1) continue
+          const drained = Math.min(other.currentMana, manaDrain)
+          other.currentMana = Math.max(0, other.currentMana - drained)
+          totalDrained += drained
+        }
+      },
+      onExpire: (u: Unit, st: CombatState) => {
+        const strikeTarget = (() => {
+          const t = u.targetId ? st.units.get(u.targetId) : undefined
+          return (t && t.currentHp > 0 && t.team !== u.team) ? t : findNearestEnemy(u, st)
+        })()
+
+        const finalDamage = baseDamage + totalDrained
+        let slapElapsed = 0
+        let damageFired = false
+        const capturedTarget = strikeTarget
+
+        // Add slap animation — damage fires at midpoint (tick 10)
+        addStatusEffect(u, {
+          id: 'morgrem_slap',
+          sourceUnitId: u.id,
+          durationTicks: 20,
+          magnitude: 20,
+          stackId: 'morgrem_slap',
+          suppressManaGain: true,
+          tickEffect: (u2: Unit, st2: CombatState) => {
+            slapElapsed++
+            if (!damageFired && slapElapsed >= 10) {
+              damageFired = true
+              if (capturedTarget && capturedTarget.currentHp > 0) {
+                applyDamage(u2, capturedTarget, {
+                  baseAmount: finalDamage,
+                  damageType: 'magic',
+                  canCrit: false,
+                  abilityId: 'morgrem_spirit_break',
+                }, st2)
+              }
+            }
+          },
+        })
+      },
+    })
   },
 }

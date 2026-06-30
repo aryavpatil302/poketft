@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickLeapPixel } from '../systems/movement'
 import type { Unit, CombatState } from '../types'
 
 // Import to ensure abilities are registered
@@ -13,6 +14,16 @@ function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
   for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+// Advances all visual-only leaps until the unit returns to idle.
+// Mirrors the combatEngine tickLeapMovement logic.
+function advanceLeaps(unit: Unit, state: CombatState, maxTicks = 3000): void {
+  for (let t = 0; t < maxTicks; t++) {
+    if (unit.state !== 'leaping') break
+    const arrived = tickLeapPixel(unit, state)
+    if (arrived && !(unit as any)._leap) unit.state = 'idle'
+  }
 }
 
 describe('Talonflame - Brave Bird', () => {
@@ -46,11 +57,17 @@ describe('Talonflame - Brave Bird', () => {
     expect(caster.currentMana).toBe(0)
   })
 
-  it('deals physical damage to the nearest enemy', () => {
-    // Give enemy enough HP to survive
+  it('starts leaping after cast', () => {
+    cast(caster, state)
+    expect(caster.state).toBe('leaping')
+  })
+
+  it('deals physical damage to the nearest enemy on landing', () => {
     enemy.maxHp = 10000
     enemy.currentHp = 10000
     cast(caster, state)
+    advanceLeaps(caster, state)
+
     expect(enemy.currentHp).toBeLessThan(10000)
     const dmgEvent = state.events.find(
       e => e.type === 'damage' && (e as any).damageType === 'physical' && e.targetId === enemy.id
@@ -58,85 +75,92 @@ describe('Talonflame - Brave Bird', () => {
     expect(dmgEvent).toBeDefined()
   })
 
-  it('tier 1 - base damage is 300 (physical, before mitigation)', () => {
+  it('tier 1 — base damage is 200 (no defense, no crit, equal HP)', () => {
     enemy.maxHp = 10000
     enemy.currentHp = 10000
     enemy.defense = 0
-    enemy._computedStats = null  // force recompute with 0 defense
-    caster.critChance = 0  // prevent crit for deterministic test
+    enemy._computedStats = null
+    // Match caster maxHp so HP bonus does not apply (strictly greater-than required)
+    enemy.maxHp = caster.maxHp
+    caster.critChance = 0
     caster._computedStats = null
     cast(caster, state)
+    advanceLeaps(caster, state)
 
-    const dmgEvent = state.events.find(
-      e => e.type === 'damage' && e.targetId === enemy.id
-    )
+    const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
     expect(dmgEvent).toBeDefined()
-    if (dmgEvent?.type === 'damage') {
-      expect(dmgEvent.amount).toBe(300)
-    }
+    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(200)
   })
 
-  it('tier 2 - base damage is 450 (before mitigation)', () => {
+  it('tier 2 — base damage is 325', () => {
     const t2 = makeUnit('talonflame', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     t2.critChance = 0
     t2._computedStats = null
     const e = makeUnit('dummy', 'enemy', 1)
-    e.maxHp = 10000
+    e.maxHp = t2.maxHp  // equal HP — no bonus
     e.currentHp = 10000
     e.defense = 0
     e._computedStats = null
     e.hexPos = { col: 3, row: 2 }
     const s = createCombatState([t2], [e])
-    t2.currentMana = t2.maxMana
-    triggerAbility(t2, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
+    cast(t2, s)
+    advanceLeaps(t2, s)
 
     const dmgEvent = s.events.find(ev => ev.type === 'damage' && ev.targetId === e.id)
     expect(dmgEvent).toBeDefined()
-    if (dmgEvent?.type === 'damage') {
-      expect(dmgEvent.amount).toBe(450)
-    }
+    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(325)
   })
 
-  it('tier 3 - base damage is 700 (before mitigation)', () => {
+  it('tier 3 — base damage is 500', () => {
     const t3 = makeUnit('talonflame', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     t3.critChance = 0
     t3._computedStats = null
     const e = makeUnit('dummy', 'enemy', 1)
-    e.maxHp = 10000
+    e.maxHp = t3.maxHp  // equal HP — no bonus
     e.currentHp = 10000
     e.defense = 0
     e._computedStats = null
     e.hexPos = { col: 3, row: 2 }
     const s = createCombatState([t3], [e])
-    t3.currentMana = t3.maxMana
-    triggerAbility(t3, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
+    cast(t3, s)
+    advanceLeaps(t3, s)
 
     const dmgEvent = s.events.find(ev => ev.type === 'damage' && ev.targetId === e.id)
     expect(dmgEvent).toBeDefined()
-    if (dmgEvent?.type === 'damage') {
-      expect(dmgEvent.amount).toBe(700)
-    }
+    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(500)
+  })
+
+  it('+60% damage vs targets with higher max HP', () => {
+    enemy.maxHp = caster.maxHp + 1   // strictly higher → bonus applies
+    enemy.currentHp = 10000
+    enemy.defense = 0
+    enemy._computedStats = null
+    caster.critChance = 0
+    caster._computedStats = null
+    cast(caster, state)
+    advanceLeaps(caster, state)
+
+    const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
+    expect(dmgEvent).toBeDefined()
+    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(Math.round(200 * 1.6))
   })
 
   it('does nothing when no enemies are present', () => {
     state = createCombatState([caster], [])
     cast(caster, state)
+    advanceLeaps(caster, state)
     expect(state.events.some(e => e.type === 'damage')).toBe(false)
   })
 
-  it('fires a second damage event (recast) if the first target dies', () => {
-    // First enemy with very low HP to guarantee death
+  it('on kill — immediately starts a new animated leap to next target', () => {
     const weakEnemy = makeUnit('dummy', 'enemy', 1)
     weakEnemy.maxHp = 1
     weakEnemy.currentHp = 1
     weakEnemy.defense = 0
     weakEnemy.hexPos = { col: 3, row: 2 }
 
-    // Second enemy as bounce target
     const strongEnemy = makeUnit('dummy', 'enemy', 1)
     strongEnemy.maxHp = 10000
     strongEnemy.currentHp = 10000
@@ -144,13 +168,15 @@ describe('Talonflame - Brave Bird', () => {
 
     state = createCombatState([caster], [weakEnemy, strongEnemy])
     cast(caster, state)
+    advanceLeaps(caster, state)
 
     const dmgEvents = state.events.filter(e => e.type === 'damage')
-    // At least 2 damage events: one that kills weakEnemy, one recast bounce
     expect(dmgEvents.length).toBeGreaterThanOrEqual(2)
+    // Second damage event hits the strong enemy
+    expect(dmgEvents.some(e => e.targetId === strongEnemy.id)).toBe(true)
   })
 
-  it('recast damage is 75% of original (300 * 0.75 = 225) when bouncing', () => {
+  it('recast damage is 75% of original (200 × 0.75 = 150, no HP bonus)', () => {
     const weakEnemy = makeUnit('dummy', 'enemy', 1)
     weakEnemy.maxHp = 1
     weakEnemy.currentHp = 1
@@ -159,7 +185,8 @@ describe('Talonflame - Brave Bird', () => {
     weakEnemy.hexPos = { col: 3, row: 2 }
 
     const strongEnemy = makeUnit('dummy', 'enemy', 1)
-    strongEnemy.maxHp = 10000
+    // Equal maxHp to caster → HP bonus does not apply (strictly greater-than required)
+    strongEnemy.maxHp = caster.maxHp
     strongEnemy.currentHp = 10000
     strongEnemy.defense = 0
     strongEnemy._computedStats = null
@@ -169,34 +196,28 @@ describe('Talonflame - Brave Bird', () => {
     caster._computedStats = null
     state = createCombatState([caster], [weakEnemy, strongEnemy])
     cast(caster, state)
+    advanceLeaps(caster, state)
 
-    // Find damage event on strongEnemy
-    const bounceDmg = state.events.find(
-      e => e.type === 'damage' && e.targetId === strongEnemy.id
-    )
+    const bounceDmg = state.events.find(e => e.type === 'damage' && e.targetId === strongEnemy.id)
     expect(bounceDmg).toBeDefined()
-    if (bounceDmg?.type === 'damage') {
-      expect(bounceDmg.amount).toBe(Math.round(300 * 0.75))
-    }
+    if (bounceDmg?.type === 'damage') expect(bounceDmg.amount).toBe(Math.round(200 * 0.75))
   })
 
-  it('does not infinitely recast (stops when multiplier falls below 0.3)', () => {
-    // Chain of very weak enemies
+  it('chain stops before damage falls below 30 (prevents infinite loop)', () => {
     const weakEnemies = Array.from({ length: 10 }, (_, i) => {
       const e = makeUnit('dummy', 'enemy', 1)
       e.maxHp = 1
       e.currentHp = 1
       e.defense = 0
-      e.hexPos = { col: i, row: 2 }
+      e.hexPos = { col: i % 8, row: 2 }
       return e
     })
     state = createCombatState([caster], weakEnemies)
-    // Should not throw or loop forever
-    expect(() => cast(caster, state)).not.toThrow()
+    expect(() => { cast(caster, state); advanceLeaps(caster, state) }).not.toThrow()
 
-    // Verify damage events are finite (300 * 0.75^n stops when < 0.3 * 300 = 90)
-    // 300 * 0.75^0 = 300, 0.75^1=225, 0.75^2=168.75, 0.75^3=126.5, 0.75^4=94.9, 0.75^5=71.2 -> stops
+    // 200→150→112→84→63→47→35 (7 kills) then 26 < 30 → stop
     const dmgEvents = state.events.filter(e => e.type === 'damage')
+    expect(dmgEvents.length).toBeGreaterThan(0)
     expect(dmgEvents.length).toBeLessThan(10)
   })
 })

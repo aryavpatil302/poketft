@@ -112,6 +112,7 @@ interface LeapData {
   onLand?: (unit: Unit, state: CombatState) => void
   onMidpoint?: (unit: Unit, state: CombatState) => void
   midpointFired: boolean
+  visualOnly?: boolean       // skip hexPos/occupancy changes — sprite-only animation
 }
 
 declare module '../types' {
@@ -133,16 +134,20 @@ export function startLeap(
   hasteMagnitude: number,
   onLand?: (unit: Unit, state: CombatState) => void,
   onMidpoint?: (unit: Unit, state: CombatState) => void,
+  visualOnly?: boolean,
 ): void {
-  const leapSpeed   = unit.moveSpeed * (1 + hasteMagnitude)   // e.g. 1.5 × 5 = 7.5 hex/sec
-  const ticksPerHex = Math.round(TICK_RATE / leapSpeed)        // e.g. round(60/7.5) = 8
+  const leapSpeed   = unit.moveSpeed * (1 + hasteMagnitude)
+  const ticksPerHex = Math.round(TICK_RATE / leapSpeed)
   const hexDist     = Math.max(1, hexDistance(unit.hexPos, dest))
   const totalTicks  = hexDist * ticksPerHex
 
   const destPx = hexToPixel(dest, HEX_SIZE)
 
-  // Free the origin hex immediately — unit is now "in the air"
-  state.hexOccupancy.delete(hexId(unit.hexPos))
+  // For real leaps, free the origin hex so other units can path through.
+  // Visual-only leaps never change occupancy — the unit stays on its hex.
+  if (!visualOnly) {
+    state.hexOccupancy.delete(hexId(unit.hexPos))
+  }
 
   unit._leap = {
     sx: unit.visualPos.x,
@@ -155,6 +160,7 @@ export function startLeap(
     onLand,
     onMidpoint,
     midpointFired: false,
+    visualOnly,
   }
   unit.path = []
 }
@@ -181,11 +187,13 @@ export function tickLeapPixel(unit: Unit, state: CombatState): boolean {
   }
 
   if (t >= 1) {
-    // Arrived — snap hexPos to destination and claim the hex
-    unit.hexPos    = leap.destHex
     unit.visualPos = { x: leap.ex, y: leap.ey }
     unit.moveProgress = 0
-    state.hexOccupancy.set(hexId(unit.hexPos), unit.id)
+    if (!leap.visualOnly) {
+      // Real leap — commit hexPos and claim the destination hex.
+      unit.hexPos = leap.destHex
+      state.hexOccupancy.set(hexId(unit.hexPos), unit.id)
+    }
     const onLand = leap.onLand
     delete unit._leap
     onLand?.(unit, state)

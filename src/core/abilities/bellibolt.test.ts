@@ -2,11 +2,21 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 import '../systems/ability'
 
-const CAST_TICKS = 25  // bellibolt castTimeTicks = 25
+const CAST_TICKS = 25
+
+function addCharges(unit: Unit, count: number): void {
+  unit.statusEffects.push({
+    id: 'bellibolt_charge',
+    sourceUnitId: unit.id,
+    durationTicks: -1,
+    magnitude: count,
+    stackId: 'bellibolt_charge',
+  })
+  unit._computedStats = null
+}
 
 function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
@@ -22,8 +32,9 @@ describe('Bellibolt - Electrophoresis', () => {
   beforeEach(() => {
     caster = makeUnit('bellibolt', 'player', 1)
     caster.hexPos = { col: 3, row: 5 }
+    // Place enemy adjacent (1 hex away) so it's in AoE range
     enemy = makeUnit('dummy', 'enemy', 1)
-    enemy.hexPos = { col: 3, row: 2 }
+    enemy.hexPos = { col: 3, row: 4 }
     state = createCombatState([caster], [enemy])
   })
 
@@ -45,81 +56,75 @@ describe('Bellibolt - Electrophoresis', () => {
     expect(caster.currentMana).toBe(0)
   })
 
-  it('does no damage when attackCount is 0 (no charges)', () => {
-    caster.attackCount = 0
+  it('does no damage when no charges are stacked', () => {
     cast(caster, state)
     expect(state.events.some(e => e.type === 'damage')).toBe(false)
   })
 
-  it('deals damage proportional to attack charge count (tier 1 = 15 per charge, after mitigation)', () => {
-    caster.attackCount = 3
+  it('deals magic damage in 1-hex radius (tier 1, 50% of def+spdef)', () => {
+    // Bellibolt base def=50 spdef=50, +5 each per charge
+    // 5 charges → def=75, spdef=75, total=150 → 150 * 0.50 = 75 raw
+    // dummy spDefense=30 → 75 * (100/130) = 57
+    addCharges(caster, 5)
     cast(caster, state)
-    // 3 charges * 15 = 45 raw, then 45 * 100/130 (dummy spDefense=30) = 35
     const dmgEvents = state.events.filter(e => e.type === 'damage')
     expect(dmgEvents.length).toBeGreaterThan(0)
     if (dmgEvents[0].type === 'damage') {
-      expect(dmgEvents[0].amount).toBe(35)
+      expect(dmgEvents[0].damageType).toBe('magic')
+      expect(dmgEvents[0].amount).toBe(58)
     }
   })
 
-  it('tier 2 - 20 damage per charge after mitigation', () => {
+  it('tier 2 scales at 90%', () => {
     const t2 = makeUnit('bellibolt', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
+    e.hexPos = { col: 3, row: 4 }
     const s = createCombatState([t2], [e])
-    t2.attackCount = 3
+    // 5 charges → def=75, spdef=75 → 150 * 0.90 = 135 → 135 * (100/130) = 103
+    addCharges(t2, 5)
     cast(t2, s)
     const dmgEvents = s.events.filter(ev => ev.type === 'damage')
     expect(dmgEvents.length).toBeGreaterThan(0)
     if (dmgEvents[0].type === 'damage') {
-      // 3 * 20 = 60 raw, * 100/130 = 46
-      expect(dmgEvents[0].amount).toBe(46)
+      expect(dmgEvents[0].amount).toBe(104)
     }
   })
 
-  it('tier 3 - 30 damage per charge after mitigation', () => {
+  it('tier 3 scales at 120%', () => {
     const t3 = makeUnit('bellibolt', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
+    e.hexPos = { col: 3, row: 4 }
     const s = createCombatState([t3], [e])
-    t3.attackCount = 4
+    // 5 charges → def=75, spdef=75 → 150 * 1.20 = 180 → 180 * (100/130) = 138
+    addCharges(t3, 5)
     cast(t3, s)
     const dmgEvents = s.events.filter(ev => ev.type === 'damage')
     expect(dmgEvents.length).toBeGreaterThan(0)
     if (dmgEvents[0].type === 'damage') {
-      // 4 * 30 = 120 raw, * 100/130 = 92
-      expect(dmgEvents[0].amount).toBe(92)
+      expect(dmgEvents[0].amount).toBe(138)
     }
   })
 
-  it('damage is split across multiple enemies', () => {
-    const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 2, row: 1 }
-    state = createCombatState([caster], [enemy, e2])
-    caster.attackCount = 4  // 4 * 15 = 60 total, split to 30 per enemy
+  it('removes bellibolt_charge status after discharge', () => {
+    addCharges(caster, 7)
     cast(caster, state)
-    // 30 raw each, * 100/130 = 23
-    const dmgEvents = state.events.filter(e => e.type === 'damage')
-    expect(dmgEvents.length).toBe(2)
-    if (dmgEvents[0].type === 'damage') {
-      expect(dmgEvents[0].amount).toBe(23)
-    }
+    expect(caster.statusEffects.some(fx => fx.stackId === 'bellibolt_charge')).toBe(false)
   })
 
-  it('resets attackCount to 0 after discharge', () => {
-    caster.attackCount = 5
+  it('does not hit allies', () => {
+    const ally = makeUnit('quagsire', 'player', 1)
+    ally.hexPos = { col: 3, row: 4 }
+    state = createCombatState([caster, ally], [])
+    addCharges(caster, 5)
     cast(caster, state)
-    expect(caster.attackCount).toBe(0)
+    expect(state.events.some(e => e.type === 'damage')).toBe(false)
   })
 
-  it('damage type is magic', () => {
-    caster.attackCount = 2
+  it('emits bellibolt_discharge vfx event on cast', () => {
     cast(caster, state)
-    const dmgEvent = state.events.find(e => e.type === 'damage')
-    if (dmgEvent?.type === 'damage') {
-      expect(dmgEvent.damageType).toBe('magic')
-    }
+    const vfxEv = state.events.find(e => e.type === 'vfx' && e.effectId === 'bellibolt_discharge')
+    expect(vfxEv).toBeDefined()
   })
 })

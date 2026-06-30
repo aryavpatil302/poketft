@@ -5,13 +5,14 @@ import { triggerAbility, tickAbilityCast } from '../systems/ability'
 import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 
-// Import to ensure abilities are registered
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks: number): void {
+const CAST_TICKS = 20
+
+function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
-  for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
+  for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
 }
 
 describe("Tapu Fini - Nature's Madness", () => {
@@ -31,55 +32,60 @@ describe("Tapu Fini - Nature's Madness", () => {
     caster.currentMana = caster.maxMana
     triggerAbility(caster, state)
     expect(caster.state).toBe('casting')
-    expect(caster.abilityCastTimer).toBe(20)
+    expect(caster.abilityCastTimer).toBe(CAST_TICKS)
   })
 
-  it('creates exactly one persistent AoE zone on a normal cast', () => {
-    cast(caster, state, 20)
-    expect(state.persistentAoEZones).toHaveLength(1)
+  it('marks the target as whirlpooled', () => {
+    cast(caster, state)
+    expect(enemy.whirlpooled).toBe(true)
   })
 
-  it('zone has correct properties at tier 1', () => {
-    cast(caster, state, 20)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.damagePerInterval).toBe(60)
-    expect(zone.radius).toBe(1)
-    expect(zone.durationTicks).toBe(5 * TICK_RATE)
-    expect(zone.intervalTicks).toBe(TICK_RATE)
-    expect(zone.damageType).toBe('magic')
-    expect(zone.targetTeam).toBe('enemy')
-    expect(zone.armorReduction).toBe(20)
-    expect(zone.spDefReduction).toBe(20)
+  it('adds a whirlpool_damage status effect to the target', () => {
+    cast(caster, state)
+    expect(enemy.statusEffects.some(e => e.id === 'whirlpool_damage')).toBe(true)
   })
 
-  it('zone duration is 6s at tier 2 and 7s at tier 3', () => {
-    for (const [tier, expectedSec] of [[2, 6], [3, 7]] as const) {
-      const tf = makeUnit('tapu_fini', 'player', tier as 1 | 2 | 3)
-      tf.hexPos = { col: 3, row: 5 }
-      const e = makeUnit('dummy', 'enemy', 1)
-      e.hexPos = { col: 3, row: 2 }
-      const s = createCombatState([tf], [e])
-      cast(tf, s, 20)
-      expect(s.persistentAoEZones[0].durationTicks).toBe(expectedSec * TICK_RATE)
-    }
+  it('whirlpool lasts 10 seconds', () => {
+    cast(caster, state)
+    const fx = enemy.statusEffects.find(e => e.id === 'whirlpool_damage')
+    expect(fx?.durationTicks).toBe(10 * TICK_RATE)
   })
 
-  it('creates TWO zones when misty terrain is active before cast', () => {
-    state.terrain.misty = true
-    cast(caster, state, 20)
-    expect(state.persistentAoEZones).toHaveLength(2)
+  it('emits a tapufini_whirlpool vfx event', () => {
+    cast(caster, state)
+    expect(state.events.some(e => e.type === 'vfx' && e.effectId === 'tapufini_whirlpool')).toBe(true)
   })
 
-  it('sets misty terrain to true after cast', () => {
-    expect(state.terrain.misty).toBe(false)
-    cast(caster, state, 20)
-    expect(state.terrain.misty).toBe(true)
+  it('tier 1/2 — only whirlpools one enemy when multiple are present', () => {
+    const e2 = makeUnit('dummy', 'enemy', 1)
+    e2.hexPos = { col: 4, row: 2 }
+    state = createCombatState([caster], [enemy, e2])
+    cast(caster, state)
+    const whirlpooled = [enemy, e2].filter(e => e.whirlpooled)
+    expect(whirlpooled).toHaveLength(1)
   })
 
-  it('zone is centered on the nearest enemy (not on caster)', () => {
-    cast(caster, state, 20)
-    const zone = state.persistentAoEZones[0]
-    // Zone center should match the enemy hex position
-    expect(zone.center).toEqual(enemy.hexPos)
+  it('tier 3 — whirlpools every enemy simultaneously', () => {
+    const t3 = makeUnit('tapu_fini', 'player', 3)
+    t3.hexPos = { col: 3, row: 5 }
+    const e1 = makeUnit('dummy', 'enemy', 1); e1.hexPos = { col: 2, row: 2 }
+    const e2 = makeUnit('dummy', 'enemy', 1); e2.hexPos = { col: 4, row: 2 }
+    const e3 = makeUnit('dummy', 'enemy', 1); e3.hexPos = { col: 3, row: 1 }
+    const s = createCombatState([t3], [e1, e2, e3])
+    cast(t3, s)
+    expect(e1.whirlpooled).toBe(true)
+    expect(e2.whirlpooled).toBe(true)
+    expect(e3.whirlpooled).toBe(true)
+  })
+
+  it('tier 3 — emits one vfx event per enemy', () => {
+    const t3 = makeUnit('tapu_fini', 'player', 3)
+    t3.hexPos = { col: 3, row: 5 }
+    const e1 = makeUnit('dummy', 'enemy', 1); e1.hexPos = { col: 2, row: 2 }
+    const e2 = makeUnit('dummy', 'enemy', 1); e2.hexPos = { col: 4, row: 2 }
+    const s = createCombatState([t3], [e1, e2])
+    cast(t3, s)
+    const whirlpoolVfx = s.events.filter(e => e.type === 'vfx' && e.effectId === 'tapufini_whirlpool')
+    expect(whirlpoolVfx).toHaveLength(2)
   })
 })

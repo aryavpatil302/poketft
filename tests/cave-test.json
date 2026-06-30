@@ -1,0 +1,89 @@
+{
+  "label": "cave test",
+  "units": [
+    {
+      "id": "zubat",
+      "tier": 3,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "sableye",
+      "tier": 2,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "ferrothorn",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "excadrill",
+      "tier": 2,
+      "col": 6,
+      "row": 6,
+      "team": "player"
+    },
+    {
+      "id": "torkoal",
+      "tier": 2,
+      "col": 5,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "graveler",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "venusaur",
+      "tier": 2,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "blastoise",
+      "tier": 1,
+      "col": 6,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "typhlosion",
+      "tier": 3,
+      "col": 0,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "vigoroth",
+      "tier": 1,
+      "col": 0,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "gible",
+      "tier": 1,
+      "col": 4,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "ribombee",
+      "tier": 2,
+      "col": 5,
+      "row": 0,
+      "team": "enemy"
+    }
+  ]
+}

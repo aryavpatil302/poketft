@@ -3,6 +3,12 @@ import { hexId } from '../hexGrid'
 
 // Add a status effect, respecting stackId deduplication
 export function addStatusEffect(unit: Unit, effect: StatusEffect): void {
+  // Mega Rayquaza is CC immune — block stuns and knockups before they land
+  if ((effect.id === 'stun' || effect.id === 'knockUp') &&
+      unit.statusEffects.some(fx => fx.id === 'rayquaza_is_mega')) {
+    return
+  }
+
   if (effect.stackId) {
     const existing = unit.statusEffects.findIndex(e => e.stackId === effect.stackId)
     if (existing >= 0) {

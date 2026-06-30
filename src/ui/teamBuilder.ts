@@ -60,7 +60,9 @@ export class TeamBuilder {
   }
 
   private searchQuery = ''
-  private collapsedTraits: Set<string> = new Set()
+  private collapsedTraits: Set<string> = new Set(
+    ALL_UNITS.map(def => def.traits[0] ?? 'other')
+  )
 
   private render(): void {
     const query = this.searchQuery.toLowerCase()

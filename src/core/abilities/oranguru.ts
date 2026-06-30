@@ -1,7 +1,7 @@
 import type { AbilityHandler } from '../systems/ability'
-import type { CombatState, Unit } from '../types'
-import { TICK_RATE } from '../constants'
-import { applyDamage } from '../systems/damage'
+import type { CombatState, Unit, PassiveAttackHandler } from '../types'
+import { computeStats } from '../unitFactory'
+import { createProjectile } from '../projectile'
 import { addStatusEffect } from '../systems/statusEffect'
 
 export const OranGuruAbility: AbilityHandler = {
@@ -9,48 +9,72 @@ export const OranGuruAbility: AbilityHandler = {
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const waveDamageValues = [120, 180, 300] as const
-    const manaGainValues   = [15,  25,  40 ] as const
+    const specialPcts  = [0.80, 1.00, 1.20] as const
+    const empBonuses   = [100,  175,  300 ] as const
+    const spGainValues = [1,    2,    5   ] as const
 
-    const waveDamage = waveDamageValues[tier - 1]
-    const manaGain   = manaGainValues[tier - 1]
+    const specialPct = specialPcts[tier - 1]
+    const empBonus   = empBonuses[tier - 1]
+    const spGain     = spGainValues[tier - 1]
 
-    // Closure-based wave count so we don't add arbitrary fields to Unit
     let waveCount = 0
-
     const handlerId = `oranguru_wave_${unit.id}_${state.tick}`
 
-    // Passive attack handler — fires wave damage on each auto attack
-    const handler = {
+    const handler: PassiveAttackHandler = {
       id: handlerId,
-      onAttack(src: Unit, tgt: Unit, st: CombatState): void {
-        if (tgt.state === 'dead') return
+      suppressBaseAttack: true,
 
-        applyDamage(src, tgt, {
-          baseAmount: waveDamage,
-          damageType: 'magic',
-          canCrit: false,
-          abilityId: 'oranguru_stored_power',
-        }, st)
+      onAttack(src: Unit, tgt: Unit, st: CombatState): void {
+        if (tgt.currentHp <= 0) return
 
         waveCount++
-        if (waveCount % 5 === 0) {
-          src.currentMana = Math.min(src.maxMana, src.currentMana + manaGain)
+        const isEmp     = waveCount % 5 === 0
+        const stats     = computeStats(src)
+        const baseAmount = Math.round(stats.special * specialPct)
+
+        // Permanent special stat gain on every 5th wave
+        if (isEmp) {
+          const existing = src.statusEffects.find(fx => fx.stackId === 'oranguru_sp_buff')
+          if (existing) {
+            existing.magnitude = (existing.magnitude ?? 0) + spGain
+            src._computedStats = null
+          } else {
+            addStatusEffect(src, {
+              id: 'oranguru_sp_buff',
+              sourceUnitId: src.id,
+              durationTicks: -1,
+              magnitude: spGain,
+              stackId: 'oranguru_sp_buff',
+            })
+          }
         }
+
+        const proj = createProjectile({
+          sourceId: src.id,
+          targetId: tgt.id,
+          startPos: { ...src.visualPos },
+          speed: 10,
+          abilityId: isEmp ? 'oranguru_stored_power_emp' : 'oranguru_stored_power',
+          damagePayload: {
+            baseAmount: isEmp ? baseAmount + empBonus : baseAmount,
+            damageType: 'magic',
+            canCrit: false,
+            abilityId: 'oranguru_stored_power',
+          },
+        })
+        st.projectiles.set(proj.id, proj)
       },
     }
 
     unit.passiveAttackHandlers.push(handler)
 
-    // Status effect tracks the 5-second duration; on expiry, remove the handler
+    // Permanent marker — drives unitLayer fan animation, blocks mana gain, and never expires
     addStatusEffect(unit, {
       id: 'oranguru_stored_power',
       sourceUnitId: unit.id,
-      durationTicks: 5 * TICK_RATE,
+      durationTicks: -1,
       stackId: 'oranguru_stored_power',
-      onExpire: (u: Unit, _st: CombatState) => {
-        u.passiveAttackHandlers = u.passiveAttackHandlers.filter(h => h.id !== handlerId)
-      },
+      suppressManaGain: true,
     })
   },
 }

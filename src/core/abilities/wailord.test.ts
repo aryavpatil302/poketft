@@ -52,14 +52,14 @@ describe('Wailord - Bounce', () => {
     expect(caster.state).toBe('leaping')
   })
 
-  it('tier 1 - adds a flat shield of 400', () => {
+  it('tier 1 - adds a flat shield of 75', () => {
     cast(caster, state)
     expect(caster.shields.length).toBeGreaterThan(0)
-    expect(caster.shields[0].value).toBe(400)
-    expect(caster.shields[0].maxValue).toBe(400)
+    expect(caster.shields[0].value).toBe(75)
+    expect(caster.shields[0].maxValue).toBe(75)
   })
 
-  it('tier 2 - adds a flat shield of 475', () => {
+  it('tier 2 - adds a flat shield of 150', () => {
     const t2 = makeUnit('wailord', 'player', 2)
     t2.hexPos = { col: 0, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
@@ -67,10 +67,10 @@ describe('Wailord - Bounce', () => {
     const s = createCombatState([t2], [e])
     t2.targetId = e.id
     cast(t2, s)
-    expect(t2.shields[0].value).toBe(475)
+    expect(t2.shields[0].value).toBe(150)
   })
 
-  it('tier 3 - adds a flat shield of 575', () => {
+  it('tier 3 - adds a flat shield of 300', () => {
     const t3 = makeUnit('wailord', 'player', 3)
     t3.hexPos = { col: 0, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
@@ -78,7 +78,7 @@ describe('Wailord - Bounce', () => {
     const s = createCombatState([t3], [e])
     t3.targetId = e.id
     cast(t3, s)
-    expect(t3.shields[0].value).toBe(575)
+    expect(t3.shields[0].value).toBe(300)
   })
 
   it('shield sourceAbility is wailord_bounce', () => {
@@ -106,7 +106,7 @@ describe('Wailord - Bounce', () => {
     const shieldEvent = state.events.find(e => e.type === 'shield')
     expect(shieldEvent).toBeDefined()
     if (shieldEvent?.type === 'shield') {
-      expect(shieldEvent.amount).toBe(400)
+      expect(shieldEvent.amount).toBe(75)
     }
   })
 

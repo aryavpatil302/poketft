@@ -1,40 +1,46 @@
 import type { AbilityHandler } from '../systems/ability'
-import type { CombatState, Unit, Shield } from '../types'
+import type { CombatState, Unit } from '../types'
 import { TICK_RATE } from '../constants'
 import { addStatusEffect } from '../systems/statusEffect'
+
+const DURATION_TICKS = 4 * TICK_RATE
+const RUMBLE_TICKS   = 18
 
 export const FerrothornAbility: AbilityHandler = {
   abilityId: 'ferrothorn_iron_barbs',
   castTimeTicks: 20,
 
-  onCast(unit: Unit, state: CombatState, tier: number): void {
-    const durationValues      = [4, 5, 6] as const
-    const totalShieldValues   = [300, 400, 600] as const
+  onCast(unit: Unit, _state: CombatState, tier: number): void {
+    const durabilityPcts  = [0.25, 0.30, 0.40] as const
+    const retaliationDmgs = [75, 150, 225]      as const
 
-    const duration    = durationValues[tier - 1]
-    const totalShield = totalShieldValues[tier - 1]
+    const durabilityPct  = durabilityPcts[tier - 1]
+    const retaliationDmg = retaliationDmgs[tier - 1]
 
-    // Mark self with iron_barbs status for the duration
-    // The status serves as a flag that other systems can check to deal retaliation damage
+    // Multiplicative defense + spDefense buff for duration
+    addStatusEffect(unit, {
+      id: 'iron_barbs_durability',
+      sourceUnitId: unit.id,
+      durationTicks: DURATION_TICKS,
+      magnitude: durabilityPct,
+      stackId: 'iron_barbs_durability',
+    })
+
+    // Retaliation marker — damage.ts reads magnitude to counter-hit auto-attackers
     addStatusEffect(unit, {
       id: 'iron_barbs',
       sourceUnitId: unit.id,
-      durationTicks: duration * TICK_RATE,
-      magnitude: totalShield / 4,   // per-hit retaliation damage stored in magnitude
+      durationTicks: DURATION_TICKS,
+      magnitude: retaliationDmg,
       stackId: 'iron_barbs',
     })
 
-    // Proxy the retaliation as an upfront shield for the duration of the effect
-    // This approximates the total retaliation damage absorbed over the window
-    const shield: Shield = {
-      id: `ferrothorn_iron_barbs_${unit.id}_${state.tick}`,
-      sourceAbility: 'ferrothorn_iron_barbs',
-      value: totalShield,
-      maxValue: totalShield,
-      durationTicks: duration * TICK_RATE,
-    }
-
-    unit.shields.push(shield)
-    state.events.push({ type: 'shield', unitId: unit.id, amount: totalShield })
+    // Brief post-cast shake as the barbs activate
+    addStatusEffect(unit, {
+      id: 'ferrothorn_rumble',
+      sourceUnitId: unit.id,
+      durationTicks: RUMBLE_TICKS,
+      stackId: 'ferrothorn_rumble',
+    })
   },
 }

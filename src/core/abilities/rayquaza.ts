@@ -1,54 +1,382 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
-import { TICK_RATE } from '../constants'
+import type { OffsetCoord } from '../hexGrid'
+import { HEX_SIZE } from '../constants'
 import { applyDamage } from '../systems/damage'
-import { addStatusEffect } from '../systems/statusEffect'
-import { hexesInRange, hexId, hexDistance } from '../hexGrid'
+import { addStatusEffect, removeStatusEffect } from '../systems/statusEffect'
+import {
+  hexesInRange, hexId, hexDistance,
+  hexToPixel, pixelToHex, getNeighbors, isValidHex,
+} from '../hexGrid'
 import { findNearestEnemies } from '../systems/targeting'
+import { startLeap } from '../systems/movement'
+
+// ─── Phase timing (ticks) ─────────────────────────────────────────────────────
+const MEGA_EVO_SHAKE_TICKS  = 36   // evo overlay shake  (normal sprite)
+const MEGA_PRE_GRAB_TICKS   = 24   // post-evo mega rumble before grab
+const GRAB_HOLD_TICKS       = 5    // pause on enemy hex after lunging
+const FLY_OFF_TICKS         = 14   // slide both off to the right
+const OFFSCREEN_WAIT        = 8    // hang off-screen before returning
+const FLY_IN_TICKS          = 16   // slam back in from the right
+
+const OFF_SCREEN_X = 1400          // pixel X past the right board edge
+
+// ─── Ability ──────────────────────────────────────────────────────────────────
 
 export const RayquazaAbility: AbilityHandler = {
   abilityId: 'rayquaza_dragon_ascent',
-  castTimeTicks: 20,
+  castTimeTicks: 10,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const damages        = [500, 750, 1200] as const
-    const ascentDuration = 2 * TICK_RATE  // 2 seconds ascent
+    const damages = [300, 450, 9999] as const
+    const hpPcts  = [0.02, 0.05, 9.99] as const
+    const damage  = damages[tier - 1]
+    const hpPct   = hpPcts[tier - 1]
 
-    const centerDmg  = damages[tier - 1]
-    const slamDelay  = ascentDuration
+    const isMega = unit.statusEffects.some(fx => fx.id === 'rayquaza_is_mega')
 
-    const [target] = findNearestEnemies(unit, state, 1)
+    const atkTarget  = unit.targetId ? state.units.get(unit.targetId) : undefined
+    const grabTarget = (atkTarget && atkTarget.state !== 'dead' && atkTarget.team !== unit.team)
+      ? atkTarget
+      : findNearestEnemies(unit, state, 1)[0]
+    if (!grabTarget) return
 
-    // Ascend both units
-    unit.state = 'ascended'
-    if (target) target.state = 'ascended'
+    const originHex: OffsetCoord = { ...unit.hexPos }
 
-    const casterRef  = unit
-    const targetRef  = target
+    if (isMega) {
+      doGrab(unit, state, grabTarget.id, originHex, damage, hpPct)
+    } else {
+      // Phase A: 36-tick evo shake — normal sprite + overlay fades in/out
+      addStatusEffect(unit, {
+        id: 'rayquaza_evo_shake',
+        sourceUnitId: unit.id,
+        durationTicks: MEGA_EVO_SHAKE_TICKS,
+        stackId: 'rayquaza_evo_shake',
+        tickEffect: (u) => { u.state = 'ascended' },
+        onExpire: (u, _s) => {
+          const megaAtkBonus  = [50,   90,   500 ][tier - 1]
+          const megaAspdBonus = [0.30, 0.60, 2.00][tier - 1]
 
-    // Schedule the slam via a status effect countdown on caster
-    addStatusEffect(unit, {
-      id: 'rayquaza_ascent',
-      sourceUnitId: unit.id,
-      durationTicks: slamDelay,
-      stackId: 'rayquaza_ascent',
-      onExpire: (u, st) => {
-        u.state = 'idle'
-        if (targetRef && targetRef.state === 'ascended') targetRef.state = 'idle'
-
-        const slamCenter = targetRef?.hexPos ?? u.hexPos
-
-        for (const hex of hexesInRange(slamCenter, 2)) {
-          const uid = st.hexOccupancy.get(hexId(hex))
-          if (!uid) continue
-          const victim = st.units.get(uid)
-          if (!victim || victim.team === u.team || victim.state === 'dead') continue
-
-          const dist   = hexDistance(hex, slamCenter)
-          const dmgMult = dist === 0 ? 1.0 : dist === 1 ? 0.5 : 0.25
-          applyDamage(u, victim, { baseAmount: Math.round(centerDmg * dmgMult), damageType: 'true', canCrit: false, abilityId: 'rayquaza_dragon_ascent' }, st)
-        }
-      },
-    })
+          // Sprite NOW snaps to mega form
+          addStatusEffect(u, {
+            id: 'rayquaza_is_mega',
+            sourceUnitId: u.id,
+            durationTicks: -1,
+            stackId: 'rayquaza_is_mega',
+          })
+          // Permanent stat bonuses that persist for the rest of combat
+          addStatusEffect(u, {
+            id: 'rayquaza_mega_atk',
+            sourceUnitId: u.id,
+            durationTicks: -1,
+            stackId: 'rayquaza_mega_atk',
+            magnitude: megaAtkBonus,
+          })
+          addStatusEffect(u, {
+            id: 'rayquaza_mega_aspd',
+            sourceUnitId: u.id,
+            durationTicks: -1,
+            stackId: 'rayquaza_mega_aspd',
+            magnitude: megaAspdBonus,
+          })
+          // Phase B: 24-tick mega rumble before grab
+          addStatusEffect(u, {
+            id: 'rayquaza_pre_grab_rumble',
+            sourceUnitId: u.id,
+            durationTicks: MEGA_PRE_GRAB_TICKS,
+            stackId: 'rayquaza_pre_grab_rumble',
+            tickEffect: (u2) => { u2.state = 'ascended' },
+            onExpire: (u2, s2) => {
+              const fresh = s2.units.get(grabTarget.id)
+              if (fresh && fresh.state !== 'dead') {
+                doGrab(u2, s2, fresh.id, originHex, damage, hpPct)
+              } else {
+                const [next] = findNearestEnemies(u2, s2, 1)
+                if (next) doGrab(u2, s2, next.id, originHex, damage, hpPct)
+                else u2.state = 'idle'
+              }
+            },
+          })
+        },
+      })
+      unit.state = 'ascended'      // held frozen by tickEffect each tick
+      unit.incomingDamageMult = 0  // invulnerable for the full evo sequence
+    }
   },
+}
+
+// ─── Phase functions ──────────────────────────────────────────────────────────
+
+function doGrab(
+  unit: Unit,
+  state: CombatState,
+  grabTargetId: string,
+  originHex: OffsetCoord,
+  damage: number,
+  hpPct: number,
+): void {
+  unit.incomingDamageMult = 1.0  // evo phase over, restore normal damage intake
+
+  const grabTarget = state.units.get(grabTargetId)
+  if (!grabTarget || grabTarget.state === 'dead') {
+    unit.state = 'idle'
+    return
+  }
+
+  // If grab target is mid-dash, cancel its leap cleanly before grabbing.
+  // startLeap (non-visualOnly) frees the origin hex from hexOccupancy but doesn't
+  // claim the destination until tickLeapPixel completes — so the grab target has
+  // no hex claimed. Interrupting it here restores occupancy so depositBoth works.
+  if (grabTarget._leap) {
+    if (!grabTarget._leap.visualOnly) {
+      state.hexOccupancy.set(hexId(grabTarget.hexPos), grabTarget.id)
+    }
+    delete grabTarget._leap
+  }
+
+  // Grabbed unit: ascended (can't act), invulnerable, marked for unitLayer motion blur
+  grabTarget.state = 'ascended'
+  grabTarget.incomingDamageMult = 0
+  addStatusEffect(grabTarget, {
+    id: 'rayquaza_grabbed',
+    sourceUnitId: unit.id,
+    durationTicks: -1,
+    stackId: 'rayquaza_grabbed',
+  })
+
+  // Leap to where the grab target visually appears (visualPos may be mid-dash,
+  // ahead of hexPos which only updates on arrival).
+  const snapPx  = grabTarget.visualPos
+  const snapHex = pixelToHex(snapPx.x, snapPx.y, HEX_SIZE)
+  const enemyHex: OffsetCoord = isValidHex(snapHex) ? snapHex : { ...grabTarget.hexPos }
+
+  // Visual-only leap to enemy hex (Rayquaza's logical hexPos stays put)
+  startLeap(unit, enemyHex, state, 2, (u, _s) => {
+    addStatusEffect(u, {
+      id: 'rayquaza_grab_hold',
+      sourceUnitId: u.id,
+      durationTicks: GRAB_HOLD_TICKS,
+      stackId: 'rayquaza_grab_hold',
+      tickEffect: (u2) => { u2.state = 'ascended' },
+      onExpire: (u2, s2) => doFlyOff(u2, s2, grabTargetId, originHex, damage, hpPct),
+    })
+  }, undefined, true /* visualOnly */)
+
+  unit.state = 'leaping'
+}
+
+function doFlyOff(
+  unit: Unit,
+  _state: CombatState,
+  grabTargetId: string,
+  originHex: OffsetCoord,
+  damage: number,
+  hpPct: number,
+): void {
+  unit.state = 'ascended'
+  unit.incomingDamageMult = 0
+
+  addStatusEffect(unit, {
+    id: 'rayquaza_flying',
+    sourceUnitId: unit.id,
+    durationTicks: -1,
+    stackId: 'rayquaza_flying',
+  })
+
+  const startX = unit.visualPos.x
+  const startY = unit.visualPos.y
+  let flyTick = 0
+
+  addStatusEffect(unit, {
+    id: 'rayquaza_fly_off',
+    sourceUnitId: unit.id,
+    durationTicks: FLY_OFF_TICKS,
+    stackId: 'rayquaza_fly_off',
+    tickEffect: (u, s) => {
+      flyTick++
+      const t    = Math.min(flyTick / FLY_OFF_TICKS, 1)
+      const ease = t * t
+      u.visualPos.x = startX + (OFF_SCREEN_X - startX) * ease
+      u.visualPos.y = startY
+
+      const grabbed = s.units.get(grabTargetId)
+      if (grabbed) grabbed.visualPos = { x: u.visualPos.x - 50, y: u.visualPos.y + 20 }
+    },
+    onExpire: (u, _s) => {
+      addStatusEffect(u, {
+        id: 'rayquaza_offscreen_wait',
+        sourceUnitId: u.id,
+        durationTicks: OFFSCREEN_WAIT,
+        stackId: 'rayquaza_offscreen_wait',
+        onExpire: (u2, s2) => doFlyIn(u2, s2, grabTargetId, originHex, damage, hpPct),
+      })
+    },
+  })
+}
+
+function doFlyIn(
+  unit: Unit,
+  state: CombatState,
+  grabTargetId: string,
+  originHex: OffsetCoord,
+  damage: number,
+  hpPct: number,
+): void {
+  // Furthest living enemy from originHex = slam target
+  let slamTarget: Unit | null = null
+  let bestDist = -1
+  for (const u of state.units.values()) {
+    if (u.team === unit.team || u.state === 'dead') continue
+    const d = hexDistance(originHex, u.hexPos)
+    if (d > bestDist) { bestDist = d; slamTarget = u }
+  }
+
+  if (!slamTarget) {
+    removeStatusEffect(unit, 'rayquaza_flying')
+    unit.incomingDamageMult = 1.0
+    depositBoth(unit, state, grabTargetId, originHex)
+    return
+  }
+
+  const slamHex     = { ...slamTarget.hexPos } as OffsetCoord
+  const slamTargetId = slamTarget.id
+  const slamPx      = hexToPixel(slamHex, HEX_SIZE)
+
+  unit.visualPos = { x: OFF_SCREEN_X, y: slamPx.y }
+
+  let flyTick = 0
+  addStatusEffect(unit, {
+    id: 'rayquaza_fly_in',
+    sourceUnitId: unit.id,
+    durationTicks: FLY_IN_TICKS,
+    stackId: 'rayquaza_fly_in',
+    tickEffect: (u, s) => {
+      flyTick++
+      const t    = Math.min(flyTick / FLY_IN_TICKS, 1)
+      const ease = 1 - (1 - t) * (1 - t)
+      u.visualPos.x = OFF_SCREEN_X + (slamPx.x - OFF_SCREEN_X) * ease
+      u.visualPos.y = slamPx.y - Math.sin(t * Math.PI) * 50
+
+      const grabbed = s.units.get(grabTargetId)
+      if (grabbed) grabbed.visualPos = { x: u.visualPos.x - 50, y: u.visualPos.y + 20 }
+    },
+    onExpire: (u, s) => doSlam(u, s, grabTargetId, slamHex, slamTargetId, damage, hpPct),
+  })
+}
+
+function doSlam(
+  unit: Unit,
+  state: CombatState,
+  grabTargetId: string,
+  slamHex: OffsetCoord,
+  _slamTargetId: string,
+  damage: number,
+  hpPct: number,
+): void {
+  removeStatusEffect(unit, 'rayquaza_flying')
+  unit.incomingDamageMult = 1.0
+
+  const grabbed   = state.units.get(grabTargetId)
+  const grabMaxHp = grabbed?.maxHp ?? 0
+  const totalDmg  = damage + Math.round(grabMaxHp * hpPct)
+
+  // Slam VFX — explosion image centered at slam hex, fades out over ~35 ticks
+  const slamPx = hexToPixel(slamHex, HEX_SIZE)
+  state.events.push({ type: 'vfx', effectId: 'dragon_slam', x: slamPx.x, y: slamPx.y })
+
+  // Restore grabbed unit's damage immunity before the AoE lands
+  if (grabbed) {
+    removeStatusEffect(grabbed, 'rayquaza_grabbed')
+    grabbed.incomingDamageMult = 1.0
+  }
+
+  // AoE: 1-hex radius = full, 2-hex radius = 50%
+  for (const hex of hexesInRange(slamHex, 2)) {
+    const uid = state.hexOccupancy.get(hexId(hex))
+    if (!uid) continue
+    const victim = state.units.get(uid)
+    if (!victim || victim.team === unit.team || victim.state === 'dead') continue
+    const dist = hexDistance(hex, slamHex)
+    const mult = dist <= 1 ? 1.0 : 0.5
+    applyDamage(unit, victim, {
+      baseAmount: Math.round(totalDmg * mult),
+      damageType: 'physical',
+      canCrit: true,
+      abilityId: 'rayquaza_dragon_ascent',
+    }, state)
+  }
+
+  depositBoth(unit, state, grabTargetId, slamHex)
+}
+
+function depositBoth(
+  unit: Unit,
+  state: CombatState,
+  grabTargetId: string,
+  slamHex: OffsetCoord,
+): void {
+  const grabbed   = state.units.get(grabTargetId)
+  const grabAlive = grabbed != null && grabbed.state !== 'dead'
+
+  // Release both units' hexes FIRST so they don't block each other's BFS
+  state.hexOccupancy.delete(hexId(unit.hexPos))
+  if (grabbed) state.hexOccupancy.delete(hexId(grabbed.hexPos))
+
+  // Track which destinations have already been assigned so they're never shared
+  const taken = new Set<string>()
+
+  if (grabAlive) {
+    removeStatusEffect(grabbed!, 'rayquaza_grabbed')
+    grabbed!.incomingDamageMult = 1.0
+    const dest = findNearestOpenHex(slamHex, state, taken)
+    if (dest) {
+      taken.add(hexId(dest))
+      grabbed!.hexPos    = { ...dest }
+      grabbed!.visualPos = hexToPixel(dest, HEX_SIZE)
+      state.hexOccupancy.set(hexId(dest), grabbed!.id)
+    }
+    grabbed!.state = 'idle'
+  }
+
+  // Rayquaza lands adjacent to grabbed unit (so he's in attack range); falls back to slamHex
+  const rayqSrc = grabAlive ? grabbed!.hexPos : slamHex
+  const rayqDest = findNearestOpenHex(rayqSrc, state, taken)
+  if (rayqDest) {
+    unit.hexPos    = { ...rayqDest }
+    unit.visualPos = hexToPixel(rayqDest, HEX_SIZE)
+    state.hexOccupancy.set(hexId(rayqDest), unit.id)
+  }
+  unit.state = 'idle'
+
+  // Point Rayquaza at his grabbed target if still alive, else AI re-acquires next tick
+  if (grabAlive && grabbed) {
+    unit.targetId = grabbed.id
+  }
+}
+
+// BFS outward from fromHex; skips hexes in `excluded` (already assigned this turn)
+function findNearestOpenHex(
+  fromHex: OffsetCoord,
+  state: CombatState,
+  excluded: Set<string>,
+): OffsetCoord | null {
+  const visited = new Set<string>()
+  const queue: OffsetCoord[] = [fromHex]
+
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    const key     = hexId(current)
+    if (visited.has(key)) continue
+    visited.add(key)
+
+    if (!isValidHex(current)) continue
+
+    // Open = nothing in occupancy map AND not already assigned this deposit
+    if (!state.hexOccupancy.get(key) && !excluded.has(key)) return current
+
+    for (const n of getNeighbors(current)) {
+      if (!visited.has(hexId(n))) queue.push(n)
+    }
+  }
+  return null
 }

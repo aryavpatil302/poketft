@@ -4,12 +4,14 @@ import { MANA_PER_AUTO_HIT, MANA_PER_DAMAGE_PCT, MANA_LOCK_TICKS } from '../cons
 // Called on the attacker after a successful auto-attack hit
 export function gainManaOnHit(unit: Unit): void {
   if (unit.manaLockTimer > 0) return
+  if (unit.statusEffects.some(fx => fx.suppressManaGain)) return
   unit.currentMana = Math.min(unit.maxMana, unit.currentMana + MANA_PER_AUTO_HIT)
 }
 
 // Called on the defender after taking pre-mitigation damage
 export function gainManaOnDamageTaken(unit: Unit, preMitigDamage: number): void {
   if (unit.manaLockTimer > 0) return
+  if (unit.statusEffects.some(fx => fx.suppressManaGain)) return
   const gain = Math.floor(preMitigDamage * MANA_PER_DAMAGE_PCT)
   unit.currentMana = Math.min(unit.maxMana, unit.currentMana + gain)
 }

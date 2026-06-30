@@ -6,6 +6,15 @@ import { HEX_SIZE, BOARD_PERSP_Y } from '../../core/constants'
 const leafImg = new Image()
 leafImg.src = '/visuals/ability_icons/tangela_leaf.webp'
 
+const dragonSlamImg = new Image()
+dragonSlamImg.src = '/visuals/ability_icons/dragon-scent-slam.webp'
+
+const poisonStingImg = new Image()
+poisonStingImg.src = '/visuals/ability_icons/poison_sting.webp'
+
+const powerGemImg = new Image()
+powerGemImg.src = '/visuals/ability_icons/power_gem.webp'
+
 // Looping WebM video for Tangela's cast animation (created after makeLoopingVideo is defined below)
 let tangelaCastVideo: HTMLVideoElement
 
@@ -25,7 +34,8 @@ function makeLoopingVideo(src: string): HTMLVideoElement {
   return v
 }
 
-const leechSeedVideo   = makeLoopingVideo('/visuals/ability_icons/leech_seed.webm')
+const leechSeedVideo     = makeLoopingVideo('/visuals/ability_icons/leech_seed.webm')
+const unawarePopVideo    = makeLoopingVideo('/visuals/ability_icons/Unaware.webm')
 tangelaCastVideo       = makeLoopingVideo('/visuals/ability_icons/tangela_cast.webm')
 const dischargeVideo       = makeLoopingVideo('/visuals/ability_icons/discharge.webm')
 function spawnOneShot(src: string): HTMLVideoElement {
@@ -60,6 +70,10 @@ const armorCannonExplosionImg = new Image()
 armorCannonExplosionImg.src = '/visuals/ability_icons/armor_cannon_explosion.png'
 const smogImg = new Image()
 smogImg.src = '/visuals/ability_icons/smog.webp'
+const strengthSapImg = new Image()
+strengthSapImg.src = '/visuals/ability_icons/strength_sap.webp'
+const storedPowerImg = new Image()
+storedPowerImg.src = '/visuals/ability_icons/stored_power.webp'
 const fireballImg = new Image()
 fireballImg.src = '/visuals/ability_icons/fireball.webp'
 // whirlpool: per-instance video spawned on cast (loop=true)
@@ -200,7 +214,59 @@ interface BlastBurnDetonateEffect {
   video: HTMLVideoElement
 }
 
-type VfxEffect = DischargeRowEffect | BeakBlastEffect | CastGlowEffect | LeafShieldEffect | TornadoEffect | SandShakeEffect | WhirlpoolEffect | WhiteSmokeEffect | CannonExplosionEffect | SmogPuffEffect | BlastBurnMarkEffect | BlastBurnDetonateEffect
+interface BoomburstBurstEffect {
+  kind: 'boomburst_burst'
+  cx: number   // Noivern's center X (fixed)
+  cy: number   // Noivern's center Y (fixed)
+  tick: number
+  maxTick: number
+  video: HTMLVideoElement
+}
+
+interface DragonSlamEffect {
+  kind: 'dragon_slam'
+  cx: number
+  cy: number
+  tick: number
+  maxTick: number
+}
+
+interface BelliboltDischargeEffect {
+  kind: 'bellibolt_discharge'
+  unitId: string
+  x: number   // fallback if unit is gone
+  y: number
+  tick: number
+  maxTick: number
+  video: HTMLVideoElement
+}
+
+interface QuagsireShieldPopEffect {
+  kind: 'quagsire_shield_pop'
+  x: number
+  y: number
+  tick: number
+  maxTick: number
+}
+
+interface PsystrikeEffect {
+  kind: 'tapulele_psystrike'
+  targetId: string
+  video: HTMLVideoElement   // one-shot psystrike.webm, 2s
+  tick: number
+  maxTick: number           // 120 frames ≈ 2 seconds
+  rotation: number          // radians — extra casts on same target are rotated apart
+}
+
+interface CelebiFsMarkEffect {
+  kind: 'celebi_fs_mark'
+  unitId: string
+  video: HTMLVideoElement  // one-shot future_sight.webm timed to 2s
+  tick: number
+  maxTick: number          // 2 * TICK_RATE = 120
+}
+
+type VfxEffect = DischargeRowEffect | BeakBlastEffect | CastGlowEffect | LeafShieldEffect | TornadoEffect | SandShakeEffect | WhirlpoolEffect | WhiteSmokeEffect | CannonExplosionEffect | SmogPuffEffect | BlastBurnMarkEffect | BlastBurnDetonateEffect | BoomburstBurstEffect | DragonSlamEffect | BelliboltDischargeEffect | QuagsireShieldPopEffect | PsystrikeEffect | CelebiFsMarkEffect
 
 interface DrainProjectile {
   currentPos: { x: number; y: number }
@@ -393,6 +459,27 @@ export class EffectLayer {
             video: spawnOneShot('/visuals/ability_icons/blast_burn_detonation.webm'),
           })
         }
+        if (ev.effectId === 'tapulele_psystrike') {
+          const v = document.createElement('video')
+          v.loop = false; v.muted = true; v.playsInline = true; v.preload = 'auto'
+          v.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none'
+          document.body.appendChild(v)
+          v.src = '/visuals/ability_icons/psystrike.webm'
+          v.play().catch(() => {})
+          this.vfxEffects.push({ kind: 'tapulele_psystrike', targetId: ev.targetId, video: v, tick: 0, maxTick: 120, rotation: ev.rotation ?? 0 })
+        }
+        if (ev.effectId === 'celebi_mark_apply') {
+          const alreadyMarked = this.vfxEffects.some(e => e.kind === 'celebi_fs_mark' && e.unitId === ev.unitId)
+          if (!alreadyMarked) {
+            const v = document.createElement('video')
+            v.loop = false; v.muted = true; v.playsInline = true; v.preload = 'auto'
+            v.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none'
+            document.body.appendChild(v)
+            v.src = '/visuals/ability_icons/future_sight.webm'
+            v.play().catch(() => {})
+            this.vfxEffects.push({ kind: 'celebi_fs_mark', unitId: ev.unitId, video: v, tick: 0, maxTick: 120 })
+          }
+        }
       }
 
       // ── Leech drain visual projectile ───────────────────────────────────────
@@ -515,6 +602,43 @@ export class EffectLayer {
         this.castAnimations.push({ unitId: ev.unitId, type: 'spin', remaining: 18, total: 18 })
         // (fire effect handled by unitLayer via modifier check)
       }
+      if (ev.type === 'vfx' && ev.effectId === 'boomburst_soundwave') {
+        this.vfxEffects.push({
+          kind: 'boomburst_burst',
+          cx: ev.x, cy: ev.y,
+          tick: 0,
+          maxTick: 39,  // matches ~0.65s WebM duration at 60fps
+          video: spawnOneShot('/visuals/ability_icons/boomburst_soundwave.webm'),
+        })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'dragon_slam') {
+        this.vfxEffects.push({
+          kind: 'dragon_slam',
+          cx: ev.x, cy: ev.y,
+          tick: 0,
+          maxTick: 35,  // ~0.58s fade-out
+        })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'quagsire_shield_pop') {
+        this.vfxEffects.push({
+          kind: 'quagsire_shield_pop',
+          x: ev.x,
+          y: ev.y,
+          tick: 0,
+          maxTick: 22,
+        })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'bellibolt_discharge') {
+        this.vfxEffects.push({
+          kind: 'bellibolt_discharge',
+          unitId: ev.unitId,
+          x: ev.x,
+          y: ev.y,
+          tick: 0,
+          maxTick: 60,
+          video: spawnOneShot('/visuals/ability_icons/Electrophoresis.webm'),
+        })
+      }
     }
   }
 
@@ -601,10 +725,11 @@ export class EffectLayer {
     for (const effect of this.vfxEffects) {
       effect.tick++
       if (effect.tick > effect.maxTick) {
-        if (effect.kind === 'beak_blast' || effect.kind === 'tornado' || effect.kind === 'sand_shake' || effect.kind === 'whirlpool' || effect.kind === 'white_smoke' || effect.kind === 'blast_burn_mark' || effect.kind === 'blast_burn_detonate') {
+        if (effect.kind === 'beak_blast' || effect.kind === 'tornado' || effect.kind === 'sand_shake' || effect.kind === 'whirlpool' || effect.kind === 'white_smoke' || effect.kind === 'blast_burn_mark' || effect.kind === 'blast_burn_detonate' || effect.kind === 'boomburst_burst' || effect.kind === 'bellibolt_discharge' || effect.kind === 'tapulele_psystrike' || effect.kind === 'celebi_fs_mark') {
           effect.video.pause()
           effect.video.remove()
         }
+        // dragon_slam uses a static image — no cleanup needed
         continue
       }
 
@@ -621,6 +746,12 @@ export class EffectLayer {
         case 'smog_puff':           this.drawSmogPuff(ctx, effect);                 break
         case 'blast_burn_mark':     this.drawBlastBurnMark(ctx, effect, state);     break
         case 'blast_burn_detonate': this.drawBlastBurnDetonate(ctx, effect, state); break
+        case 'boomburst_burst':     this.drawBoomburstBurst(ctx, effect); break
+        case 'dragon_slam':             this.drawDragonSlam(ctx, effect);               break
+        case 'bellibolt_discharge':     this.drawBelliboltDischarge(ctx, effect, state); break
+        case 'quagsire_shield_pop':         this.drawQuagsireShieldPop(ctx, effect);              break
+        case 'tapulele_psystrike':          this.drawPsystrike(ctx, effect, state);               break
+        case 'celebi_fs_mark':              this.drawCelebiFsMark(ctx, effect, state);             break
       }
       aliveVfx.push(effect)
     }
@@ -798,6 +929,56 @@ export class EffectLayer {
     ctx.restore()
   }
 
+  // ─── Tapu Lele psystrike (one-shot webm centered over target) ───────────────
+
+  private drawPsystrike(ctx: CanvasRenderingContext2D, effect: PsystrikeEffect, state: CombatState): void {
+    const unit = state.units.get(effect.targetId)
+    if (!unit || unit.state === 'dead') { effect.tick = effect.maxTick + 1; return }
+    if (effect.video.readyState < 2) return
+    const size = HEX_SIZE * 2.4
+    ctx.save()
+    ctx.translate(unit.visualPos.x, unit.visualPos.y)
+    ctx.rotate(effect.rotation)
+    ctx.drawImage(effect.video, -size / 2, -size / 2, size, size)
+    ctx.restore()
+  }
+
+  // ─── Celebi Future Sight mark (floats above unit, descends before detonation) ──
+
+  private drawCelebiFsMark(ctx: CanvasRenderingContext2D, effect: CelebiFsMarkEffect, state: CombatState): void {
+    const unit = state.units.get(effect.unitId)
+    if (!unit || unit.state === 'dead' || !unit.marks.some(m => m.id.startsWith('celebi_mark_'))) {
+      effect.tick = effect.maxTick + 1
+      return
+    }
+    if (effect.video.readyState < 2) return
+
+    const progress = effect.tick / effect.maxTick  // 0 → 1 over 2 seconds
+    const DESCENT_START = 0.86  // only last 14% → very fast snap down
+
+    if (progress < DESCENT_START) {
+      // Float above the unit (above HP bar, same anchor as blast_burn_mark)
+      const size   = HEX_SIZE * 0.55
+      const barTop = unit.visualPos.y - HEX_SIZE * 0.80 - 16
+      ctx.drawImage(effect.video, unit.visualPos.x - size / 2, barTop - size, size, size)
+    } else {
+      // Fast descent onto unit — grows 200% (×3 the hover size)
+      const t         = (progress - DESCENT_START) / (1 - DESCENT_START)  // 0→1 in last 14%
+      const ease      = t * t
+      const startSize = HEX_SIZE * 0.55
+      const endSize   = HEX_SIZE * 3.8                                     // 200% growth
+      const size      = startSize + (endSize - startSize) * ease
+      const barTop    = unit.visualPos.y - HEX_SIZE * 0.80 - 16
+      const startY    = barTop - startSize / 2
+      const endY      = unit.visualPos.y
+      const cy        = startY + (endY - startY) * ease
+      ctx.save()
+      ctx.globalAlpha = 1 - ease * 0.15
+      ctx.drawImage(effect.video, unit.visualPos.x - size / 2, cy - size / 2, size, size)
+      ctx.restore()
+    }
+  }
+
   // ─── Whirlpool (Tapu Fini) ────────────────────────────────────────────────
 
   private drawWhirlpool(ctx: CanvasRenderingContext2D, effect: WhirlpoolEffect, state?: CombatState): void {
@@ -912,6 +1093,67 @@ export class EffectLayer {
         ctx.drawImage(img, proj.currentPos.x - size / 2, proj.currentPos.y - size / 2, size, size)
         return
       }
+    }
+
+    if ((proj.abilityId === 'sableye_power_gem_damage' || proj.abilityId === 'sableye_power_gem_shield')
+        && powerGemImg.complete && powerGemImg.naturalWidth > 0) {
+      const size = 42
+      ctx.save()
+      if (proj.abilityId === 'sableye_power_gem_shield') {
+        // Shift red gem → blue for shield cast
+        ctx.filter = 'hue-rotate(220deg) saturate(2) brightness(1.2)'
+      }
+      ctx.drawImage(powerGemImg, proj.currentPos.x - size / 2, proj.currentPos.y - size / 2, size, size)
+      ctx.restore()
+      return
+    }
+
+    if (proj.abilityId === 'zubat_poison_sting' && poisonStingImg.complete && poisonStingImg.naturalWidth > 0) {
+      const target = state?.units.get(proj.targetId)
+      const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
+      const ty = target?.visualPos.y ?? proj.currentPos.y
+      const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
+      const size = 32
+      ctx.save()
+      ctx.translate(proj.currentPos.x, proj.currentPos.y)
+      // Image tip (ring) is at upper-right (~45° above horizontal) — offset by π/4 to align with target
+      ctx.rotate(angle + Math.PI / 4)
+      ctx.drawImage(poisonStingImg, -size / 2, -size / 2, size, size)
+      ctx.restore()
+      return
+    }
+
+    if ((proj.abilityId === 'oranguru_stored_power' || proj.abilityId === 'oranguru_stored_power_emp')
+        && storedPowerImg.complete && storedPowerImg.naturalWidth > 0) {
+      const target = state?.units.get(proj.targetId)
+      const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
+      const ty = target?.visualPos.y ?? proj.currentPos.y
+      const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
+      const isEmp = proj.abilityId === 'oranguru_stored_power_emp'
+      const size = isEmp ? 52 : 34  // empowered is 50% bigger
+      ctx.save()
+      ctx.translate(proj.currentPos.x, proj.currentPos.y)
+      ctx.rotate(angle)  // chevrons point right in image → no offset
+      ctx.drawImage(storedPowerImg, -size / 2, -size / 2, size, size)
+      ctx.restore()
+      return
+    }
+
+    if ((proj.abilityId === 'morelull_strength_sap' || proj.abilityId === 'morelull_strength_sap_heal')
+        && strengthSapImg.complete && strengthSapImg.naturalWidth > 0) {
+      const target = state?.units.get(proj.targetId)
+      const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
+      const ty = target?.visualPos.y ?? proj.currentPos.y
+      const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
+      const isHeal = proj.abilityId === 'morelull_strength_sap_heal'
+      const size = isHeal ? 39 : 63
+      ctx.save()
+      ctx.translate(proj.currentPos.x, proj.currentPos.y)
+      ctx.rotate(angle + Math.PI / 2)  // caps point up in image → +90° to aim cap at target
+      if (isHeal) ctx.filter = 'hue-rotate(100deg) saturate(2.5) brightness(0.85)'
+      ctx.drawImage(strengthSapImg, -size / 2, -size / 2, size, size)
+      ctx.restore()
+      return
     }
 
     if ((proj.abilityId === 'blast_burn_fireball' || proj.abilityId === 'blast_burn_powerful_fireball' || proj.abilityId === 'blast_burn_execute_fireball') && fireballImg.complete && fireballImg.naturalWidth > 0) {
@@ -1041,5 +1283,102 @@ export class EffectLayer {
     ctx.strokeStyle = '#ffffff'
     ctx.lineWidth   = 1
     ctx.stroke()
+  }
+
+  // ─── Boomburst (Noivern) ─────────────────────────────────────────────────
+  // Plays the boomburst_soundwave.webm centered on Noivern. The WebM contains
+  // 16 rays emanating from center at set angles, tips forming a clean circle.
+
+  private drawBoomburstBurst(ctx: CanvasRenderingContext2D, effect: BoomburstBurstEffect): void {
+    if (effect.video.readyState < 2) return
+    const size = HEX_SIZE * 13
+    const x    = effect.cx - size / 2
+    const y    = effect.cy - size / 2
+
+    // Top half — draw normally, clipped to the upper half of the bounding box
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(x, y, size, size / 2)
+    ctx.clip()
+    ctx.drawImage(effect.video, x, y, size, size)
+    ctx.restore()
+
+    // Bottom half — flip vertically around the centre, clipped to the lower half
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(x, effect.cy, size, size / 2)
+    ctx.clip()
+    ctx.translate(effect.cx, effect.cy)
+    ctx.scale(1, -1)
+    ctx.drawImage(effect.video, -size / 2, -size / 2, size, size)
+    ctx.restore()
+  }
+
+  // ─── Dragon Slam (Rayquaza) ───────────────────────────────────────────────
+  // Static explosion image centered on the slam hex, fading out over ~35 ticks.
+  // Size covers the 2-hex AoE radius.
+
+  private drawDragonSlam(ctx: CanvasRenderingContext2D, effect: DragonSlamEffect): void {
+    if (!dragonSlamImg.complete || dragonSlamImg.naturalWidth === 0) return
+    const alpha = (1 - effect.tick / effect.maxTick) * 1.2  // 30% more opaque at start (capped by globalAlpha clamp)
+    const size  = HEX_SIZE * 7   // ~420px — covers 2-hex AoE radius
+    ctx.save()
+    ctx.globalAlpha = Math.min(alpha, 1.0)
+    // Neon green tint: shift hue from red/yellow → green, boost saturation and brightness
+    ctx.filter = 'hue-rotate(120deg) saturate(2.5) brightness(1.4)'
+    ctx.drawImage(dragonSlamImg, effect.cx - size / 2, effect.cy - size / 2, size, size)
+    ctx.restore()
+  }
+
+  // ─── Quagsire Shield Pop (Unaware) ──────────────────────────────────────
+
+  private drawQuagsireShieldPop(ctx: CanvasRenderingContext2D, effect: QuagsireShieldPopEffect): void {
+    if (unawarePopVideo.readyState < 2) return
+    const t = effect.tick / effect.maxTick
+    // BASE_SIZE matches the live shield bubble drawn in unitLayer
+    const BASE = HEX_SIZE * 2.56   // matches unitLayer aura: SPRITE_HALF(0.8) * 3.2 = HEX_SIZE * 2.56
+
+    // Four phases: grow → squash → stretch → shrink+fade
+    let sx = 1, sy = 1, alpha = 1
+    if (t < 0.28) {
+      const p = t / 0.28
+      const s = 1.0 + 1.3 * p          // 1.0 → 2.3
+      sx = s; sy = s
+    } else if (t < 0.50) {
+      const p = (t - 0.28) / 0.22
+      sx = 2.3 + 0.6 * p               // 2.3 → 2.9  (wide)
+      sy = 2.3 - 0.9 * p               // 2.3 → 1.4  (squash)
+    } else if (t < 0.72) {
+      const p = (t - 0.50) / 0.22
+      sx = 2.9 - 1.4 * p               // 2.9 → 1.5  (narrow)
+      sy = 1.4 + 1.4 * p               // 1.4 → 2.8  (stretch)
+    } else {
+      const p = (t - 0.72) / 0.28
+      sx    = 1.5 * (1 - p)
+      sy    = 2.8 * (1 - p)
+      alpha = 1 - p
+    }
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.translate(effect.x, effect.y)
+    ctx.scale(sx, sy)
+    ctx.drawImage(unawarePopVideo, -BASE / 2, -BASE / 2, BASE, BASE)
+    ctx.restore()
+  }
+
+  // ─── Bellibolt Discharge (Electrophoresis) ───────────────────────────────
+
+  private drawBelliboltDischarge(ctx: CanvasRenderingContext2D, effect: BelliboltDischargeEffect, state: CombatState): void {
+    const vid = effect.video
+    if (vid.readyState < 2) return
+    const unit = state.units.get(effect.unitId)
+    const cx = unit ? unit.visualPos.x : effect.x
+    const cy = unit ? unit.visualPos.y : effect.y
+    const size = HEX_SIZE * 5.5
+    ctx.save()
+    ctx.globalAlpha = 1.0
+    ctx.drawImage(vid, cx - size / 2, cy - size / 2, size, size)
+    ctx.restore()
   }
 }

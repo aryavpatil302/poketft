@@ -1,8 +1,8 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
 import { TICK_RATE } from '../constants'
-import { applyDamage } from '../systems/damage'
-import { applyHeal } from '../systems/heal'
+import { computeStats } from '../unitFactory'
+import { createProjectile } from '../projectile'
 import { addStatusEffect } from '../systems/statusEffect'
 import { hexDistance } from '../hexGrid'
 
@@ -17,12 +17,19 @@ function findNearestEnemy(unit: Unit, state: CombatState): Unit | null {
   return best
 }
 
-function findNearestAlly(unit: Unit, state: CombatState): Unit | null {
+// Nearest ally to a pixel position — for finding the ally closest to the hit enemy
+function findNearestAllyToPos(
+  casterTeam: string,
+  px: number, py: number,
+  state: CombatState,
+): Unit | null {
   let best: Unit | null = null
   let bestDist = Infinity
   for (const other of state.units.values()) {
-    if (other.id === unit.id || other.team !== unit.team || other.state === 'dead') continue
-    const d = hexDistance(unit.hexPos, other.hexPos)
+    if (other.team !== casterTeam || other.state === 'dead') continue
+    const dx = other.visualPos.x - px
+    const dy = other.visualPos.y - py
+    const d = dx * dx + dy * dy
     if (d < bestDist) { bestDist = d; best = other }
   }
   return best
@@ -33,42 +40,78 @@ export const MorelullAbility: AbilityHandler = {
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const damageValues    = [120, 180, 300] as const
-    const atkReducValues  = [15,  25,  40 ] as const
-    const healValues      = [80,  120, 200] as const
+    const baseDamages = [300, 450, 700] as const
+    const healPcts    = [0.85, 1.00, 1.30] as const
 
-    const damage    = damageValues[tier - 1]
-    const atkReduc  = atkReducValues[tier - 1]
-    const healAmt   = healValues[tier - 1]
+    const damage  = baseDamages[tier - 1]
+    const healPct = healPcts[tier - 1]
 
-    // Deal magic damage + atk reduction to current attack target, fallback nearest enemy
     const attackTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
     const enemy = (attackTarget && attackTarget.state !== 'dead' && attackTarget.team !== unit.team)
       ? attackTarget
       : findNearestEnemy(unit, state)
-    if (enemy) {
-      applyDamage(unit, enemy, {
-        baseAmount: damage,
-        damageType: 'magic',
-        canCrit: false,
+    if (!enemy) return
+
+    const casterTeam = unit.team
+
+    // Brief shake when launching
+    addStatusEffect(unit, {
+      id: 'morelull_shake',
+      sourceUnitId: unit.id,
+      durationTicks: 14,
+      magnitude: 14,
+      stackId: 'morelull_shake',
+    })
+
+    state.projectiles.set(
+      `proj_${Math.random().toString(36).slice(2, 9)}`,
+      createProjectile({
+        sourceId: unit.id,
+        targetId: enemy.id,
+        startPos: { ...unit.visualPos },
+        speed: 10,
         abilityId: 'morelull_strength_sap',
-      }, state)
+        damagePayload: {
+          baseAmount: damage,
+          damageType: 'magic',
+          canCrit: false,
+          abilityId: 'morelull_strength_sap',
+        },
+        onHit: (_src, tgt, st) => {
+          // 33% attack reduction for 3 seconds (flat of their current attack)
+          const atkBefore = computeStats(tgt).attack
+          const flatReduction = Math.round(atkBefore * 0.33)
+          if (flatReduction > 0) {
+            addStatusEffect(tgt, {
+              id: 'atk_reduction',
+              sourceUnitId: unit.id,
+              durationTicks: 3 * TICK_RATE,
+              magnitude: flatReduction,
+              stackId: `morelull_atkreduc_${tgt.id}`,
+            })
+          }
 
-      if (enemy.state !== 'dead') {
-        addStatusEffect(enemy, {
-          id: 'atk_reduction',
-          sourceUnitId: unit.id,
-          durationTicks: 3 * TICK_RATE,
-          magnitude: atkReduc,
-          stackId: `morelull_atkreduc_${enemy.id}_${state.tick}`,
-        })
-      }
-    }
+          // Heal amount = healPct × target's attack (before applying the reduction)
+          const healAmount = Math.round(atkBefore * healPct)
+          if (healAmount <= 0) return
 
-    // Heal nearest ally
-    const ally = findNearestAlly(unit, state)
-    if (ally) {
-      applyHeal(ally, healAmt, unit.id, state)
-    }
+          // Second projectile: from enemy → nearest ally to that enemy
+          const ally = findNearestAllyToPos(casterTeam, tgt.visualPos.x, tgt.visualPos.y, st)
+          if (!ally) return
+
+          st.projectiles.set(
+            `proj_${Math.random().toString(36).slice(2, 9)}`,
+            createProjectile({
+              sourceId: tgt.id,
+              targetId: ally.id,
+              startPos: { ...tgt.visualPos },
+              speed: 8,
+              abilityId: 'morelull_strength_sap_heal',
+              healPayload: { amount: healAmount },
+            }),
+          )
+        },
+      }),
+    )
   },
 }

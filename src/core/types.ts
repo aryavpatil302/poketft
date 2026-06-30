@@ -90,6 +90,7 @@ export interface StatusEffect {
   onExpire?: (unit: Unit, state: CombatState) => void
   tickEffect?: (unit: Unit, state: CombatState) => void
   tickInterval?: number   // only fire tickEffect every N ticks (default: 1)
+  suppressManaGain?: boolean  // while this effect is active, the unit cannot gain mana
 }
 
 // ─── Attack modifier ──────────────────────────────────────────────────────────
@@ -241,6 +242,8 @@ export interface DamagePayload {
   scalingRatio?: number   // fraction of scalingStat added to baseAmount
   // 'auto_attack' for auto attacks; an ability id for ability damage; undefined for untagged
   abilityId?: string
+  armorPiercePct?: number   // 0–1: fraction of target's defense to ignore (physical only)
+  spDefPiercePct?: number   // 0–1: fraction of target's sp. defense to ignore (magic only)
 }
 
 export interface HealPayload {
@@ -286,6 +289,12 @@ export type CombatEvent =
   | { type: 'vfx';         effectId: 'blast_burn_detonate';       unitId: string; x: number; y: number }
   | { type: 'vfx';         effectId: 'marowak_hammer_swing';      unitId: string; dirX: number; dirY: number; swingDir: number }
   | { type: 'vfx';         effectId: 'marowak_spin_strike';       unitId: string }
+  | { type: 'vfx';         effectId: 'boomburst_soundwave';       x: number; y: number; sourceId: string }
+  | { type: 'vfx';         effectId: 'dragon_slam';               x: number; y: number }
+  | { type: 'vfx';         effectId: 'bellibolt_discharge';       unitId: string; x: number; y: number }
+  | { type: 'vfx';         effectId: 'quagsire_shield_pop';       x: number; y: number }
+  | { type: 'vfx';         effectId: 'celebi_mark_apply';         unitId: string; x: number; y: number }
+  | { type: 'vfx';         effectId: 'tapulele_psystrike';        targetId: string; x: number; y: number; rotation?: number }
   | { type: 'leech_drain'; sourceUnitId: string; venusaurId: string }
 
 // ─── Combat world state ───────────────────────────────────────────────────────

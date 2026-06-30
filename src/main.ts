@@ -7,6 +7,7 @@ import { hexToPixel, pixelToHex, hexId } from './core/hexGrid'
 import { HEX_SIZE, TICK_RATE, BOARD_PERSP_Y } from './core/constants'
 import { makeUnit, computeStats } from './core/unitFactory'
 import { tickStatusEffects, tickShields } from './core/systems/statusEffect'
+import { tickMarks } from './core/systems/marks'
 import { tickManaLock, isReadyToCast } from './core/systems/mana'
 import { tickTargeting } from './core/systems/targeting'
 import { tickMovement, tickLeapPixel, recalculatePath } from './core/systems/movement'
@@ -14,6 +15,7 @@ import { tickAttack, isInRange, startAttacking } from './core/systems/attack'
 import { triggerAbility, tickAbilityCast } from './core/systems/ability'
 import { tickProjectiles } from './core/projectile'
 import { ALL_UNITS } from './data/units'
+import { REPO_TESTS } from './repoTests'
 import type { CombatState, Unit } from './core/types'
 import type { OffsetCoord } from './core/hexGrid'
 
@@ -212,15 +214,21 @@ document.getElementById('app')!.innerHTML = `
         <div style="font-size:10px;color:#445;margin-bottom:6px;flex-shrink:0;">Loads board — then hit Play/Start</div>
 
         <!-- Search -->
-        <input id="test-search" type="text" placeholder="Search saved tests…" style="
+        <input id="test-search" type="text" placeholder="Search tests…" style="
           width:100%; padding:4px 6px; margin-bottom:6px;
           background:#0a1220; border:1px solid #335; color:#aabbdd;
           border-radius:4px; font-size:10px; box-sizing:border-box;
           flex-shrink:0;
         ">
 
-        <!-- Scrollable list -->
-        <div id="test-buttons-saved" style="flex:1;overflow-y:auto;overflow-x:hidden;min-height:0;"></div>
+        <!-- Scrollable list: repo tests (from git) then local tests -->
+        <div style="flex:1;overflow-y:auto;overflow-x:hidden;min-height:0;">
+          <div style="font-size:9px;color:#557;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Repo</div>
+          <div id="test-buttons-repo"></div>
+          <div style="border-top:1px solid #223;margin:6px 0 5px;"></div>
+          <div style="font-size:9px;color:#557;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Local</div>
+          <div id="test-buttons-saved"></div>
+        </div>
 
         <!-- Save row -->
         <div style="margin-top:8px;display:flex;gap:4px;flex-shrink:0;">
@@ -235,6 +243,12 @@ document.getElementById('app')!.innerHTML = `
             white-space:nowrap; flex-shrink:0;
           ">Save</button>
         </div>
+        <!-- Push all local tests to repo (dev only) -->
+        <button id="btn-push-all-tests" style="
+          margin-top:5px; width:100%; padding:4px 8px;
+          background:#101820; border:1px solid #334;
+          color:#667; cursor:pointer; border-radius:4px; font-size:9px;
+        ">⬆ Push local → repo</button>
       </div>
     </div>
   </div>
@@ -418,9 +432,20 @@ function snapshotCurrentBoard(label: string): void {
   for (const u of placedUnits.values()) {
     units.push({ id: u.definitionId, tier: u.tier, col: u.hexPos.col, row: u.hexPos.row, team: u.team })
   }
+  const scenario: TestScenario = { label, units }
   const snaps = loadSnapshots()
-  snaps.push({ label, units })
+  snaps.push(scenario)
   saveSnapshots(snaps)
+
+  // In dev mode, persist to tests/ and patch src/repoTests.ts automatically
+  if (import.meta.env.DEV) {
+    fetch('/api/save-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scenario),
+    }).catch(() => { /* non-critical — local save already happened */ })
+  }
+
   renderTestButtons()
 }
 
@@ -454,23 +479,44 @@ function loadScenario(scenario: TestScenario): void {
 // ─── Render test button lists ──────────────────────────────────────────────────
 
 function renderTestButtons(): void {
-  const query     = ((document.getElementById('test-search') as HTMLInputElement)?.value ?? '').toLowerCase().trim()
-  const savedEl   = document.getElementById('test-buttons-saved')!
-  const snapshots = loadSnapshots()
-  const filtered  = query
+  const query   = ((document.getElementById('test-search') as HTMLInputElement)?.value ?? '').toLowerCase().trim()
+  const repoEl  = document.getElementById('test-buttons-repo')!
+  const savedEl = document.getElementById('test-buttons-saved')!
+
+  // ── Repo tests (read-only, from git) ──────────────────────────────────────
+  const filteredRepo = REPO_TESTS.filter(s => !query || s.label.toLowerCase().includes(query))
+  repoEl.innerHTML = filteredRepo.length === 0
+    ? `<div style="font-size:10px;color:#445;font-style:italic;padding:2px 0;">${query ? 'No matches' : 'None'}</div>`
+    : filteredRepo.map((s, i) => `
+        <button data-repo="${i}" style="
+          display:block; width:100%; margin-bottom:4px; padding:5px 8px;
+          background:#0e1818; border:1px solid #253;
+          color:#88ddaa; cursor:pointer; border-radius:4px;
+          font-size:11px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+        ">${s.label}</button>
+      `).join('')
+  repoEl.querySelectorAll('[data-repo]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      loadScenario(filteredRepo[parseInt((btn as HTMLElement).dataset.repo!)])
+    })
+  })
+
+  // ── Local tests (localStorage, saveable/deleteable) ───────────────────────
+  const snapshots    = loadSnapshots()
+  const filteredLocal = query
     ? snapshots.map((s, i) => ({ s, i })).filter(({ s }) => s.label.toLowerCase().includes(query))
     : snapshots.map((s, i) => ({ s, i }))
 
   if (snapshots.length === 0) {
-    savedEl.innerHTML = `<div style="font-size:10px;color:#445;font-style:italic;padding:2px 0;">No saved tests yet</div>`
+    savedEl.innerHTML = `<div style="font-size:10px;color:#445;font-style:italic;padding:2px 0;">No local tests yet</div>`
     return
   }
-  if (filtered.length === 0) {
+  if (filteredLocal.length === 0) {
     savedEl.innerHTML = `<div style="font-size:10px;color:#445;font-style:italic;padding:2px 0;">No matches</div>`
     return
   }
 
-  savedEl.innerHTML = filtered.map(({ s, i }) => `
+  savedEl.innerHTML = filteredLocal.map(({ s, i }) => `
     <div style="display:flex;gap:3px;margin-bottom:4px;">
       <button data-saved="${i}" style="
         flex:1; min-width:0; padding:5px 8px;
@@ -675,6 +721,7 @@ function tickCombat(state: CombatState): boolean {
   state.events = []
 
   tickStatusEffects(state.units, state)
+  tickMarks(state.units, state)
   tickShields(state.units)
 
   for (const unit of state.units.values()) {
@@ -685,7 +732,9 @@ function tickCombat(state: CombatState): boolean {
 
     // Leaping: direct pixel lerp to destination, no targeting or ability interrupts
     if (unit.state === 'leaping') {
-      if (tickLeapPixel(unit, state)) unit.state = 'idle'
+      const arrived = tickLeapPixel(unit, state)
+      // Only reset to idle if onLand didn't start a new leap
+      if (arrived && !(unit as any)._leap) unit.state = 'idle'
       continue
     }
 
@@ -695,15 +744,18 @@ function tickCombat(state: CombatState): boolean {
     tickTargeting(unit, state)
     if (!unit.targetId) continue
 
-    const inRange = isInRange(unit, state)
+    const inRange         = isInRange(unit, state)
+    const rooted          = unit.statusEffects.some(fx => fx.stackId === 'tapulele_channel')
+    const attackSuppressed = rooted || unit.statusEffects.some(fx => fx.stackId === 'tapulele_post_channel')
 
     switch (unit.state) {
       case 'idle':
-        if (inRange) startAttacking(unit)
-        else { unit.state = 'moving'; recalculatePath(unit, state) }
+        if (inRange && !attackSuppressed) startAttacking(unit)
+        else if (!inRange && !rooted) { unit.state = 'moving'; recalculatePath(unit, state) }
         break
       case 'moving':
-        if (inRange) { unit.state = 'idle'; unit.path = [] }
+        if (rooted) { unit.state = 'idle'; unit.path = [] }
+        else if (inRange) { unit.state = 'idle'; unit.path = [] }
         else {
           if (unit.path.length === 0) recalculatePath(unit, state)
           if (unit.path.length > 0) {
@@ -713,6 +765,7 @@ function tickCombat(state: CombatState): boolean {
         }
         break
       case 'attacking':
+        if (attackSuppressed) { unit.state = 'idle'; unit.isInWindup = false; unit.attackWindupTimer = 0; break }
         tickAttack(unit, state)
         break
     }
@@ -888,6 +941,7 @@ function updateUnitInfoPanel(): void {
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;color:#aaa;margin-bottom:4px;">
       <span style="color:#556;">ATK</span><span>${Math.round(computeStats(unit).attack)}</span>
+      <span style="color:#556;">SP.ATK</span><span>${Math.round(computeStats(unit).special)}</span>
       <span style="color:#556;">DEF</span><span>${Math.round(computeStats(unit).defense)}</span>
       <span style="color:#556;">SP.DEF</span><span>${Math.round(computeStats(unit).spDefense)}</span>
       <span style="color:#556;">ATK SPD</span><span>${computeStats(unit).attackSpeed.toFixed(2)}/s</span>
@@ -905,6 +959,25 @@ document.getElementById('btn-snapshot')!.addEventListener('click', () => {
   const label = input.value.trim() || `Board ${loadSnapshots().length + 1}`
   snapshotCurrentBoard(label)
   input.value = ''
+})
+
+// Push every local test to the repo in one click (dev only).
+// After clicking, commit tests/*.json and src/repoTests.ts to share with the team.
+document.getElementById('btn-push-all-tests')!.addEventListener('click', async () => {
+  if (!import.meta.env.DEV) return
+  const btn = document.getElementById('btn-push-all-tests') as HTMLButtonElement
+  btn.textContent = '⏳ Pushing…'
+  btn.disabled    = true
+  const snaps     = loadSnapshots()
+  for (const snap of snaps) {
+    await fetch('/api/save-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(snap),
+    }).catch(() => {})
+  }
+  btn.textContent = `✓ Done (${snaps.length} pushed)`
+  setTimeout(() => { btn.textContent = '⬆ Push local → repo'; btn.disabled = false }, 3000)
 })
 
 // ─── Mouse events ─────────────────────────────────────────────────────────────

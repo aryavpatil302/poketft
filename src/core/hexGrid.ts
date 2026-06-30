@@ -77,6 +77,28 @@ function cubeAdd(a: CubeCoord, b: CubeCoord): CubeCoord {
   return { q: a.q + b.q, r: a.r + b.r, s: a.s + b.s }
 }
 
+/**
+ * Returns the hex path a unit at `target` travels through when knocked back
+ * away from `source`, stepping `steps` hexes in the best-matching cube direction.
+ */
+export function hexKnockbackPath(source: OffsetCoord, target: OffsetCoord, steps: number): OffsetCoord[] {
+  const sc = offsetToCube(source)
+  const tc = offsetToCube(target)
+  const dq = tc.q - sc.q, dr = tc.r - sc.r, ds = tc.s - sc.s
+  let bestDir = CUBE_DIRS[0], bestDot = -Infinity
+  for (const d of CUBE_DIRS) {
+    const dot = d.q * dq + d.r * dr + d.s * ds
+    if (dot > bestDot) { bestDot = dot; bestDir = d }
+  }
+  const result: OffsetCoord[] = []
+  let cur = { ...tc }
+  for (let i = 0; i < steps; i++) {
+    cur = cubeAdd(cur, bestDir)
+    result.push(cubeToOffset(cur))
+  }
+  return result
+}
+
 export function isValidHex(h: OffsetCoord): boolean {
   return h.col >= 0 && h.col < BOARD_COLS && h.row >= 0 && h.row < BOARD_ROWS
 }

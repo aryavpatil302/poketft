@@ -88,10 +88,16 @@ export function applyDamage(
   // Mitigation
   let finalPreShield = preMitigDamage
   if (payload.damageType === 'physical') {
-    const red = mitigationFactor(targetStats.defense)
+    const effectiveDefense = payload.armorPiercePct
+      ? targetStats.defense * (1 - payload.armorPiercePct)
+      : targetStats.defense
+    const red = mitigationFactor(effectiveDefense)
     finalPreShield = Math.round(preMitigDamage * (1 - red))
   } else if (payload.damageType === 'magic') {
-    const red = mitigationFactor(targetStats.spDefense)
+    const effectiveSpDef = payload.spDefPiercePct
+      ? targetStats.spDefense * (1 - payload.spDefPiercePct)
+      : targetStats.spDefense
+    const red = mitigationFactor(effectiveSpDef)
     finalPreShield = Math.round(preMitigDamage * (1 - red))
   }
   // true damage: no mitigation
@@ -122,6 +128,51 @@ export function applyDamage(
     target.state = 'dead'
     state.hexOccupancy.delete(hexId(target.hexPos))
     state.events.push({ type: 'death', unitId: target.id, sourceId: source.id, abilityId: payload.abilityId })
+  }
+
+  // Iron Barbs retaliation — auto-attacks hitting an active Ferrothorn bounce damage back
+  if (payload.abilityId === 'auto_attack' && target.state !== 'dead' && source.state !== 'dead') {
+    const ironBarbs = target.statusEffects.find(fx => fx.id === 'iron_barbs')
+    if (ironBarbs?.magnitude) {
+      applyDamage(target, source, {
+        baseAmount: ironBarbs.magnitude,
+        damageType: 'magic',
+        canCrit: false,
+        abilityId: 'ferrothorn_iron_barbs',
+      }, state)
+      // Refresh hit-flash pulse on Ferrothorn (scale bump handled in unitLayer)
+      const flashIdx = target.statusEffects.findIndex(fx => fx.stackId === 'ferrothorn_hit_flash')
+      if (flashIdx >= 0) {
+        target.statusEffects[flashIdx].durationTicks = 10
+      } else {
+        target.statusEffects.push({
+          id: 'ferrothorn_hit_flash',
+          sourceUnitId: target.id,
+          durationTicks: 10,
+          stackId: 'ferrothorn_hit_flash',
+        })
+      }
+    }
+  }
+
+  // Bellibolt: accumulate a charge on any incoming hit
+  if (target.definitionId === 'bellibolt' && target.state !== 'dead') {
+    const existing = target.statusEffects.find(fx => fx.stackId === 'bellibolt_charge')
+    if (existing) {
+      if ((existing.magnitude ?? 0) < 10) {
+        existing.magnitude = (existing.magnitude ?? 0) + 1
+        target._computedStats = null
+      }
+    } else {
+      target.statusEffects.push({
+        id: 'bellibolt_charge',
+        sourceUnitId: target.id,
+        durationTicks: -1,
+        magnitude: 1,
+        stackId: 'bellibolt_charge',
+      })
+      target._computedStats = null
+    }
   }
 
   return { finalDamage: hpDamage, preMitigDamage, isCrit }

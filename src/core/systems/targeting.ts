@@ -1,8 +1,11 @@
 import type { Unit, CombatState, Team } from '../types'
 import type { OffsetCoord } from '../hexGrid'
 import { hexDistance, hexesInRange, hexId, hexLinePath } from '../hexGrid'
+import { computeStats } from '../unitFactory'
 
-// Returns the nearest living enemy, breaking ties by lowest ID (deterministic)
+// Returns the best target for a unit to attack.
+// Prefers enemies already in attack range; randomises ties so adjacent units
+// don't always deterministically focus the lowest-ID target.
 export function acquireTarget(unit: Unit, state: CombatState): string | null {
   // Taunt override
   const tauntFx = unit.statusEffects.find(fx => fx.id === 'taunt')
@@ -11,21 +14,33 @@ export function acquireTarget(unit: Unit, state: CombatState): string | null {
     if (taunter && taunter.state !== 'dead') return tauntFx.sourceUnitId
   }
 
-  let bestId: string | null = null
-  let bestDist = Infinity
-
+  const range = (unit._computedStats ?? computeStats(unit)).range
+  const enemies: Unit[] = []
   for (const other of state.units.values()) {
-    if (other.team === unit.team) continue
-    if (other.state === 'dead') continue
+    if (other.team === unit.team || other.state === 'dead') continue
+    enemies.push(other)
+  }
+  if (enemies.length === 0) return null
 
-    const dist = hexDistance(unit.hexPos, other.hexPos)
-    if (dist < bestDist || (dist === bestDist && other.id < (bestId ?? ''))) {
-      bestDist = dist
-      bestId = other.id
-    }
+  // Prefer enemies already in attack range; fall back to all enemies
+  const inRange = enemies.filter(e => hexDistance(unit.hexPos, e.hexPos) <= range)
+  const pool = inRange.length > 0 ? inRange : enemies
+
+  // Find the minimum distance within the pool
+  let minDist = Infinity
+  for (const e of pool) {
+    const d = hexDistance(unit.hexPos, e.hexPos)
+    if (d < minDist) minDist = d
+  }
+  const closest = pool.filter(e => hexDistance(unit.hexPos, e.hexPos) === minDist)
+
+  // Keep the current target if it's still among the closest (prevents flickering while moving)
+  if (unit.targetId && closest.some(e => e.id === unit.targetId)) {
+    return unit.targetId
   }
 
-  return bestId
+  // Pick randomly among equidistant candidates
+  return closest[Math.floor(Math.random() * closest.length)].id
 }
 
 // Called once per tick.

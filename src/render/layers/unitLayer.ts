@@ -1,5 +1,6 @@
 import type { Unit } from '../../core/types'
-import { HEX_SIZE, BOARD_PERSP_Y, WINDUP_HIT_FRACTION } from '../../core/constants'
+import { HEX_SIZE, BOARD_PERSP_Y, WINDUP_HIT_FRACTION, TICK_RATE } from '../../core/constants'
+import { hexToPixel } from '../../core/hexGrid'
 import { UNIT_MAP } from '../../data/units'
 import { windupTicks, attackCooldownTicks } from '../../core/systems/attack'
 
@@ -55,8 +56,47 @@ const spriteCache = new Map<string, SpriteEntry>()
 const ironDefenseImg = new Image()
 ironDefenseImg.src = '/visuals/ability_icons/iron_defense.webp'
 
+const unawareVideo = (() => {
+  const v = document.createElement('video')
+  v.loop = true; v.muted = true; v.playsInline = true; v.preload = 'auto'
+  v.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none'
+  const attach = () => { document.body.appendChild(v); v.src = '/visuals/ability_icons/Unaware.webm'; v.play().catch(() => {}) }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach, { once: true })
+  else attach()
+  return v
+})()
+
+const toxicChainVideo = (() => {
+  const v = document.createElement('video')
+  v.loop = true; v.muted = true; v.playsInline = true; v.preload = 'auto'
+  v.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none'
+  const attach = () => { document.body.appendChild(v); v.src = '/visuals/ability_icons/toxic_chain.webm'; v.play().catch(() => {}) }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach, { once: true })
+  else attach()
+  return v
+})()
+
+const spirtBreakVideo = (() => {
+  const v = document.createElement('video')
+  v.loop = true; v.muted = true; v.playsInline = true; v.preload = 'auto'
+  v.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none'
+  const attach = () => { document.body.appendChild(v); v.src = '/visuals/ability_icons/spirt_break.webm'; v.play().catch(() => {}) }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach, { once: true })
+  else attach()
+  return v
+})()
+
+const ironBarbsImg = new Image()
+ironBarbsImg.src = '/visuals/ability_icons/iron_barbs.webp'
+
 const starLevelImg = new Image()
 starLevelImg.src = '/visuals/sprites/star_level.png'
+
+const megaRayquazaImg = new Image()
+megaRayquazaImg.src = '/visuals/sprites/sky_strikers/mega-rayquaza-sprite.webp'
+
+const megaEvoImg = new Image()
+megaEvoImg.src = '/visuals/sprites/sky_strikers/mega-evo-sprite.png'
 
 // Videos must be in the DOM for Chrome to advance their playback clock.
 // A 1×1 invisible container at (0,0) keeps them in the layout without showing.
@@ -173,6 +213,57 @@ export class UnitLayer {
     // Match the board layer's perspective Y-scale
     ctx.save()
     ctx.scale(1, BOARD_PERSP_Y)
+
+    // First pass: draw Unaware bubble under all sprites
+    if (unawareVideo.readyState >= 2) {
+      for (const unit of units.values()) {
+        if (unit.state === 'dead') continue
+        if (!unit.shields.some(s => s.sourceAbility === 'quagsire_unaware')) continue
+        const auraSize = SPRITE_HALF * 3.2
+        ctx.save()
+        ctx.globalAlpha = 0.85
+        ctx.drawImage(unawareVideo, unit.visualPos.x - auraSize / 2, unit.visualPos.y - auraSize / 2, auraSize, auraSize)
+        ctx.restore()
+      }
+    }
+
+    // First pass: draw Fezandipiti toxic chains under all sprites
+    if (toxicChainVideo.readyState >= 2) {
+      for (const target of units.values()) {
+        if (target.state === 'dead') continue
+        const chainFx = target.statusEffects.find(fx => fx.stackId === `fez_chain_${target.id}`)
+        if (!chainFx) continue
+        const source = units.get(chainFx.sourceUnitId)
+        if (!source || source.state === 'dead') continue
+
+        const dx    = target.visualPos.x - source.visualPos.x
+        const dy    = target.visualPos.y - source.visualPos.y
+        const dist  = Math.sqrt(dx * dx + dy * dy)
+        const angle = Math.atan2(dy, dx)
+        const chainH = HEX_SIZE * 0.18   // thin beam
+        const alpha  = Math.min(1, chainFx.durationTicks / 15) * 0.80  // fade out last 15 ticks
+
+        ctx.save()
+        ctx.globalAlpha = alpha
+        ctx.translate(source.visualPos.x, source.visualPos.y)
+        ctx.rotate(angle)
+        ctx.drawImage(toxicChainVideo, 0, -chainH / 2, dist, chainH)
+        ctx.restore()
+      }
+    }
+
+    // First pass: draw Spirit Break aura under Morgrem
+    if (spirtBreakVideo.readyState >= 2) {
+      for (const unit of units.values()) {
+        if (unit.state === 'dead') continue
+        if (!unit.statusEffects.some(fx => fx.stackId === 'morgrem_spirit_break_aura')) continue
+        const auraSize = HEX_SIZE * 4.2
+        ctx.save()
+        ctx.globalAlpha = 0.90
+        ctx.drawImage(spirtBreakVideo, unit.visualPos.x - auraSize / 2, unit.visualPos.y - auraSize / 2, auraSize, auraSize)
+        ctx.restore()
+      }
+    }
 
     for (const unit of units.values()) {
       if (unit.state === 'dead') continue
@@ -332,6 +423,39 @@ export class UnitLayer {
                 }
                 nudgeX = nx * fwd + px * lat
                 nudgeY = ny * fwd + py * lat
+              } else if (unit.definitionId === 'drednaw' &&
+                         unit.statusEffects.some(fx => fx.stackId === 'drednaw_razor_shell_active')) {
+                // Wide CW arc sweep: cock CCW → lunge forward with sweeping rotation → follow-through
+                const H         = WINDUP_HIT_FRACTION   // 0.40
+                const COCK_ROT  = -80 * (Math.PI / 180)
+                const SWEEP_ROT = +105 * (Math.PI / 180)
+                const LUNGE_PX  = 30
+
+                if (progress < 0.18) {
+                  const t    = progress / 0.18
+                  const ease = t * t
+                  spriteRotate = COCK_ROT * ease
+                  nudgeX = nx * (-ease * 10)
+                  nudgeY = ny * (-ease * 10)
+                } else if (progress < H) {
+                  const t    = (progress - 0.18) / (H - 0.18)
+                  const ease = 1 - (1 - t) * (1 - t)
+                  spriteRotate = COCK_ROT + (SWEEP_ROT * 0.35 - COCK_ROT) * ease
+                  nudgeX = nx * (-10 + ease * (10 + LUNGE_PX))
+                  nudgeY = ny * (-10 + ease * (10 + LUNGE_PX))
+                } else if (progress < 0.68) {
+                  const t    = (progress - H) / (0.68 - H)
+                  const ease = 1 - (1 - t) * (1 - t)
+                  spriteRotate = SWEEP_ROT * 0.35 + ease * (SWEEP_ROT - SWEEP_ROT * 0.35)
+                  nudgeX = nx * (LUNGE_PX * (1 - t * 0.4))
+                  nudgeY = ny * (LUNGE_PX * (1 - t * 0.4))
+                } else {
+                  const t    = (progress - 0.68) / 0.32
+                  const ease = 1 - (1 - t) * (1 - t)
+                  spriteRotate = SWEEP_ROT * (1 - ease)
+                  nudgeX = nx * LUNGE_PX * 0.6 * (1 - ease)
+                  nudgeY = ny * LUNGE_PX * 0.6 * (1 - ease)
+                }
               } else {
                 const isBuluMadness = unit.definitionId === 'tapu_bulu' &&
                   unit.statusEffects.some(e => e.id === 'tapubulu_madness')
@@ -370,6 +494,19 @@ export class UnitLayer {
                   nudgeY = ny * scale
                 }
               }
+            } else if (unit.definitionId === 'oranguru'
+                && unit.statusEffects.some(fx => fx.stackId === 'oranguru_stored_power')) {
+              // Fan swipe: smooth sweep that starts and ends at center (no cross-cycle jitter)
+              const total    = windupTicks(unit)
+              const elapsed  = total - unit.attackWindupTimer
+              const progress = total > 0 ? elapsed / total : 0
+              // sin(π·p) is 0 at p=0 and p=1 so there's no discontinuity between attacks
+              const sweep = Math.sin(progress * Math.PI)
+              // Lateral (perpendicular-left) sweep at peak, small forward lean
+              const perpX = -ny, perpY = nx  // left of forward direction
+              nudgeX = perpX * sweep * 11 + nx * sweep * 3
+              nudgeY = perpY * sweep * 11 + ny * sweep * 3
+              spriteRotate = -sweep * (16 * Math.PI / 180)
             } else {
               const total    = windupTicks(unit)
               const elapsed  = total - unit.attackWindupTimer
@@ -521,6 +658,238 @@ export class UnitLayer {
           }
         }
       }
+      // Noivern pre-cast buildup shake — intensifies in the last half of the cast timer
+      if (unit.definitionId === 'noivern' && unit.state === 'casting') {
+        const NOIVERN_CAST_T = 20
+        const progress = 1 - unit.abilityCastTimer / NOIVERN_CAST_T
+        if (progress > 0.4) {
+          const phaseT = (progress - 0.4) / 0.6
+          const intensity = phaseT * phaseT * 5
+          nudgeX += Math.sin(tick * 1.35) * intensity
+          nudgeY += Math.cos(tick * 1.05 + 0.6) * intensity
+        }
+      }
+      // Rayquaza: evo shake → mega rumble → motion blur during flight
+      if (unit.definitionId === 'rayquaza') {
+        const evoShakeFx = unit.statusEffects.find(fx => fx.id === 'rayquaza_evo_shake')
+        if (evoShakeFx) {
+          // Intensifies over 36 ticks: 0 → 10px at peak
+          const progress  = 1 - evoShakeFx.durationTicks / 36
+          const intensity = progress * 10
+          nudgeX += Math.sin(tick * 1.9 + 0.3) * intensity
+          nudgeY += Math.cos(tick * 1.5 + 1.1) * intensity
+        }
+        if (unit.statusEffects.some(fx => fx.id === 'rayquaza_pre_grab_rumble')) {
+          // Gentle power-up rumble as mega form charges for the grab
+          nudgeX += Math.sin(tick * 2.3) * 3.5
+          nudgeY += Math.cos(tick * 1.8 + 0.8) * 2.5
+        }
+        if (unit.statusEffects.some(fx => fx.id === 'rayquaza_flying')) {
+          nudgeScaleX = 3.0
+          nudgeScaleY = 0.55
+        }
+      }
+      // Ferrothorn: activation rumble + per-hit scale pulse
+      if (unit.definitionId === 'ferrothorn') {
+        const rumble = unit.statusEffects.find(fx => fx.id === 'ferrothorn_rumble')
+        if (rumble) {
+          const progress  = 1 - rumble.durationTicks / 18
+          const intensity = Math.sin(progress * Math.PI) * 4
+          nudgeX += Math.sin(tick * 2.8)       * intensity
+          nudgeY += Math.cos(tick * 2.1 + 0.4) * intensity
+        }
+        const hitFlash = unit.statusEffects.find(fx => fx.id === 'ferrothorn_hit_flash')
+        if (hitFlash) {
+          // Scale decays from 1.03 → 1.0 as durationTicks counts down from 10 → 0
+          const s = 1.0 + 0.10 * (hitFlash.durationTicks / 10)
+          nudgeScaleX = s
+          nudgeScaleY = s
+        }
+      }
+      // Excadrill: full 360° spin during empowered auto windup
+      if (unit.definitionId === 'excadrill' && unit.isInWindup
+          && unit.attackModifiers.length > 0 && unit.attackModifiers[0].id === 'excadrill_drill') {
+        const wt      = windupTicks(unit)
+        const elapsed = wt - unit.attackWindupTimer
+        spriteRotate  = (elapsed / Math.max(1, wt)) * Math.PI * 2  // 0 → 2π over the windup
+      }
+      // Tapu Lele: escalating rumble during 2s channel (intensifies toward damage)
+      if (unit.definitionId === 'tapu_lele') {
+        const channelFx = unit.statusEffects.find(fx => fx.stackId === 'tapulele_channel')
+        if (channelFx) {
+          const progress  = 1 - channelFx.durationTicks / (2 * TICK_RATE)  // 0 → 1
+          const intensity = Math.pow(progress, 1.5) * 9                     // accelerates toward end
+          nudgeX += Math.sin(tick * 4.3)       * intensity
+          nudgeY += Math.cos(tick * 3.9 + 1.1) * intensity
+        }
+      }
+      // Fezandipiti: rumble on cast
+      if (unit.definitionId === 'fezandipiti') {
+        const rumbleFx = unit.statusEffects.find(fx => fx.stackId === 'fez_rumble')
+        if (rumbleFx) {
+          const progress  = 1 - rumbleFx.durationTicks / rumbleFx.magnitude!
+          const intensity = Math.sin(progress * Math.PI) * 5
+          nudgeX += Math.sin(tick * 4.1)       * intensity
+          nudgeY += Math.cos(tick * 3.7 + 0.5) * intensity
+        }
+      }
+      // Celebi: hop + full spin on cast
+      if (unit.definitionId === 'celebi') {
+        const hopFx = unit.statusEffects.find(fx => fx.stackId === 'celebi_hop')
+        if (hopFx) {
+          const progress = 1 - hopFx.durationTicks / hopFx.magnitude!
+          nudgeY      -= Math.sin(progress * Math.PI) * 22
+          spriteRotate = progress * Math.PI * 2
+        }
+      }
+      // Morelull: shake on mushroom launch
+      if (unit.definitionId === 'morelull') {
+        const shakeFx = unit.statusEffects.find(fx => fx.stackId === 'morelull_shake')
+        if (shakeFx) {
+          const progress  = 1 - shakeFx.durationTicks / shakeFx.magnitude!
+          const intensity = Math.sin(progress * Math.PI) * 5
+          nudgeX += Math.sin(tick * 3.5)       * intensity
+          nudgeY += Math.cos(tick * 2.8 + 0.4) * intensity
+        }
+      }
+      // Morgrem: rumble on cast, then hard slap at aura end
+      if (unit.definitionId === 'morgrem') {
+        const rumbleFx = unit.statusEffects.find(fx => fx.stackId === 'morgrem_rumble')
+        if (rumbleFx) {
+          const progress  = 1 - rumbleFx.durationTicks / rumbleFx.magnitude!
+          const intensity = Math.sin(progress * Math.PI) * 6
+          nudgeX += Math.sin(tick * 3.8)       * intensity
+          nudgeY += Math.cos(tick * 3.1 + 0.7) * intensity
+        }
+        const slapFx = unit.statusEffects.find(fx => fx.stackId === 'morgrem_slap')
+        if (slapFx) {
+          const progress = 1 - slapFx.durationTicks / slapFx.magnitude!
+          const mTarget = unit.targetId ? units.get(unit.targetId) : undefined
+          let mnx = 0, mny = 0
+          if (mTarget) {
+            const mdx = mTarget.visualPos.x - unit.visualPos.x
+            const mdy = mTarget.visualPos.y - unit.visualPos.y
+            const md  = Math.sqrt(mdx * mdx + mdy * mdy)
+            if (md > 0) { mnx = mdx / md; mny = mdy / md }
+          }
+          // Perpendicular directions for lateral sweep
+          const perpLx = -mny, perpLy = mnx   // left of forward
+          const perpRx =  mny, perpRy = -mnx  // right of forward
+          const WIND_ROT   =  62 * Math.PI / 180   // +62° CW wind-up
+          const STRIKE_ROT = -95 * Math.PI / 180   // end rotation at contact
+          const MAX_LUNGE  = 65
+          if (progress < 0.22) {
+            // wind-up: lean CW, nudge back-left
+            const t = progress / 0.22
+            const ease = t * t
+            spriteRotate  = WIND_ROT * ease
+            nudgeX += mnx * (-ease * 10) + perpLx * (ease * 7)
+            nudgeY += mny * (-ease * 10) + perpLy * (ease * 7)
+          } else if (progress < 0.68) {
+            // strike: 157° sweep CCW, deep lunge forward, sweep right
+            const t    = (progress - 0.22) / (0.68 - 0.22)
+            const ease = t * t
+            spriteRotate  = WIND_ROT + (STRIKE_ROT - WIND_ROT) * ease
+            nudgeX += mnx * (-10 + ease * (MAX_LUNGE + 10)) + perpRx * (ease * 9)
+            nudgeY += mny * (-10 + ease * (MAX_LUNGE + 10)) + perpRy * (ease * 9)
+          } else {
+            // recover
+            const t = (progress - 0.68) / (1 - 0.68)
+            spriteRotate  = STRIKE_ROT * (1 - t)
+            nudgeX += mnx * MAX_LUNGE * (1 - t * t)
+            nudgeY += mny * MAX_LUNGE * (1 - t * t)
+          }
+        }
+      }
+      // Sableye: launch shake as gems fire
+      if (unit.definitionId === 'sableye') {
+        const rumble = unit.statusEffects.find(fx => fx.id === 'sableye_rumble')
+        if (rumble) {
+          const progress  = 1 - rumble.durationTicks / 15
+          const intensity = Math.sin(progress * Math.PI) * 5  // arc: builds then fades
+          nudgeX += Math.sin(tick * 3.2)       * intensity
+          nudgeY += Math.cos(tick * 2.7 + 0.5) * intensity
+        }
+      }
+      // Druddigon Dragon Tail: CCW cock-back → fast CW tail sweep reaching peak at onCast
+      if (unit.definitionId === 'druddigon' && unit.state === 'casting') {
+        const CAST_T     = 32
+        const COCK_END   = 0.28   // 0-28%: ease-out CCW cock
+        const PAUSE_END  = 0.38   // 28-38%: hold at cock
+        const COCK_ROT   = -95 * (Math.PI / 180)
+        const STRIKE_ROT = 115 * (Math.PI / 180)
+
+        const elapsed  = CAST_T - unit.abilityCastTimer
+        const progress = elapsed / CAST_T
+
+        // Compute forward direction toward target for lunge nudge
+        const dTarget = unit.targetId ? units.get(unit.targetId) : undefined
+        let dnx = 0, dny = 0
+        if (dTarget && dTarget.state !== 'dead') {
+          const ddx = dTarget.visualPos.x - unit.visualPos.x
+          const ddy = dTarget.visualPos.y - unit.visualPos.y
+          const dDist = Math.sqrt(ddx * ddx + ddy * ddy)
+          if (dDist > 0) { dnx = ddx / dDist; dny = ddy / dDist }
+        }
+
+        if (progress < COCK_END) {
+          const t = progress / COCK_END
+          const ease = 1 - (1 - t) * (1 - t)
+          spriteRotate = COCK_ROT * ease
+          nudgeX += dnx * (-ease * 8)
+          nudgeY += dny * (-ease * 8)
+        } else if (progress < PAUSE_END) {
+          spriteRotate = COCK_ROT
+          nudgeX += dnx * (-8)
+          nudgeY += dny * (-8)
+        } else {
+          const t    = (progress - PAUSE_END) / (1 - PAUSE_END)
+          const ease = t * t
+          spriteRotate = COCK_ROT + (STRIKE_ROT - COCK_ROT) * ease
+          nudgeX += dnx * (-8 + ease * 34)
+          nudgeY += dny * (-8 + ease * 34)
+        }
+      }
+      // Barraskewda: full spinning lunge after landing (barraskewda_strike status drives it)
+      if (unit.definitionId === 'barraskewda' && unit.state !== 'leaping') {
+        const strikeFx = unit.statusEffects.find(fx => fx.stackId === 'barraskewda_strike')
+        if (strikeFx?.magnitude) {
+          const progress = 1 - (strikeFx.durationTicks / strikeFx.magnitude)
+
+          const bTarget = unit.targetId ? units.get(unit.targetId) : undefined
+          let bnx = 0, bny = 0
+          if (bTarget) {
+            const bdx = bTarget.visualPos.x - unit.visualPos.x
+            const bdy = bTarget.visualPos.y - unit.visualPos.y
+            const bdist = Math.sqrt(bdx * bdx + bdy * bdy)
+            if (bdist > 0) { bnx = bdx / bdist; bny = bdy / bdist }
+          }
+
+          // Full CW rotation over the animation
+          spriteRotate = progress * 2 * Math.PI
+
+          // Lunge: ease-in forward to peak at 65%, then pull back
+          const LUNGE_PEAK = 0.65
+          const MAX_LUNGE  = 65
+          const lunge = progress < LUNGE_PEAK
+            ? MAX_LUNGE * ((progress / LUNGE_PEAK) ** 2)
+            : MAX_LUNGE * (1 - (progress - LUNGE_PEAK) / (1 - LUNGE_PEAK))
+          nudgeX += bnx * lunge
+          nudgeY += bny * lunge
+        }
+      }
+
+      // Grabbed unit: 40% smaller while held; motion blur when off-board during flight
+      if (unit.statusEffects.some(fx => fx.id === 'rayquaza_grabbed')) {
+        if (unit.visualPos.x > 800) {
+          nudgeScaleX = 1.8   // 3.0 * 0.6
+          nudgeScaleY = 0.33  // 0.55 * 0.6
+        } else {
+          nudgeScaleX = 0.6
+          nudgeScaleY = 0.6
+        }
+      }
+
       const isOrbitSpinning = unit.definitionId === 'a_marowak' &&
         (castAnims?.some(a => a.unitId === unit.id && a.type === 'spin') ?? false)
       this.drawUnit(ctx, unit, nudgeX, nudgeY - celebBob, healFlashUnits, spriteRotate, nudgeScaleX, nudgeScaleY, tick, isOrbitSpinning)
@@ -561,6 +930,16 @@ export class UnitLayer {
       ctx.restore()
     }
 
+    // Iron Barbs active: draw shield aura under Ferrothorn
+    const hasIronBarbs = unit.statusEffects.some(fx => fx.id === 'iron_barbs')
+    if (hasIronBarbs && ironBarbsImg.complete && ironBarbsImg.naturalWidth > 0) {
+      const auraSize = SPRITE_HALF * 2.6
+      ctx.save()
+      ctx.globalAlpha = 0.80
+      ctx.drawImage(ironBarbsImg, x - auraSize / 2, y - auraSize / 2, auraSize, auraSize)
+      ctx.restore()
+    }
+
     // Pale yellow shield glow behind unit sprite
     const totalShield = unit.shields.reduce((s, sh) => s + sh.value, 0)
     if (totalShield > 0) {
@@ -596,9 +975,17 @@ export class UnitLayer {
         ? (unit as any)._leap as { tick: number; total: number; sx: number; sy: number; ex: number; ey: number } | undefined
         : undefined
       const leap = unit.definitionId === 'vigoroth' ? leapRaw : undefined
-      const isRaichuDash    = unit.definitionId === 'a_raichu' && !!leapRaw
-      const isGibleLeap     = unit.definitionId === 'gible'    && !!leapRaw
-      const isWailordBounce = unit.definitionId === 'wailord'  && !!leapRaw
+      const isRaichuDash      = unit.definitionId === 'a_raichu'    && !!leapRaw
+      const isBarraskewdaDash = unit.definitionId === 'barraskewda' && !!leapRaw
+      const isGibleLeap       = unit.definitionId === 'gible'       && !!leapRaw
+      const isWailordBounce    = unit.definitionId === 'wailord'     && !!leapRaw
+      const isTalonflameStrike = unit.definitionId === 'talonflame' && !!leapRaw
+      const isExcadrillTunnel  = unit.definitionId === 'excadrill'  && !!leapRaw
+      // Outbound when the leap's pixel destination is far from the home hex (visual-only leaps
+      // keep hexPos at home, so the return leap's destination ≈ home pixel).
+      const isTalonflameOutbound = isTalonflameStrike && leapRaw
+        ? (() => { const hp = hexToPixel(unit.hexPos, HEX_SIZE); return Math.hypot(leapRaw.ex - hp.x, leapRaw.ey - hp.y) > HEX_SIZE * 0.5 })()
+        : false
       const leapT = leapRaw ? Math.min(1, leapRaw.tick / Math.max(1, leapRaw.total)) : 0
 
       if (leap) {
@@ -636,6 +1023,43 @@ export class UnitLayer {
           ctx.drawImage(sprite, -dw / 2, -dh / 2, dw, dh)
           ctx.restore()
         }
+      } else if (isBarraskewdaDash && leapRaw) {
+        // Barraskewda: cyan-tinted speed trail
+        const trailSteps = 3
+        const bdDirX = leapRaw.total > 0 ? (leapRaw.ex - leapRaw.sx) / Math.hypot(leapRaw.ex - leapRaw.sx, leapRaw.ey - leapRaw.sy) : 0
+        const bdDirY = leapRaw.total > 0 ? (leapRaw.ey - leapRaw.sy) / Math.hypot(leapRaw.ex - leapRaw.sx, leapRaw.ey - leapRaw.sy) : 0
+        for (let i = trailSteps; i >= 1; i--) {
+          const trailAlpha = (1 - i / (trailSteps + 1)) * 0.32 * Math.sin(leapT * Math.PI)
+          const tx = x - bdDirX * i * 13
+          const ty = y - bdDirY * i * 13
+          ctx.save()
+          ctx.globalAlpha = trailAlpha
+          ctx.filter = 'brightness(1.3) saturate(3) hue-rotate(160deg)'
+          ctx.translate(tx, ty)
+          ctx.scale(1, 1 / BOARD_PERSP_Y)
+          ctx.drawImage(sprite, -dw / 2, -dh / 2, dw, dh)
+          ctx.restore()
+        }
+      } else if (isTalonflameStrike && leapRaw && isTalonflameOutbound) {
+        // Talonflame: fiery orange afterimage trail — only during outbound strikes
+        const trailSteps = 4
+        const tdx = leapRaw.ex - leapRaw.sx
+        const tdy = leapRaw.ey - leapRaw.sy
+        const tmag = Math.hypot(tdx, tdy) || 1
+        const tdirX = tdx / tmag
+        const tdirY = tdy / tmag
+        for (let i = trailSteps; i >= 1; i--) {
+          const trailAlpha = (1 - i / (trailSteps + 1)) * 0.45 * leapT
+          const tx = x - tdirX * i * 9
+          const ty = y - tdirY * i * 9
+          ctx.save()
+          ctx.globalAlpha = trailAlpha
+          ctx.translate(tx, ty)
+          ctx.scale(1, 1 / BOARD_PERSP_Y)
+          ctx.filter = `saturate(5) brightness(1.6) sepia(0.7)`
+          ctx.drawImage(sprite, -dw / 2, -dh / 2, dw, dh)
+          ctx.restore()
+        }
       }
 
       ctx.save()
@@ -644,6 +1068,15 @@ export class UnitLayer {
       if (isWailordBounce) {
         const arcPeak = 90  // pixels high at mid-leap (screen space, before perspective)
         ctx.translate(0, -Math.sin(leapT * Math.PI) * arcPeak)
+      }
+      // Talonflame cockback: recoil opposite to travel direction before the lunge.
+      // leapT 0→0.55 sweeps a sin bump (0 → peak at 0.275 → 0), giving a slow wind-up then fast snap.
+      if (isTalonflameOutbound && leapRaw) {
+        const tdx = leapRaw.ex - leapRaw.sx
+        const tdy = leapRaw.ey - leapRaw.sy
+        const tmag = Math.hypot(tdx, tdy) || 1
+        const pullbackPx = leapT < 0.55 ? Math.sin((leapT / 0.55) * Math.PI) * 20 : 0
+        ctx.translate(-tdx / tmag * pullbackPx, -tdy / tmag * pullbackPx)
       }
       ctx.scale(1, 1 / BOARD_PERSP_Y)
 
@@ -685,7 +1118,12 @@ export class UnitLayer {
         ctx.shadowColor = `rgba(60, 255, 100, ${flashAlpha * pulse})`
         ctx.shadowBlur = 22
       }
-      if (isGibleLeap) {
+      if (isExcadrillTunnel) {
+        // Drill spin: shrink 30%, 70% opacity, fast continuous rotation
+        ctx.rotate(leapT * Math.PI * 2 * 3)  // 3 full spins
+        ctx.scale(0.7, 0.7)
+        ctx.globalAlpha = 0.7
+      } else if (isGibleLeap) {
         // Fast spin: 4 full rotations over the leap arc
         ctx.rotate(leapT * Math.PI * 2 * 4)
         const squish = 1 - Math.sin(leapT * Math.PI) * 0.15
@@ -702,6 +1140,25 @@ export class UnitLayer {
         ctx.scale(1 + squishT * 0.35, 1 - squishT * 0.25)
         ctx.shadowColor = `rgba(100, 180, 255, ${0.9 * squishT})`
         ctx.shadowBlur = 22 * squishT
+      } else if (isBarraskewdaDash) {
+        // Cyan speed blur + stretch along dash direction
+        const squishT = Math.sin(leapT * Math.PI)
+        const blurPx  = Math.round(squishT * 3)
+        if (blurPx > 0) ctx.filter = `blur(${blurPx}px) brightness(1.15) saturate(2)`
+        ctx.scale(1 + squishT * 0.40, 1 - squishT * 0.28)
+        ctx.shadowColor = `rgba(0, 210, 240, ${0.85 * squishT})`
+        ctx.shadowBlur = 20 * squishT
+      } else if (isTalonflameStrike) {
+        // Outbound: orange only fires during the STRIKE portion (after the cockback ends at leapT=0.55).
+        // strikeProgress² gives a slow build that explodes into peak saturation at the moment of contact.
+        // Return: faint residual glow that fades out as Talonflame dashes home.
+        const strikeProgress = isTalonflameOutbound && leapT > 0.55 ? (leapT - 0.55) / 0.45 : 0
+        const fireT = isTalonflameOutbound ? strikeProgress * strikeProgress : (1 - leapT) * 0.20
+        ctx.filter = `saturate(${(1 + fireT * 7).toFixed(2)}) brightness(${(1 + fireT * 0.6).toFixed(2)})`
+        ctx.shadowColor = `rgba(255, 110, 0, ${fireT * 0.9})`
+        ctx.shadowBlur = 30 * fireT
+        const stretchT = Math.sin(leapT * Math.PI) * (isTalonflameOutbound ? 1.0 : 0.4)
+        ctx.scale(1 + stretchT * 0.30, 1 - stretchT * 0.22)
       } else if (isWailordBounce) {
         // Arc is handled by the translate above. Squash/stretch reinforces each phase:
         //  0-15%  : push-off squash — wide and flat as Wailord shoves off the ground
@@ -768,7 +1225,48 @@ export class UnitLayer {
           ctx.restore()
         }
       }
-      ctx.drawImage(sprite, -dw / 2, -dh / 2, dw, dh)
+      // Swap to mega sprite once evo animation ends (is_mega is only added after evo_shake expires)
+      let finalSprite: HTMLImageElement | HTMLVideoElement = sprite
+      let finalDw = dw
+      let finalDh = dh
+      if (unit.definitionId === 'rayquaza'
+          && unit.statusEffects.some(fx => fx.id === 'rayquaza_is_mega')
+          && megaRayquazaImg.complete && megaRayquazaImg.naturalWidth > 0) {
+        const mIw    = megaRayquazaImg.naturalWidth
+        const mIh    = megaRayquazaImg.naturalHeight
+        const mScale = mIh > 0 ? Math.min(half * 2 / mIw, half * 2 / mIh) : 1
+        finalSprite = megaRayquazaImg
+        finalDw     = mIw * mScale
+        finalDh     = mIh * mScale
+      }
+      // Morgrem slap: deep blue saturation during strike phase
+      if (unit.definitionId === 'morgrem') {
+        const mSlapFx = unit.statusEffects.find(fx => fx.stackId === 'morgrem_slap')
+        if (mSlapFx) {
+          const sp = 1 - mSlapFx.durationTicks / mSlapFx.magnitude!
+          if (sp >= 0.22 && sp < 0.68) {
+            const t = (sp - 0.22) / (0.68 - 0.22)
+            const intensity = Math.sin(t * Math.PI)
+            ctx.filter = `hue-rotate(225deg) saturate(${(1 + intensity * 9).toFixed(1)}) brightness(${(1 - intensity * 0.25).toFixed(2)})`
+          }
+        }
+      }
+      ctx.drawImage(finalSprite, -finalDw / 2, -finalDh / 2, finalDw, finalDh)
+
+      // Mega evo flash overlay (fades in then out over 36-tick evo shake)
+      if (unit.definitionId === 'rayquaza') {
+        const evoFx = unit.statusEffects.find(fx => fx.id === 'rayquaza_evo_shake')
+        if (evoFx && megaEvoImg.complete && megaEvoImg.naturalWidth > 0) {
+          const progress = 1 - evoFx.durationTicks / 36
+          const alpha    = (progress < 0.5 ? progress * 2 : (1 - progress) * 2) * 0.9
+          const ovSize   = SPRITE_HALF * 3.2
+          ctx.save()
+          ctx.globalAlpha = alpha
+          ctx.drawImage(megaEvoImg, -ovSize / 2, -ovSize / 2, ovSize, ovSize)
+          ctx.restore()
+        }
+      }
+
       ctx.restore()
     } else {
       // Fallback circle with text when no sprite loaded yet

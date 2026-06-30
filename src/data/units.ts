@@ -240,9 +240,9 @@ export const TALONFLAME: UnitDefinition = {
   },
   ability: {
     id: 'talonflame_brave_bird',
-    name: 'Flame Charge',
-    description: 'Dive at the nearest enemy, dealing 300/450/700 physical damage. If this kills the target, immediately recast at 75% damage.',
-    scaling: { damage: [300, 450, 700] },
+    name: 'Brave Bird',
+    description: 'Lunge at the current target for 200/325/500 physical damage (+60% vs targets with higher max HP). On kill, instantly recast at 75% damage.',
+    scaling: { damage: [200, 325, 500] },
   },
   spritePath: '/visuals/sprites/sky_strikers/talonflame-sprite.webp',
 }
@@ -294,15 +294,15 @@ export const NOIVERN: UnitDefinition = {
   baseStats: {
     hp: 1000, startMana: 40, maxMana: 90,
     attack: 65, special: 105, defense: 45, spDefense: 55,
-    attackSpeed: 0.80, critChance: 0.25, critDamage: 1.40, range: 4,
+    attackSpeed: 0.80, critChance: 0.25, critDamage: 1.40, range: 3,
   },
   ability: {
     id: 'noivern_boomburst',
     name: 'Boomburst',
-    description: 'Emit a deafening explosion hitting all enemies within 4 rows of Noivern, dealing 250/375/600 special damage and silencing them for 2/2.5/3 seconds.',
-    scaling: { damage: [250, 375, 600], silenceDuration: [2, 2.5, 3] },
+    description: 'Let out a massive screech, hitting all enemies within 3 rows for 400/650/2000 special damage.',
+    scaling: { damage: [400, 650, 2000] },
   },
-  spritePath: '/visuals/sprites/sky_strikers/noivern_moving.gif',
+  spritePath: '/visuals/sprites/sky_strikers/noivern-sprite.webp',
 }
 
 export const RAYQUAZA: UnitDefinition = {
@@ -318,8 +318,8 @@ export const RAYQUAZA: UnitDefinition = {
   ability: {
     id: 'rayquaza_dragon_ascent',
     name: 'Dragon Ascent',
-    description: 'Rayquaza and the nearest enemy ascend for 2 seconds, then slam down dealing 500/750/1200 true damage to all enemies in a 2-hex radius with 50% falloff per hex.',
-    scaling: { centerDamage: [500, 750, 1200], ascentDuration: [2, 2, 2] },
+    description: 'Mega Evolve and grab the current target, flying off-screen together. Slam down onto the furthest enemy for 300/450/9999 + 2/5/999% of the grabbed unit\'s max HP in a 1-hex radius (50% in a 2-hex radius). Both units land near the slam point. Subsequent casts skip the mega evo.',
+    scaling: { damage: [300, 450, 9999], hpPercent: [2, 5, 999] },
   },
   spritePath: '/visuals/sprites/sky_strikers/rayquaza-sprite.webp',
 }
@@ -377,10 +377,10 @@ export const EXCADRILL: UnitDefinition = {
   ability: {
     id: 'excadrill_drill_run',
     name: 'Drill Run',
-    description: 'Leap to the furthest enemy within 3 hexes. On landing, knock them up for 1.5/2/3 seconds and deal 200/300/500 physical damage. Empower the next 3 attacks with 50/75/120 bonus physical damage in a 1-hex splash.',
-    scaling: { damage: [200, 300, 500], knockUpSeconds: [1.5, 2, 3], atkBonus: [50, 75, 120] },
+    description: 'Tunnel to the furthest enemy within 3 hexes (invulnerable during dash), knocking them up for 0.5s and dealing 250/375/500 physical damage. The next 3 attacks also hit adjacent enemies for 110/165/300 bonus physical damage.',
+    scaling: { damage: [250, 375, 500], bonusDamage: [110, 165, 300] },
   },
-  spritePath: '/visuals/sprites/cave_crawlers/excadrill_moving.gif',
+  spritePath: '/visuals/sprites/cave_crawlers/excadrill-sprite.webp',
 }
 
 export const STONJOURNER: UnitDefinition = {
@@ -414,11 +414,11 @@ export const DRUDDIGON: UnitDefinition = {
   },
   ability: {
     id: 'druddigon_dragon_tail',
-    name: 'Rough Skin Strike',
-    description: 'Deal 250/375/600 physical damage to the nearest enemy. If the target\'s current HP is lower than Druddigon\'s, knock them back 2 hexes.',
-    scaling: { damage: [250, 375, 600] },
+    name: 'Dragon Tail',
+    description: 'Strike with a powerful tail swipe, dealing 300/450/700 attack damage. If the blow kills the target, they are briefly stunned then knocked back 2 hexes and die on landing. Enemies they collide with take 30% of the strike damage.',
+    scaling: { damage: [300, 450, 700] },
   },
-  spritePath: '/visuals/sprites/cave_crawlers/druddigon_moving.gif',
+  spritePath: '/visuals/sprites/cave_crawlers/druddigon-sprite.png',
 }
 
 export const ARMAROUGE: UnitDefinition = {
@@ -473,11 +473,11 @@ export const SABLEYE: UnitDefinition = {
   },
   ability: {
     id: 'sableye_power_gem',
-    name: 'Trick',
-    description: 'Alternates each cast. Odd casts: deal 150/225/350 magic damage and apply Charm (-20% attack/special) for 3 seconds. Even casts: become invisible, gaining a 200/300/500 shield and 40% attack speed for 3 seconds.',
-    scaling: { damage: [150, 225, 350], shieldAmount: [200, 300, 500] },
+    name: 'Power Gem',
+    description: 'Alternates between two gem casts. Shield cast: send 2 blue gems to the lowest % health allies, shielding each for 250/325/425. Damage cast: send 2 red gems to the 2 nearest enemies, dealing 200/300/550 special damage each.',
+    scaling: { shieldAmount: [250, 325, 425], damage: [200, 300, 550] },
   },
-  spritePath: '/visuals/sprites/cave_crawlers/sableye_moving.gif',
+  spritePath: '/visuals/sprites/cave_crawlers/sableye-sprite.webp',
 }
 
 export const MORGREM: UnitDefinition = {
@@ -487,16 +487,16 @@ export const MORGREM: UnitDefinition = {
   traits: ['temporal_woods'],
   baseStats: {
     hp: 500, startMana: 20, maxMana: 70,
-    attack: 35, special: 95, defense: 20, spDefense: 25,
-    attackSpeed: 0.70, critChance: 0.25, critDamage: 1.40, range: 2,
+    attack: 35, special: 95, defense: 50, spDefense: 55,
+    attackSpeed: 0.70, critChance: 0.25, critDamage: 1.40, range: 1,
   },
   ability: {
     id: 'morgrem_spirit_break',
-    name: 'Taunt',
-    description: 'Apply a mana-drain zone on the nearest enemy for 4 seconds - they lose 5 mana per second. Grant Morgrem a 120/180/280 shield. When the shield breaks, strike the nearest enemy for 150/225/350 magic damage.',
-    scaling: { shieldAmount: [120, 180, 280], finalDamage: [150, 225, 350] },
+    name: 'Spirit Break',
+    description: 'Gain a 350/430/550 shield for 3 seconds and create a 1-hex aura that drains 2/3/5 mana every 0.5s from nearby enemies. When the aura ends, strike the target for 50/100/150 + total mana drained as special damage.',
+    scaling: { shield: [350, 430, 550], baseDamage: [50, 100, 150], manaDrain: [2, 3, 5] },
   },
-  spritePath: '/visuals/sprites/temporal_woods/morgrem_moving.gif',
+  spritePath: '/visuals/sprites/temporal_woods/Morgrem-sprite.webp',
 }
 
 export const ABSOL: UnitDefinition = {
@@ -549,11 +549,11 @@ export const ORANGURU: UnitDefinition = {
   },
   ability: {
     id: 'oranguru_stored_power',
-    name: 'Instruct',
-    description: 'For 5 seconds, replace auto-attacks with Instruct waves dealing 120/180/300 special damage. Every 5th wave, permanently gain 15/25/40 special.',
-    scaling: { waveDamage: [120, 180, 300], specialGain: [15, 25, 40] },
+    name: 'Stored Power',
+    description: 'For the rest of combat, replace auto attacks with psychic waves dealing 80/100/120% special damage. Every 5th wave is empowered: deals 100/175/300 bonus special damage and permanently grants 1/2/5 special.',
+    scaling: { specialPct: [80, 100, 120], empBonus: [100, 175, 300], spGain: [1, 2, 5] },
   },
-  spritePath: '/visuals/sprites/temporal_woods/oranguru_moving.gif',
+  spritePath: '/visuals/sprites/temporal_woods/Oranguru-sprite.webp',
 }
 
 
@@ -626,11 +626,11 @@ export const CELEBI: UnitDefinition = {
   },
   ability: {
     id: 'celebi_future_sight',
-    name: 'Time Roar',
-    description: 'Mark the 2/3/4 nearest enemies for 2 seconds - marked enemies take 30/50/80% increased damage. When the mark detonates, deal 400/600/900 magic damage to each.',
-    scaling: { markCount: [2, 3, 4], damageMult: [0.30, 0.50, 0.80], detonationDamage: [400, 600, 900] },
+    name: 'Future Sight',
+    description: 'Mark the nearest unmarked enemy for 2 seconds — marked enemies take 10/20/30% increased damage from all sources. When the mark detonates, deal 450/600/900 special damage.',
+    scaling: { damageMult: [10, 20, 30], detonationDamage: [450, 600, 900] },
   },
-  spritePath: '/visuals/sprites/temporal_woods/celebi_moving.gif',
+  spritePath: '/visuals/sprites/temporal_woods/Celebi-sprite.webp',
 }
 
 export const ABOMASNOW: UnitDefinition = {
@@ -723,10 +723,10 @@ export const FEZANDIPITI: UnitDefinition = {
   ability: {
     id: 'fezandipiti_toxic_chain',
     name: 'Toxic Chain',
-    description: 'Chain 2/3/4 enemies with toxic bonds dealing 50 poison damage, doubling each second for 4 seconds. Gain 150/225/350 bonus HP and armor for the duration. All chained enemies are stunned for 1.5 seconds when the chain expires.',
-    scaling: { targetCount: [2, 3, 4], hpArmor: [150, 225, 350] },
+    description: 'Send toxic chains to all enemies in a 3-hex radius for 4 seconds. Chained enemies take 20/30/90 damage per second, doubled each second. Fezandipiti gains 40/50/90% defense and sp. defense and heals 370/516/1589 over the duration. All chained enemies are stunned for 1 second when the chains end.',
+    scaling: { damagePerSec: [20, 30, 90], durabilityPct: [40, 50, 90], heal: [370, 516, 1589] },
   },
-  spritePath: '/visuals/sprites/temporal_woods/fezandipiti_moving.gif',
+  spritePath: '/visuals/sprites/temporal_woods/Fezandipiti-sprite.png',
 }
 
 //Ascenders
@@ -756,17 +756,17 @@ export const TAPU_LELE: UnitDefinition = {
   cost: 5,
   traits: ['temporal_woods'],
   baseStats: {
-    hp: 1200, startMana: 0, maxMana: 120,
+    hp: 1200, startMana: 60, maxMana: 120,
     attack: 70, special: 130, defense: 55, spDefense: 70,
     attackSpeed: 0.70, critChance: 0.25, critDamage: 1.40, range: 4,
   },
   ability: {
     id: 'tapulele_natures_madness',
-    name: 'Psychic Surge',
-    description: 'A 2-second charge-up, then unleash Psychic Surge on all enemies in a 4-hex radius dealing 500/750/1200 magic damage. If Psychic Terrain is active, ignore all magic resistance.',
-    scaling: { damage: [500, 750, 1200] },
+    name: "Nature's Madness",
+    description: 'Psystrike the closest 4/5/10 enemies for 500/750/5000 magic damage after a 2-second channel. If Psychic Terrain is active, ignore 30/45/100% of their magic resistance.',
+    scaling: { targetCount: [4, 5, 10], damage: [500, 750, 5000], spDefPierce: [30, 45, 100] },
   },
-  spritePath: '/visuals/sprites/temporal_woods/tapu-lele_moving.gif',
+  spritePath: '/visuals/sprites/temporal_woods/tapu-lele-sprite.webp',
 }
 
 export const TAPU_KOKO: UnitDefinition = {
@@ -815,17 +815,17 @@ export const ZUBAT: UnitDefinition = {
   cost: 1,
   traits: ['cave_crawler'],
   baseStats: {
-    hp: 450, startMana: 0, maxMana: 50,
+    hp: 450, startMana: 0, maxMana: 30,
     attack: 30, special: 85, defense: 15, spDefense: 20,
     attackSpeed: 0.75, critChance: 0.25, critDamage: 1.40, range: 4,
   },
   ability: {
     id: 'zubat_poison_sting',
-    name: 'Leech Life',
-    description: 'Launch a leech projectile at the nearest enemy dealing 100/150/250 magic damage and applying stackable poison (20/30/50 magic damage per second) for 3 seconds.',
-    scaling: { damage: [100, 150, 250], poisonPerSec: [20, 30, 50] },
+    name: 'Poison Sting',
+    description: 'Send out a poison dart, dealing 200/350/600 special damage. It poisons the target, dealing 20/50/75 special damage over the next 4 seconds. This poison effect can stack.',
+    scaling: { damage: [200, 350, 600], poisonTotal: [20, 50, 75] },
   },
-  spritePath: '/visuals/sprites/cave_crawlers/zubat_moving.gif',
+  spritePath: '/visuals/sprites/cave_crawlers/zubat-sprite.webp',
 }
 
 export const MORELULL: UnitDefinition = {
@@ -840,11 +840,11 @@ export const MORELULL: UnitDefinition = {
   },
   ability: {
     id: 'morelull_strength_sap',
-    name: 'Spore',
-    description: 'Deal 120/180/300 magic damage to the nearest enemy and reduce their attack by 15/25/40 flat for 3 seconds. Heal the nearest ally for 80/120/200 HP.',
-    scaling: { damage: [120, 180, 300], atkReduction: [15, 25, 40], healAmount: [80, 120, 200] },
+    name: 'Strength Sap',
+    description: 'Launch a projectile at the target dealing 300/450/700 special damage and lowering their attack by 33% for 3 seconds. A smaller projectile then travels from the enemy to the nearest ally, healing them for 85/100/130% of the target\'s attack.',
+    scaling: { damage: [300, 450, 700], healPct: [85, 100, 130] },
   },
-  spritePath: '/visuals/sprites/temporal_woods/morelull_moving.gif',
+  spritePath: '/visuals/sprites/temporal_woods/Morelull-sprite.webp',
 }
 
 export const SNEASLER: UnitDefinition = {
@@ -956,11 +956,11 @@ export const QUAGSIRE: UnitDefinition = {
   },
   ability: {
     id: 'quagsire_unaware',
-    name: 'Water Absorb',
-    description: 'Gain a 100/150/250 shield per enemy within 2 hexes. Taunt all enemies within 1 hex for 2 seconds. When the shield expires, deal 150/225/375 magic damage + chill (-20% attack speed for 2s) to all nearby enemies.',
-    scaling: { shieldPerEnemy: [100, 150, 250], aoeDamage: [150, 225, 375] },
+    name: 'Unaware',
+    description: 'Gain a 100/150/400 shield per enemy within 2 hexes and taunt all enemies within 1 hex for 4 seconds. When the shield expires or breaks, deal 200/350/600 magic damage and chill (-30% attack speed) all enemies within 1 hex.',
+    scaling: { shieldPerEnemy: [100, 150, 400], aoeDamage: [200, 350, 600] },
   },
-  spritePath: '/visuals/sprites/river/quagsire_moving.gif',
+  spritePath: '/visuals/sprites/river/quagsire-sprite.webp',
 }
 
 export const BARRASKEWDA: UnitDefinition = {
@@ -969,17 +969,17 @@ export const BARRASKEWDA: UnitDefinition = {
   cost: 3,
   traits: ['river'],
   baseStats: {
-    hp: 800, startMana: 0, maxMana: 70,
+    hp: 800, startMana: 0, maxMana: 60,
     attack: 70, special: 90, defense: 35, spDefense: 35,
     attackSpeed: 0.90, critChance: 0.25, critDamage: 1.40, range: 1,
   },
   ability: {
     id: 'barraskewda_fishous_rend',
-    name: 'Skewered',
-    description: 'Leap to the lowest-HP enemy within 2 hexes and deal 300/450/700 physical damage. Reduce the target\'s max mana by 10 per cast (minimum 30).',
-    scaling: { damage: [300, 450, 700] },
+    name: 'Fishous Rend',
+    description: 'Dash to the lowest-HP enemy within 2 hexes, striking for 200/320/550 physical damage (×1.5 if target is below half health). Each subsequent cast costs 10 less mana (minimum 20).',
+    scaling: { damage: [200, 320, 550] },
   },
-  spritePath: '/visuals/sprites/river/barraskewda_moving.gif',
+  spritePath: '/visuals/sprites/river/barraskewda-sprite.webp',
 }
 
 export const KLAWF: UnitDefinition = {
@@ -1013,11 +1013,11 @@ export const DREDNAW: UnitDefinition = {
   },
   ability: {
     id: 'drednaw_razor_shell',
-    name: 'Jaw Lock',
-    description: 'Bite mode: for 5 seconds, each auto attack deals AoE splash damage in a 1-hex radius and ignores 30/50/80 flat armor. At tier 3, also ignores shield absorption.',
-    scaling: { armorIgnore: [30, 50, 80] },
+    name: 'Razor Shell',
+    description: 'For the next 5 seconds, gain 20/30/50 attack and Drednaw\'s attacks become sweeping slashes, dealing 110/160/235 bonus physical damage and ignoring 30% armor.',
+    scaling: { atkBonus: [20, 30, 50], bonusDamage: [110, 160, 235] },
   },
-  spritePath: '/visuals/sprites/river/drednaw_moving.gif',
+  spritePath: '/visuals/sprites/river/drednaw-sprite.webp',
 }
 
 
@@ -1034,8 +1034,8 @@ export const WAILORD: UnitDefinition = {
   ability: {
     id: 'wailord_bounce',
     name: 'Bounce',
-    description: 'Bounce up, gaining a 400/475/575 shield, then slam down on the target, stunning them for 1/1/1.5 seconds and dealing 80/120/180 special damage.',
-    scaling: { shield: [400, 475, 575], stunSeconds: [1, 1, 1.5], damage: [80, 120, 180] },
+    description: 'Bounce up, gaining a 75/150/300 shield, then slam down on the target, stunning them for 1/1/1.5 seconds and dealing 80/120/180 special damage.',
+    scaling: { shield: [75, 150, 300], stunSeconds: [1, 1, 1.5], damage: [80, 120, 180] },
   },
   spritePath: '/visuals/sprites/sky_strikers/wailord-sprite.webp',
 }
@@ -1094,10 +1094,10 @@ export const FERROTHORN: UnitDefinition = {
   ability: {
     id: 'ferrothorn_iron_barbs',
     name: 'Iron Barbs',
-    description: 'Arm Ferrothorn with iron barbs for 4/5/6 seconds. Attackers who auto-attack Ferrothorn during this time take 75/100/150 magic damage back.',
-    scaling: { retaliationDamage: [75, 100, 150], duration: [4, 5, 6] },
+    description: 'Gain 25/30/40% durability for 4 seconds. Enemies who auto-attack Ferrothorn during this time take 75/150/225 special damage.',
+    scaling: { durabilityPct: [25, 30, 40], retaliationDamage: [75, 150, 225] },
   },
-  spritePath: '/visuals/sprites/cave_crawlers/ferrothorn_moving.gif',
+  spritePath: '/visuals/sprites/cave_crawlers/ferrothron-sprite.webp',
 }
 
 export const BELLIBOLT: UnitDefinition = {
@@ -1112,11 +1112,12 @@ export const BELLIBOLT: UnitDefinition = {
   },
   ability: {
     id: 'bellibolt_electrophoresis',
-    name: 'Electromorphosis',
-    description: 'Passive: Bellibolt gains 1 charge whenever any ally auto-attacks. On cast, discharge all charges dealing (charge x 15/20/30) magic damage split between all enemies, scaling with defense + MR.',
-    scaling: { damagePerCharge: [15, 20, 30] },
+    name: 'Electrophoresis',
+    description: 'Passive: Gain 1 charge (max 10) whenever Bellibolt is hit; each charge grants +5 Defense and +5 Sp. Def. On cast, discharge in a 1-hex radius dealing 50/90/120% of total Defense + Sp. Def as magic damage, then lose all charges.',
+    scaling: { scalingPct: [50, 90, 120] },
   },
-  spritePath: '/visuals/sprites/river/bellibolt_moving.gif',
+  spritePath: '/visuals/sprites/river/belliboilt-sprite.webp',
+  spriteScale: 0.8,
 }
 
 export const A_RAICHU: UnitDefinition = {
@@ -1125,7 +1126,7 @@ export const A_RAICHU: UnitDefinition = {
   cost: 3,
   traits: ['beachy'],
   baseStats: {
-    hp: 750, startMana: 40, maxMana: 90,
+    hp: 750, startMana: 40, maxMana: 50,
     attack: 60, special: 110, defense: 35, spDefense: 40,
     attackSpeed: 0.80, critChance: 0.25, critDamage: 1.40, range: 3,
   },

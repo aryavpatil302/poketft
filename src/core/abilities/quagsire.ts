@@ -10,8 +10,8 @@ export const QuagsireAbility: AbilityHandler = {
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const shieldsPerEnemy = [100, 150, 250] as const
-    const aoeDamages      = [150, 225, 375] as const
+    const shieldsPerEnemy = [100,  150,  400] as const
+    const aoeDamages      = [200,   350,   600] as const
 
     const shieldPer = shieldsPerEnemy[tier - 1]
     const aoeDmg    = aoeDamages[tier - 1]
@@ -24,44 +24,52 @@ export const QuagsireAbility: AbilityHandler = {
     }
     const totalShield = shieldPer * Math.max(1, enemyCount)
 
-    // Taunt enemies within 1 hex
+    // Taunt enemies within 1 hex for 4 seconds
     for (const other of state.units.values()) {
       if (other.team === unit.team || other.state === 'dead') continue
       if (hexDistance(unit.hexPos, other.hexPos) <= 1) {
         addStatusEffect(other, {
           id: 'taunt',
           sourceUnitId: unit.id,
-          durationTicks: 2 * TICK_RATE,
+          durationTicks: 4 * TICK_RATE,
           stackId: `quagsire_taunt_${other.id}`,
         })
       }
     }
 
-    // Apply shield; on expiry deal AoE
+    // Apply shield; on expiry/break: AoE + chill + pop VFX
     const shield: Shield = {
       id: `quagsire_shield_${unit.id}_${state.tick}`,
       sourceAbility: 'quagsire_unaware',
       value: totalShield,
       maxValue: totalShield,
       durationTicks: 4 * TICK_RATE,
+      effectiveMaxHp: unit.currentHp + totalShield,
       onExpire: (u: Unit) => {
-        // AoE damage + chill to all nearby enemies
-        for (const hex of hexesInRange(u.hexPos, 2)) {
+        // AoE special damage + 30% chill in 1-hex radius
+        for (const hex of hexesInRange(u.hexPos, 1)) {
           const uid = state.hexOccupancy.get(hexId(hex))
           if (!uid) continue
           const target = state.units.get(uid)
           if (!target || target.team === u.team || target.state === 'dead') continue
           applyDamage(u, target, { baseAmount: aoeDmg, damageType: 'magic', canCrit: false, abilityId: 'quagsire_unaware' }, state)
-          if (target.state !== 'dead') {
+          if (target.currentHp > 0) {
             addStatusEffect(target, {
               id: 'chill',
               sourceUnitId: u.id,
-              durationTicks: 2 * TICK_RATE,
-              magnitude: 0.20,
+              durationTicks: 3 * TICK_RATE,
+              magnitude: 0.30,
               stackId: `quagsire_chill_${target.id}`,
             })
           }
         }
+        // Pop bubble VFX
+        state.events.push({
+          type: 'vfx',
+          effectId: 'quagsire_shield_pop',
+          x: u.visualPos.x,
+          y: u.visualPos.y,
+        })
       },
     }
 

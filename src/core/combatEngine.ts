@@ -64,8 +64,8 @@ function checkWinLoss(state: CombatState): boolean {
 
 function tickLeapMovement(unit: Unit, state: CombatState): void {
   const arrived = tickLeapPixel(unit, state)
-  // Don't reset to idle if onLand started a new leap (unit._leap will be set)
-  if (arrived && !(unit as any)._leap) unit.state = 'idle'
+  // Don't reset to idle if onLand started a new leap or if onLand killed the unit
+  if (arrived && !(unit as any)._leap && unit.state !== 'dead') unit.state = 'idle'
 }
 
 // ─── Per-unit state machine ───────────────────────────────────────────────────

@@ -1,0 +1,19 @@
+{
+  "label": "celbi",
+  "units": [
+    {
+      "id": "celebi",
+      "tier": 1,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}
