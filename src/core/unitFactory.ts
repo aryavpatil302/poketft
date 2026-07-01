@@ -35,6 +35,7 @@ export function computeStats(unit: Unit, _traitBonuses?: Partial<UnitBaseStats>)
   let range       = unit.range
   let maxHp       = unit.maxHp
   let moveSpeed   = unit.moveSpeed
+  let omnivamp    = 0
 
   // Apply item stat bonuses
   for (const itemId of unit.items) {
@@ -135,9 +136,6 @@ export function computeStats(unit: Unit, _traitBonuses?: Partial<UnitBaseStats>)
       case 'rayquaza_mega_atk':
         attack += mag
         break
-      case 'rayquaza_mega_aspd':
-        attackSpeed += attackSpeed * mag
-        break
     }
   }
 
@@ -152,6 +150,7 @@ export function computeStats(unit: Unit, _traitBonuses?: Partial<UnitBaseStats>)
     critDamage,
     range,
     moveSpeed:  Math.max(0.5, moveSpeed),
+    omnivamp:   Math.max(0, omnivamp),
   }
   return unit._computedStats
 }

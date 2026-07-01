@@ -111,6 +111,18 @@ export function applyDamage(
   // Track damage dealt by the source
   source.damageDealtThisCombat += hpDamage
 
+  // Omnivamp: heal source for a fraction of HP damage dealt
+  if (hpDamage > 0 && source.state !== 'dead') {
+    const sourceStats = source._computedStats
+    if (sourceStats && sourceStats.omnivamp > 0) {
+      const heal = Math.round(hpDamage * sourceStats.omnivamp)
+      if (heal > 0) {
+        source.currentHp = Math.min(source.maxHp, source.currentHp + heal)
+        state.events.push({ type: 'heal', targetId: source.id, amount: heal, sourceId: source.id })
+      }
+    }
+  }
+
   // Emit event
   state.events.push({
     type: 'damage',

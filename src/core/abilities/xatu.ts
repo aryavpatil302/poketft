@@ -1,43 +1,48 @@
 import type { AbilityHandler } from '../systems/ability'
-import type { CombatState, Unit } from '../types'
+import type { CombatState, Unit, Shield } from '../types'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
-import { addMark } from '../systems/marks'
-import { findNearestEnemies } from '../systems/targeting'
 
 export const XatuAbility: AbilityHandler = {
   abilityId: 'xatu_magic_bounce',
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const damageValues = [300, 450, 700] as const
-    const damage = damageValues[tier - 1]
+    const shieldValues = [400, 475, 600] as const
+    const ratios       = [0.90, 1.20, 1.50] as const
+    const shieldVal    = shieldValues[tier - 1]
+    const ratio        = ratios[tier - 1]
+    const DURATION     = 3 * TICK_RATE  // 180 ticks
 
-    const attackTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
-    const target = (attackTarget && attackTarget.state !== 'dead' && attackTarget.team !== unit.team)
-      ? attackTarget
-      : findNearestEnemies(unit, state, 1)[0]
-    if (!target) return
+    const shield: Shield = {
+      id: crypto.randomUUID(),
+      sourceAbility: 'xatu_magic_bounce',
+      value: shieldVal,
+      maxValue: shieldVal,
+      durationTicks: DURATION,
+      onExpire: (u: Unit, s: Shield) => {
+        // Damage absorbed = initial value minus whatever remains
+        const storedDamage = s.maxValue - s.value
+        const bonusDamage  = Math.round(storedDamage * ratio)
+        if (bonusDamage <= 0) return
 
-    const casterId = unit.id
-
-    addMark(target, {
-      id: 'future_sight',
-      sourceUnitId: casterId,
-      durationTicks: 2 * TICK_RATE,  // 2 seconds delay
-      magnitude: 0,
-      onDetonate: (marked: Unit, source: Unit | undefined, st: CombatState) => {
-        if (!source || source.state === 'dead') return
-        applyDamage(source, marked, {
-          baseAmount: damage,
-          damageType: 'magic',
-          canCrit: false,
-          abilityId: 'xatu_magic_bounce',
-        }, st)
+        u.attackModifiers.push({
+          id: 'xatu_bounce_shot',
+          remainingCharges: 1,
+          onHit: (src: Unit, tgt: Unit, st: CombatState) => {
+            applyDamage(src, tgt, {
+              baseAmount:  bonusDamage,
+              damageType:  'magic',
+              canCrit:     false,
+              abilityId:   'xatu_magic_bounce',
+            }, st)
+            st.events.push({ type: 'vfx', effectId: 'xatu_bounce_shot_hit', unitId: src.id })
+          },
+        })
       },
-    })
+    }
 
-    // Amplify incoming damage on the target temporarily
-    target.incomingDamageMult += 0.3
+    unit.shields.push(shield)
+    state.events.push({ type: 'shield', unitId: unit.id, amount: shieldVal })
   },
 }

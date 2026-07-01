@@ -115,6 +115,7 @@ describe('Mamoswine - Thick Fat', () => {
       critDamage: caster.critDamage,
       range: caster.range,
       moveSpeed: caster.moveSpeed,
+      omnivamp: 0,
     }
 
     state.events = []

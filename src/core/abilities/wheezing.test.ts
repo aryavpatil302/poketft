@@ -203,7 +203,7 @@ describe('Wheezing - Poison Gas', () => {
   it('invalidates computed stats after tick effect fires', () => {
     cast(caster, state)
     const stack = caster.statusEffects.find(e => e.id === 'wheezing_stack')
-    caster._computedStats = { maxHp: 100, attack: 10, special: 10, defense: 10, spDefense: 10, attackSpeed: 1, critChance: 0.1, critDamage: 1.4, range: 1, moveSpeed: 1.5 }
+    caster._computedStats = { maxHp: 100, attack: 10, special: 10, defense: 10, spDefense: 10, attackSpeed: 1, critChance: 0.1, critDamage: 1.4, range: 1, moveSpeed: 1.5, omnivamp: 0 }
     stack!.tickEffect!(caster, state)
     expect(caster._computedStats).toBeNull()
   })

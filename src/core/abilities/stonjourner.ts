@@ -1,7 +1,14 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
-import { applyHeal } from '../systems/heal'
+import { TICK_RATE } from '../constants'
 import { hexDistance } from '../hexGrid'
+import { applyHeal } from '../systems/heal'
+import { addStatusEffect } from '../systems/statusEffect'
+import { createProjectile } from '../projectile'
+
+const BORROW_PCT          = 0.33
+const BUFF_DURATION_TICKS = 5 * TICK_RATE
+const PROJ_SPEED          = 10
 
 function findNearestAlly(unit: Unit, state: CombatState): Unit | null {
   let best: Unit | null = null
@@ -16,37 +23,47 @@ function findNearestAlly(unit: Unit, state: CombatState): Unit | null {
 
 export const StonjournerAbility: AbilityHandler = {
   abilityId: 'stonjourner_power_spot',
-  castTimeTicks: 20,
+  castTimeTicks: 30,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const healValues     = [150, 225, 350] as const
-    const stealPctValues = [0.10, 0.15, 0.25] as const
+    const healAmounts = [250, 350, 450] as const
+    const healAmount  = healAmounts[tier - 1]
 
-    const healAmt   = healValues[tier - 1]
-    const stealPct  = stealPctValues[tier - 1]
-
-    // Heal self
-    applyHeal(unit, healAmt, unit.id, state)
-
-    // Find nearest ally and steal a % of their defense and spDefense
     const ally = findNearestAlly(unit, state)
     if (!ally) return
 
-    const stolenDef   = Math.floor(ally.defense   * stealPct)
-    const stolenSpDef = Math.floor(ally.spDefense  * stealPct)
+    const allyDef   = ally._computedStats?.defense   ?? ally.defense
+    const allySpDef = ally._computedStats?.spDefense ?? ally.spDefense
+    const flatDef   = Math.round(allyDef   * BORROW_PCT)
+    const flatSpDef = Math.round(allySpDef * BORROW_PCT)
 
-    // Remove from ally, add to self as permanent buff
-    ally.defense   = Math.max(0, ally.defense   - stolenDef)
-    ally.spDefense = Math.max(0, ally.spDefense - stolenSpDef)
-    ally._computedStats = null
-
-    unit.defense   += stolenDef
-    unit.spDefense += stolenSpDef
-    unit._computedStats = null
-
-    console.log(
-      `[stonjourner] ${unit.id} stole ${stolenDef} armor and ${stolenSpDef} spDef from ${ally.id} ` +
-      `(${Math.round(stealPct * 100)}% steal)`
-    )
+    // Projectile flies from the ally to Stonjourner; heal + buff apply on arrival
+    const proj = createProjectile({
+      sourceId:  unit.id,
+      targetId:  unit.id,
+      startPos:  { ...ally.visualPos },
+      speed:     PROJ_SPEED,
+      hitRadius: 14,
+      abilityId: 'stonjourner_power_spot',
+      onHit: (_src, target, st) => {
+        applyHeal(target, healAmount, target.id, st)
+        addStatusEffect(target, {
+          id:            'armorBuff',
+          sourceUnitId:  target.id,
+          magnitude:     flatDef,
+          durationTicks: BUFF_DURATION_TICKS,
+          stackId:       'stonjourner_def',
+        })
+        addStatusEffect(target, {
+          id:            'spDefBuff',
+          sourceUnitId:  target.id,
+          magnitude:     flatSpDef,
+          durationTicks: BUFF_DURATION_TICKS,
+          stackId:       'stonjourner_spdef',
+        })
+        st.events.push({ type: 'vfx', effectId: 'stonjourner_rock_hit', unitId: target.id })
+      },
+    })
+    state.projectiles.set(proj.id, proj)
   },
 }

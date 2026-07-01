@@ -3,50 +3,43 @@ import type { CombatState, Unit } from '../types'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
-import { hexesInRange, hexId, hexDistance } from '../hexGrid'
 import { findNearestEnemies } from '../systems/targeting'
+
+const CHANNEL_TICKS = Math.round(1.5 * TICK_RATE)  // 90 ticks = 1.5 seconds
 
 export const ClaydolAbility: AbilityHandler = {
   abilityId: 'claydol_gravity',
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const centerDamages   = [350, 525, 850] as const
-    const ascentDurations = [2.5, 2.5, 2.5] as const
-
-    const centerDmg  = centerDamages[tier - 1]
-    const ascentTicks = Math.round(ascentDurations[tier - 1] * TICK_RATE)
+    const flatDmgValues = [400, 600, 1000] as const
+    const pctDmgValues  = [0.05, 0.08, 0.10] as const
+    const flatDmg = flatDmgValues[tier - 1]
+    const pctDmg  = pctDmgValues[tier - 1]
+    const casterRef = unit
 
     const targets = findNearestEnemies(unit, state, 2)
-    const capturedTargets = [...targets]
 
     for (const target of targets) {
       target.state = 'ascended'
+
+      addStatusEffect(target, {
+        id:           'claydol_gravity_target',
+        sourceUnitId: unit.id,
+        durationTicks: CHANNEL_TICKS,
+        magnitude:    CHANNEL_TICKS,  // stored so unitLayer can compute elapsed
+        stackId:      'claydol_gravity_target',
+        tickEffect:   (u) => { if (u.state !== 'dead') u.state = 'ascended' },
+        onExpire:     (u, st) => {
+          if (u.state === 'ascended') u.state = 'idle'
+          if (u.state === 'dead') return
+          const totalDmg = flatDmg + Math.round(u.maxHp * pctDmg)
+          applyDamage(casterRef, u, { baseAmount: totalDmg, damageType: 'magic', canCrit: false, abilityId: 'claydol_gravity' }, st)
+          st.events.push({ type: 'vfx', effectId: 'claydol_gravity_slam', unitId: u.id })
+        },
+      })
     }
 
-    // Schedule slam via countdown on caster
-    addStatusEffect(unit, {
-      id: 'claydol_slam',
-      sourceUnitId: unit.id,
-      durationTicks: ascentTicks,
-      stackId: 'claydol_slam',
-      onExpire: (u, st) => {
-        for (const lifted of capturedTargets) {
-          if (lifted.state === 'ascended') lifted.state = 'idle'
-          if (lifted.state === 'dead') continue
-
-          const slamCenter = lifted.hexPos
-          for (const hex of hexesInRange(slamCenter, 1)) {
-            const uid = st.hexOccupancy.get(hexId(hex))
-            if (!uid) continue
-            const victim = st.units.get(uid)
-            if (!victim || victim.team === u.team || victim.state === 'dead') continue
-            const dist = hexDistance(hex, slamCenter)
-            const dmg  = dist === 0 ? centerDmg : Math.round(centerDmg * 0.6)
-            applyDamage(u, victim, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityId: 'claydol_gravity' }, st)
-          }
-        }
-      },
-    })
+    state.events.push({ type: 'vfx', effectId: 'claydol_gravity_cast', unitId: unit.id })
   },
 }

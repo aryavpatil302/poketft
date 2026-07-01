@@ -2,18 +2,25 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { TICK_RATE } from '../constants'
-import type { Unit, CombatState } from '../types'
 
+import type { Unit, CombatState } from '../types'
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks = 20): void {
+const CAST_TICKS = 20
+const CHANNEL_TICKS = 90  // 1.5 * 60
+
+function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
-  for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
+  for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
 }
 
-describe('Claydol - Gravity', () => {
+function expireGravity(target: Unit, state: CombatState): void {
+  const fx = target.statusEffects.find(e => e.stackId === 'claydol_gravity_target')
+  if (fx) fx.onExpire!(target, state)
+}
+
+describe('Claydol – Gravity', () => {
   let caster: Unit
   let enemy1: Unit
   let enemy2: Unit
@@ -38,77 +45,91 @@ describe('Claydol - Gravity', () => {
     expect(state.events.some(e => e.type === 'cast')).toBe(true)
   })
 
-  it('lifts the 2 nearest enemies to ascended state', () => {
+  it('lifts exactly 2 nearest enemies to ascended state', () => {
     cast(caster, state)
-    const ascendedEnemies = [enemy1, enemy2, enemy3].filter(e => e.state === 'ascended')
-    expect(ascendedEnemies).toHaveLength(2)
+    const ascended = [enemy1, enemy2, enemy3].filter(e => e.state === 'ascended')
+    expect(ascended).toHaveLength(2)
   })
 
-  it('adds claydol_slam countdown status on the caster', () => {
+  it('adds claydol_gravity_target status effect to lifted enemies', () => {
     cast(caster, state)
-    const slam = caster.statusEffects.find(e => e.stackId === 'claydol_slam')
-    expect(slam).toBeDefined()
-    expect(slam!.id).toBe('claydol_slam')
+    const lifted = [enemy1, enemy2, enemy3].filter(e => e.state === 'ascended')
+    for (const e of lifted) {
+      expect(e.statusEffects.some(fx => fx.stackId === 'claydol_gravity_target')).toBe(true)
+    }
   })
 
-  it('claydol_slam duration is 2.5 seconds at tier 1', () => {
+  it('channel duration is 1.5 seconds (90 ticks)', () => {
     cast(caster, state)
-    const slam = caster.statusEffects.find(e => e.stackId === 'claydol_slam')
-    expect(slam!.durationTicks).toBe(Math.round(2.5 * TICK_RATE))
+    const lifted = [enemy1, enemy2, enemy3].find(e => e.state === 'ascended')!
+    const fx = lifted.statusEffects.find(f => f.stackId === 'claydol_gravity_target')!
+    expect(fx.durationTicks).toBe(CHANNEL_TICKS)
   })
 
-  it('claydol_slam duration is 2.5 seconds at tier 2', () => {
-    const t2 = makeUnit('claydol', 'player', 2)
-    t2.hexPos = { col: 3, row: 5 }
-    const e2a = makeUnit('dummy', 'enemy', 1)
-    e2a.hexPos = { col: 3, row: 2 }
-    const e2b = makeUnit('dummy', 'enemy', 1)
-    e2b.hexPos = { col: 4, row: 2 }
-    const s2 = createCombatState([t2], [e2a, e2b])
-    cast(t2, s2)
-    const slam = t2.statusEffects.find(e => e.stackId === 'claydol_slam')
-    expect(slam!.durationTicks).toBe(Math.round(2.5 * TICK_RATE))
-  })
-
-  it('claydol_slam duration is 2.5 seconds at tier 3', () => {
-    const t3 = makeUnit('claydol', 'player', 3)
-    t3.hexPos = { col: 3, row: 5 }
-    const e3a = makeUnit('dummy', 'enemy', 1)
-    e3a.hexPos = { col: 3, row: 2 }
-    const e3b = makeUnit('dummy', 'enemy', 1)
-    e3b.hexPos = { col: 4, row: 2 }
-    const s3 = createCombatState([t3], [e3a, e3b])
-    cast(t3, s3)
-    const slam = t3.statusEffects.find(e => e.stackId === 'claydol_slam')
-    expect(slam!.durationTicks).toBe(Math.round(2.5 * TICK_RATE))
-  })
-
-  it('slam onExpire resets ascended enemies back to idle', () => {
+  it('tickEffect keeps enemy in ascended state each tick', () => {
     cast(caster, state)
-    const slam = caster.statusEffects.find(e => e.stackId === 'claydol_slam')!
-    const ascendedBefore = [enemy1, enemy2, enemy3].filter(e => e.state === 'ascended')
-    expect(ascendedBefore).toHaveLength(2)
-    slam.onExpire!(caster, state)
-    // Previously ascended enemies should now be idle (if not dead)
-    const stillAscended = [enemy1, enemy2, enemy3].filter(e => e.state === 'ascended')
-    expect(stillAscended).toHaveLength(0)
+    const lifted = [enemy1, enemy2, enemy3].find(e => e.state === 'ascended')!
+    const fx = lifted.statusEffects.find(f => f.stackId === 'claydol_gravity_target')!
+    lifted.state = 'idle'
+    fx.tickEffect!(lifted, state)
+    expect(lifted.state).toBe('ascended')
   })
 
-  it('slam onExpire deals center damage to enemies occupying the former ascended hex', () => {
+  it('slam deals flat + max HP % damage (tier 1: 400 + 5%)', () => {
     cast(caster, state)
-    const slam = caster.statusEffects.find(e => e.stackId === 'claydol_slam')!
-    const hpBefore1 = enemy1.currentHp
-    const hpBefore2 = enemy2.currentHp
-    slam.onExpire!(caster, state)
-    // At least the two lifted enemies should have taken damage if they remain in the zone
-    const dmgDealt1 = hpBefore1 - enemy1.currentHp
-    const dmgDealt2 = hpBefore2 - enemy2.currentHp
-    expect(dmgDealt1 + dmgDealt2).toBeGreaterThan(0)
+    const lifted = [enemy1, enemy2, enemy3].find(e => e.state === 'ascended')!
+    lifted.spDefense = 0; lifted._computedStats = null
+    const hpBefore = lifted.currentHp
+    expireGravity(lifted, state)
+    const expectedMin = 400 + Math.round(lifted.maxHp * 0.05)
+    expect(hpBefore - lifted.currentHp).toBeGreaterThanOrEqual(expectedMin - 1)
   })
 
-  it('does not lift more than 2 enemies at tier 1', () => {
+  it('slam damage scales per tier', () => {
+    const flatDmg = [400, 600, 1000] as const
+    const pctDmg  = [0.05, 0.08, 0.10] as const
+    for (const tier of [1, 2, 3] as const) {
+      const c = makeUnit('claydol', 'player', tier)
+      c.hexPos = { col: 3, row: 5 }
+      const e = makeUnit('dummy', 'enemy', 1)
+      e.hexPos = { col: 3, row: 2 }
+      e.spDefense = 0; e._computedStats = null
+      const st = createCombatState([c], [e])
+      cast(c, st)
+      const hpBefore = e.currentHp
+      expireGravity(e, st)
+      const expected = flatDmg[tier - 1] + Math.round(e.maxHp * pctDmg[tier - 1])
+      expect(hpBefore - e.currentHp).toBeGreaterThanOrEqual(expected - 1)
+    }
+  })
+
+  it('slam resets enemy state from ascended to idle', () => {
     cast(caster, state)
-    const count = [enemy1, enemy2, enemy3].filter(e => e.state === 'ascended').length
-    expect(count).toBeLessThanOrEqual(2)
+    const lifted = [enemy1, enemy2, enemy3].find(e => e.state === 'ascended')!
+    expireGravity(lifted, state)
+    expect(lifted.state).not.toBe('ascended')
+  })
+
+  it('emits claydol_gravity_cast VFX event', () => {
+    cast(caster, state)
+    expect(state.events.some(e => e.type === 'vfx' && (e as any).effectId === 'claydol_gravity_cast')).toBe(true)
+  })
+
+  it('emits claydol_gravity_slam VFX event on each slammed enemy', () => {
+    cast(caster, state)
+    state.events = []
+    const lifted = [enemy1, enemy2, enemy3].filter(e => e.state === 'ascended')
+    for (const e of lifted) expireGravity(e, state)
+    const slamEvents = state.events.filter(e => e.type === 'vfx' && (e as any).effectId === 'claydol_gravity_slam')
+    expect(slamEvents).toHaveLength(2)
+  })
+
+  it('does not damage dead enemies on slam', () => {
+    cast(caster, state)
+    const lifted = [enemy1, enemy2, enemy3].find(e => e.state === 'ascended')!
+    lifted.state = 'dead'
+    const hpBefore = lifted.currentHp
+    expireGravity(lifted, state)
+    expect(lifted.currentHp).toBe(hpBefore)
   })
 })

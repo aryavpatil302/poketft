@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { TICK_RATE } from '../constants'
+import { tickShields } from '../systems/statusEffect'
+import { applyDamage } from '../systems/damage'
 import type { Unit, CombatState } from '../types'
 import '../systems/ability'
 
@@ -14,7 +15,7 @@ function cast(caster: Unit, state: CombatState): void {
   for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
 }
 
-describe('Xatu - Magic Bounce', () => {
+describe('Xatu – Magic Bounce', () => {
   let caster: Unit
   let enemy: Unit
   let state: CombatState
@@ -23,100 +24,114 @@ describe('Xatu - Magic Bounce', () => {
     caster = makeUnit('xatu', 'player', 1)
     caster.hexPos = { col: 3, row: 5 }
     enemy = makeUnit('dummy', 'enemy', 1)
-    enemy.hexPos = { col: 3, row: 2 }
+    enemy.hexPos = { col: 3, row: 4 }
     state = createCombatState([caster], [enemy])
   })
 
-  it('enters casting state when ability is triggered', () => {
-    caster.currentMana = caster.maxMana
-    triggerAbility(caster, state)
-    expect(caster.state).toBe('casting')
-  })
-
-  it('emits a cast event', () => {
-    caster.currentMana = caster.maxMana
-    triggerAbility(caster, state)
-    expect(state.events.some(e => e.type === 'cast')).toBe(true)
-  })
-
-  it('resets mana to 0 after cast', () => {
+  it('applies a shield on cast', () => {
     cast(caster, state)
-    expect(caster.currentMana).toBe(0)
+    expect(caster.shields.length).toBe(1)
+    expect(caster.shields[0].sourceAbility).toBe('xatu_magic_bounce')
   })
 
-  it('applies a future_sight mark on the target', () => {
-    cast(caster, state)
-    const mark = enemy.marks.find(m => m.id === 'future_sight')
-    expect(mark).toBeDefined()
-  })
-
-  it('mark has 2-second duration (2 * TICK_RATE ticks)', () => {
-    cast(caster, state)
-    const mark = enemy.marks.find(m => m.id === 'future_sight')
-    expect(mark?.durationTicks).toBe(2 * TICK_RATE)
-  })
-
-  it('amplifies target incoming damage by 0.3', () => {
-    cast(caster, state)
-    expect(enemy.incomingDamageMult).toBeCloseTo(1.3)
-  })
-
-  it('tier 1 - mark detonate deals 300 magic damage', () => {
-    cast(caster, state)
-    const mark = enemy.marks.find(m => m.id === 'future_sight')
-    expect(mark?.onDetonate).toBeDefined()
-
-    const hpBefore = enemy.currentHp
-    mark!.onDetonate!(enemy, caster, state)
-    expect(state.events.some(e => e.type === 'damage' && e.targetId === enemy.id)).toBe(true)
-    const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
-    if (dmgEvent?.type === 'damage') {
-      expect(dmgEvent.damageType).toBe('magic')
+  it('shield value scales per tier (400 / 475 / 600)', () => {
+    const expected = [400, 475, 600] as const
+    for (const tier of [1, 2, 3] as const) {
+      const u = makeUnit('xatu', 'player', tier)
+      const st = createCombatState([u], [])
+      u.currentMana = u.maxMana
+      triggerAbility(u, st)
+      for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(u, st)
+      expect(u.shields[0].value).toBe(expected[tier - 1])
     }
   })
 
-  it('tier 2 - mark detonate deals 450 magic damage', () => {
-    const t2 = makeUnit('xatu', 'player', 2)
-    t2.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t2], [e])
-    cast(t2, s)
-    const mark = e.marks.find(m => m.id === 'future_sight')
-    expect(mark).toBeDefined()
-    const hpBefore = e.currentHp
-    mark!.onDetonate!(e, t2, s)
-    expect(e.currentHp).toBeLessThan(hpBefore)
-  })
-
-  it('tier 3 - mark detonate deals 700 magic damage', () => {
-    const t3 = makeUnit('xatu', 'player', 3)
-    t3.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t3], [e])
-    cast(t3, s)
-    const mark = e.marks.find(m => m.id === 'future_sight')
-    expect(mark).toBeDefined()
-    const hpBefore = e.currentHp
-    mark!.onDetonate!(e, t3, s)
-    expect(e.currentHp).toBeLessThan(hpBefore)
-  })
-
-  it('does nothing when no enemies exist', () => {
-    state = createCombatState([caster], [])
+  it('emits a shield event on cast', () => {
     cast(caster, state)
-    // No error, no damage events
-    expect(state.events.some(e => e.type === 'damage')).toBe(false)
+    expect(state.events.some(e => e.type === 'shield' && e.unitId === caster.id)).toBe(true)
   })
 
-  it('detonate does nothing if source is dead', () => {
+  it('shield has a 3-second duration (180 ticks)', () => {
     cast(caster, state)
-    const mark = enemy.marks.find(m => m.id === 'future_sight')
-    expect(mark).toBeDefined()
-    caster.state = 'dead'
+    expect(caster.shields[0].durationTicks).toBe(180)
+  })
+
+  it('when shield expires with stored damage, queues an empowered attack modifier', () => {
+    cast(caster, state)
+    const shield = caster.shields[0]
+    shield.value = shield.maxValue - 200  // simulate 200 absorbed
+    shield.durationTicks = 1
+    tickShields(new Map([[caster.id, caster]]))
+    expect(caster.attackModifiers.some(m => m.id === 'xatu_bounce_shot')).toBe(true)
+  })
+
+  it('when shield breaks, queues an empowered attack modifier', () => {
+    cast(caster, state)
+    // Use magic damage + zero spDef so post-mitigation damage exceeds the shield
+    caster.spDefense = 0; caster._computedStats = null
+    applyDamage(enemy, caster, { baseAmount: 99999, damageType: 'magic', canCrit: false }, state)
+    expect(caster.attackModifiers.some(m => m.id === 'xatu_bounce_shot')).toBe(true)
+  })
+
+  it('empowered attack deals 90% of stored damage (tier 1)', () => {
+    cast(caster, state)
+    const shield = caster.shields[0]
+    shield.value = shield.maxValue - 400  // simulate 400 absorbed
+    shield.durationTicks = 1
+    tickShields(new Map([[caster.id, caster]]))
+
+    const mod = caster.attackModifiers.find(m => m.id === 'xatu_bounce_shot')
+    expect(mod).toBeDefined()
+    enemy.spDefense = 0; enemy._computedStats = null
     const hpBefore = enemy.currentHp
-    mark!.onDetonate!(enemy, caster, state)
-    expect(enemy.currentHp).toBe(hpBefore)
+    mod!.onHit!(caster, enemy, state)
+    expect(hpBefore - enemy.currentHp).toBeCloseTo(360, -1)  // 90% of 400
+  })
+
+  it('empowered attack ratio scales per tier (90% / 120% / 150%)', () => {
+    const ratios = [0.90, 1.20, 1.50]
+    const absorbed = 300
+    for (const tier of [1, 2, 3] as const) {
+      const u = makeUnit('xatu', 'player', tier)
+      const e = makeUnit('dummy', 'enemy', 1)
+      e.spDefense = 0; e._computedStats = null
+      const st = createCombatState([u], [e])
+      u.currentMana = u.maxMana
+      triggerAbility(u, st)
+      for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(u, st)
+      const s = u.shields[0]
+      s.value = s.maxValue - absorbed
+      s.durationTicks = 1
+      tickShields(new Map([[u.id, u]]))
+      const mod = u.attackModifiers.find(m => m.id === 'xatu_bounce_shot')
+      expect(mod).toBeDefined()
+      const hpBefore = e.currentHp
+      mod!.onHit!(u, e, st)
+      const expected = Math.round(absorbed * ratios[tier - 1])
+      expect(hpBefore - e.currentHp).toBeCloseTo(expected, -1)
+    }
+  })
+
+  it('no modifier queued if shield took no damage', () => {
+    cast(caster, state)
+    const shield = caster.shields[0]
+    shield.durationTicks = 1
+    tickShields(new Map([[caster.id, caster]]))
+    expect(caster.attackModifiers.some(m => m.id === 'xatu_bounce_shot')).toBe(false)
+  })
+
+  it('empowered attack has only 1 charge', () => {
+    cast(caster, state)
+    const shield = caster.shields[0]
+    shield.value = shield.maxValue - 200
+    shield.durationTicks = 1
+    tickShields(new Map([[caster.id, caster]]))
+    const mod = caster.attackModifiers.find(m => m.id === 'xatu_bounce_shot')
+    expect(mod?.remainingCharges).toBe(1)
+  })
+
+  it('mana resets to 0 after cast', () => {
+    cast(caster, state)
+    expect(caster.currentMana).toBe(0)
   })
 })
