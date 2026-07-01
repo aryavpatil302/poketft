@@ -1,49 +1,50 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
-import { TICK_RATE } from '../constants'
-import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
-import { addMark, removeMark } from '../systems/marks'
-import { findNearestEnemies } from '../systems/targeting'
-
-const MARK_ID = 'wandering_spirit'
+import { hexDistance } from '../hexGrid'
 
 export const RunerigusAbility: AbilityHandler = {
   abilityId: 'runerigus_wandering_spirit',
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const silenceDamages = [250, 375, 600] as const
-    const dmg = silenceDamages[tier - 1]
+    const dmgValues = [550, 875, 7000] as const
+    const dmg = dmgValues[tier - 1]
 
-    const attackTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
-    const target = (attackTarget && attackTarget.state !== 'dead' && attackTarget.team !== unit.team)
-      ? attackTarget
-      : findNearestEnemies(unit, state, 1)[0]
-    if (!target) return
+    const targets: Unit[] = []
 
-    addMark(target, {
-      id: MARK_ID,
-      sourceUnitId: unit.id,
-      durationTicks: 4 * TICK_RATE,
-      magnitude: dmg,
-      onDetonate: (marked, _source, _st) => {
-        marked.silenced = false
-      },
-    })
+    if (tier === 3) {
+      // 3-star: mark every living unmarked enemy
+      for (const other of state.units.values()) {
+        if (other.team === unit.team || other.state === 'dead') continue
+        if (other.statusEffects.some(fx => fx.stackId === 'runerigus_wandering_spirit')) continue
+        targets.push(other)
+      }
+    } else {
+      // 1-star / 2-star: nearest unmarked enemy only
+      let best: Unit | null = null
+      let bestDist = Infinity
+      for (const other of state.units.values()) {
+        if (other.team === unit.team || other.state === 'dead') continue
+        if (other.statusEffects.some(fx => fx.stackId === 'runerigus_wandering_spirit')) continue
+        const d = hexDistance(unit.hexPos, other.hexPos)
+        if (d < bestDist) { bestDist = d; best = other }
+      }
+      if (best) targets.push(best)
+    }
 
-    target.silenced = true
+    if (targets.length === 0) return
 
-    addStatusEffect(target, {
-      id: 'silence',
-      sourceUnitId: unit.id,
-      durationTicks: 4 * TICK_RATE,
-      magnitude: dmg,
-      stackId: `runerigus_silence_${target.id}`,
-      onExpire: (u, _st) => {
-        u.silenced = u.statusEffects.some(fx => fx.id === 'silence')
-        removeMark(u, MARK_ID)
-      },
-    })
+    for (const target of targets) {
+      addStatusEffect(target, {
+        id:            'silence',
+        sourceUnitId:  unit.id,
+        durationTicks: -1,
+        magnitude:     dmg,
+        stackId:       'runerigus_wandering_spirit',
+      })
+      target.silenced = true
+      state.events.push({ type: 'vfx', effectId: 'wandering_spirit_mark_apply', unitId: unit.id, targetId: target.id })
+    }
   },
 }

@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 import '../systems/ability'
 
@@ -16,15 +15,18 @@ function cast(caster: Unit, state: CombatState): void {
 
 describe('Runerigus - Wandering Spirit', () => {
   let caster: Unit
-  let enemy: Unit
+  let nearEnemy: Unit
+  let farEnemy: Unit
   let state: CombatState
 
   beforeEach(() => {
     caster = makeUnit('runerigus', 'player', 1)
     caster.hexPos = { col: 3, row: 5 }
-    enemy = makeUnit('dummy', 'enemy', 1)
-    enemy.hexPos = { col: 3, row: 2 }
-    state = createCombatState([caster], [enemy])
+    nearEnemy = makeUnit('dummy', 'enemy', 1)
+    nearEnemy.hexPos = { col: 3, row: 4 }
+    farEnemy = makeUnit('dummy', 'enemy', 1)
+    farEnemy.hexPos = { col: 0, row: 0 }
+    state = createCombatState([caster], [nearEnemy, farEnemy])
   })
 
   it('enters casting state when ability is triggered', () => {
@@ -44,70 +46,104 @@ describe('Runerigus - Wandering Spirit', () => {
     expect(caster.currentMana).toBe(0)
   })
 
-  it('applies wandering_spirit mark on nearest enemy', () => {
+  it('marks the nearest enemy with a permanent wandering spirit status effect', () => {
     cast(caster, state)
-    const mark = enemy.marks.find(m => m.id === 'wandering_spirit')
-    expect(mark).toBeDefined()
+    const fx = nearEnemy.statusEffects.find(f => f.stackId === 'runerigus_wandering_spirit')
+    expect(fx).toBeDefined()
+    expect(fx!.durationTicks).toBe(-1)
+    expect(farEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(false)
   })
 
-  it('mark has 4-second duration (4 * TICK_RATE)', () => {
+  it('silences the marked target', () => {
     cast(caster, state)
-    const mark = enemy.marks.find(m => m.id === 'wandering_spirit')
-    expect(mark?.durationTicks).toBe(4 * TICK_RATE)
+    expect(nearEnemy.silenced).toBe(true)
   })
 
-  it('tier 1 - mark has magnitude of 250 (silence damage)', () => {
+  it('damage magnitude scales per tier (550/875/7000)', () => {
+    const expected = [550, 875, 7000] as const
+    for (const tier of [1, 2, 3] as const) {
+      const c = makeUnit('runerigus', 'player', tier)
+      c.hexPos = { col: 3, row: 5 }
+      const e = makeUnit('dummy', 'enemy', 1)
+      e.hexPos = { col: 3, row: 4 }
+      const st = createCombatState([c], [e])
+      cast(c, st)
+      const fx = e.statusEffects.find(f => f.stackId === 'runerigus_wandering_spirit')!
+      expect(fx.magnitude).toBe(expected[tier - 1])
+    }
+  })
+
+  it('does not mark an enemy that already carries the mark — picks the next nearest instead', () => {
     cast(caster, state)
-    const mark = enemy.marks.find(m => m.id === 'wandering_spirit')
-    expect(mark?.magnitude).toBe(250)
-  })
+    expect(nearEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(true)
 
-  it('tier 2 - mark has magnitude of 375', () => {
-    const t2 = makeUnit('runerigus', 'player', 2)
-    t2.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t2], [e])
-    cast(t2, s)
-    const mark = e.marks.find(m => m.id === 'wandering_spirit')
-    expect(mark?.magnitude).toBe(375)
-  })
-
-  it('tier 3 - mark has magnitude of 600', () => {
-    const t3 = makeUnit('runerigus', 'player', 3)
-    t3.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t3], [e])
-    cast(t3, s)
-    const mark = e.marks.find(m => m.id === 'wandering_spirit')
-    expect(mark?.magnitude).toBe(600)
-  })
-
-  it('silences the target immediately on cast', () => {
     cast(caster, state)
-    expect(enemy.silenced).toBe(true)
+    expect(farEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(true)
+    // nearEnemy keeps its original mark — recast does not refresh/replace it
+    expect(nearEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(true)
   })
 
-  it('applies silence status effect on target', () => {
+  it('does nothing when all enemies are already marked', () => {
+    state = createCombatState([caster], [nearEnemy])
     cast(caster, state)
-    const silence = enemy.statusEffects.find(fx => fx.id === 'silence')
-    expect(silence).toBeDefined()
-    expect(silence?.durationTicks).toBe(4 * TICK_RATE)
-  })
-
-  it('mark onDetonate un-silences the target', () => {
+    expect(nearEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(true)
+    const eventsBefore = state.events.length
     cast(caster, state)
-    enemy.silenced = true
-    const mark = enemy.marks.find(m => m.id === 'wandering_spirit')
-    expect(mark?.onDetonate).toBeDefined()
-    mark!.onDetonate!(enemy, caster, state)
-    expect(enemy.silenced).toBe(false)
+    expect(state.events.slice(eventsBefore).some(e => e.type === 'vfx' && (e as any).effectId === 'wandering_spirit_mark_apply')).toBe(false)
   })
 
   it('does nothing when no enemies exist', () => {
     state = createCombatState([caster], [])
     cast(caster, state)
-    expect(state.events.some(e => e.type === 'damage')).toBe(false)
+    expect(state.events.some(e => e.type === 'vfx' && (e as any).effectId === 'wandering_spirit_mark_apply')).toBe(false)
+  })
+
+  it('emits wandering_spirit_mark_apply VFX when marking', () => {
+    cast(caster, state)
+    expect(state.events.some(e => e.type === 'vfx' && (e as any).effectId === 'wandering_spirit_mark_apply')).toBe(true)
+  })
+
+  it('marked unit takes damage instead of casting when it would next cast', () => {
+    cast(caster, state)
+    nearEnemy.spDefense = 0; nearEnemy._computedStats = null
+    const hpBefore = nearEnemy.currentHp
+    nearEnemy.currentMana = nearEnemy.maxMana
+    triggerAbility(nearEnemy, state)
+    expect(nearEnemy.state).not.toBe('casting')
+    expect(hpBefore - nearEnemy.currentHp).toBeCloseTo(550, -1)
+  })
+
+  it('consumes the mark and un-silences the unit when it attempts to cast', () => {
+    cast(caster, state)
+    nearEnemy.currentMana = nearEnemy.maxMana
+    triggerAbility(nearEnemy, state)
+    expect(nearEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(false)
+    expect(nearEnemy.silenced).toBe(false)
+  })
+
+  it('resets mana and applies mana lock on the marked unit when the mark is consumed', () => {
+    cast(caster, state)
+    nearEnemy.currentMana = nearEnemy.maxMana
+    triggerAbility(nearEnemy, state)
+    expect(nearEnemy.currentMana).toBe(0)
+    expect(nearEnemy.manaLockTimer).toBeGreaterThan(0)
+  })
+
+  it('emits wandering_spirit_consume VFX when the mark is consumed', () => {
+    cast(caster, state)
+    nearEnemy.currentMana = nearEnemy.maxMana
+    triggerAbility(nearEnemy, state)
+    expect(state.events.some(e => e.type === 'vfx' && (e as any).effectId === 'wandering_spirit_consume')).toBe(true)
+  })
+
+  it('after being consumed, the unit can be marked again on a later cast', () => {
+    cast(caster, state)
+    nearEnemy.currentMana = nearEnemy.maxMana
+    triggerAbility(nearEnemy, state)
+    expect(nearEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(false)
+
+    cast(caster, state)
+    // nearEnemy is unmarked again and nearest — eligible to be re-marked
+    expect(nearEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(true)
   })
 })

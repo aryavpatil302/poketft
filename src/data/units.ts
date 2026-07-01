@@ -340,7 +340,7 @@ export const AERODACTYL: UnitDefinition = {
     description: 'Permanently gain 8/12/20% to all stats. Gain a passive attack handler: every auto launches a rock projectile that bounces to the furthest nearby enemy for 80/120/200 magic damage.',
     scaling: { statBonus: [0.08, 0.12, 0.20], rockDamage: [80, 120, 200] },
   },
-  spritePath: '/visuals/sprites/aerodactyl.png',
+  spritePath: '/visuals/sprites/ascenders/Aerodactyl-sprite.webp',
 }
 
 // â"€â"€â"€ Cave Crawler â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -383,6 +383,25 @@ export const EXCADRILL: UnitDefinition = {
   spritePath: '/visuals/sprites/cave_crawlers/excadrill-sprite.webp',
 }
 
+export const UNOWN: UnitDefinition = {
+  id: 'unown',
+  name: 'Unown',
+  cost: 1,
+  traits: ['ruiner'],
+  baseStats: {
+    hp: 500, startMana: 30, maxMana: 50,
+    attack: 35, special: 60, defense: 20, spDefense: 25,
+    attackSpeed: 0.65, critChance: 0.10, critDamage: 1.40, range: 4,
+  },
+  ability: {
+    id: 'unown_hidden_power',
+    name: 'Hidden Power',
+    description: 'Randomly fires one of three Hidden Powers at the nearest enemy: Ice (stuns for 1s), Fire (+50% damage), or Electric (50% splash to adjacent enemies). Deals 150/200/300 magic damage.',
+    scaling: { damage: [150, 200, 300] },
+  },
+  spritePath: '/visuals/sprites/ruiner/unown-sprite.webp',
+}
+
 export const STONJOURNER: UnitDefinition = {
   id: 'stonjourner',
   name: 'Stonjourner',
@@ -395,11 +414,11 @@ export const STONJOURNER: UnitDefinition = {
   },
   ability: {
     id: 'stonjourner_power_spot',
-    name: 'Power Gem',
-    description: 'Heal for 150/225/350 HP. Steal 10/15/25% of the nearest ally\'s armor and special defense as a flat buff for the rest of combat.',
-    scaling: { healAmount: [150, 225, 350], stealPercent: [0.10, 0.15, 0.25] },
+    name: 'Power Spot',
+    description: 'Restore 250/350/450 HP. Draw power from the nearest ally, gaining 33% of their armor and sp. def as a flat bonus for 5 seconds.',
+    scaling: { healAmount: [250, 350, 450], borrowPercent: [0.33, 0.33, 0.33] },
   },
-  spritePath: '/visuals/sprites/ruiner/stonjourner_moving.gif',
+  spritePath: '/visuals/sprites/ruiner/Stonjourner-sprite.webp',
 }
 
 export const DRUDDIGON: UnitDefinition = {
@@ -512,10 +531,10 @@ export const ABSOL: UnitDefinition = {
   ability: {
     id: 'absol_night_slash',
     name: 'Night Slash',
-    description: 'Move 1 hex toward the largest enemy cluster and slash all enemies in a 1-hex radius for 200/300/500 physical damage. Heal Absol for 60/90/150 HP for each enemy hit.',
-    scaling: { damage: [200, 300, 500], healPerHit: [60, 90, 150] },
+    description: 'Dash 1 hex toward the largest enemy cluster and slash all enemies in a 1-hex radius for 100/150/250 physical damage. Heal Absol for 50/75/100 HP for each enemy hit.',
+    scaling: { damage: [100, 150, 250], healPerHit: [50, 75, 100] },
   },
-  spritePath: '/visuals/sprites/ruiner/absol_moving.gif',
+  spritePath: '/visuals/sprites/ruiner/Absol-sprite.webp',
 }
 
 export const GOGOAT: UnitDefinition = {
@@ -534,7 +553,7 @@ export const GOGOAT: UnitDefinition = {
     description: 'Empower the next 3 attacks: each deals 50/75/125 bonus physical damage, heals Gogoat for 50/75/125 HP, and heals the nearest ally for 25/40/60 HP.',
     scaling: { atkBonus: [50, 75, 125], selfHeal: [50, 75, 125], allyHeal: [25, 40, 60] },
   },
-  spritePath: '/visuals/sprites/gogoat.png',
+  spritePath: '/visuals/sprites/ascenders/Gogoat-sprite.webp',
 }
 
 export const ORANGURU: UnitDefinition = {
@@ -573,7 +592,7 @@ export const SNORUNT: UnitDefinition = {
     description: 'Gain a 120/180/280 shield. When the shield expires or breaks, release ice shards hitting all nearby enemies within 2 hexes for 80/120/200 magic damage and chilling them for 1.5 seconds.',
     scaling: { shieldAmount: [120, 180, 280], shardDamage: [80, 120, 200] },
   },
-  spritePath: '/visuals/sprites/snorunt.png',
+  spritePath: '/visuals/sprites/froststone/Snorunt-sprite.webp',
 }
 
 export const FROSLASS: UnitDefinition = {
@@ -592,7 +611,7 @@ export const FROSLASS: UnitDefinition = {
     description: 'Fire an icy beam through a line of enemies dealing 200/300/500 magic damage to the first, with 25% falloff per subsequent enemy hit. All hit enemies are chilled (-25% attack speed) for 2 seconds.',
     scaling: { baseDamage: [200, 300, 500] },
   },
-  spritePath: '/visuals/sprites/froslass.png',
+  spritePath: '/visuals/sprites/froststone/Froslass-sprite.webp',
 }
 
 export const XATU: UnitDefinition = {
@@ -607,11 +626,11 @@ export const XATU: UnitDefinition = {
   },
   ability: {
     id: 'xatu_magic_bounce',
-    name: 'Future Sight',
-    description: 'Place a Future Sight mark on the nearest enemy. The mark detonates after 2 seconds, dealing 300/450/700 magic damage amplified by the incoming damage they took while marked.',
-    scaling: { detonationDamage: [300, 450, 700] },
+    name: 'Magic Bounce',
+    description: 'Gain a 400/475/600 HP shield for 3 seconds. Store all damage the shield absorbs. When the shield breaks or expires, Xatu\'s next attack deals 90/120/150% of the stored damage as magic damage.',
+    scaling: { shield: [400, 475, 600], scalingRatio: [90, 120, 150] },
   },
-  spritePath: '/visuals/sprites/ruiner/xatu_moving.gif',
+  spritePath: '/visuals/sprites/ruiner/Xatu-sprite.png',
 }
 
 export const CELEBI: UnitDefinition = {
@@ -649,7 +668,7 @@ export const ABOMASNOW: UnitDefinition = {
     description: 'Create a blizzard zone at Abomasnow\'s position for 4/5/6 seconds, dealing 60/90/150 magic damage per second to all enemies within 2 hexes. Enemies killed inside the blizzard extend its duration by 1 second. Recasting refreshes the duration.',
     scaling: { damagePerSec: [60, 90, 150], duration: [4, 5, 6] },
   },
-  spritePath: '/visuals/sprites/abomasnow.png',
+  spritePath: '/visuals/sprites/froststone/Abomasnow-sprite.webp',
 }
 
 
@@ -659,17 +678,17 @@ export const RUNERIGUS: UnitDefinition = {
   cost: 3,
   traits: ['ruiner'],
   baseStats: {
-    hp: 950, startMana: 40, maxMana: 90,
+    hp: 950, startMana: 20, maxMana: 40,
     attack: 55, special: 100, defense: 60, spDefense: 55,
     attackSpeed: 0.60, critChance: 0.25, critDamage: 1.40, range: 4,
   },
   ability: {
     id: 'runerigus_wandering_spirit',
     name: 'Wandering Spirit',
-    description: 'Place a Wandering Spirit mark on the nearest enemy. While marked, the enemy is silenced and cannot cast abilities. If they attempt to cast, deal 250/375/600 magic damage instead.',
-    scaling: { silenceDamage: [250, 375, 600] },
+    description: 'Reach out with ghostly hands and pass along Wandering Spirit to the nearest unmarked enemy, rendering it unable to cast its ability. When the marked unit would next cast, it instead takes 550/875/7000 special damage and the mark is consumed.',
+    scaling: { silenceDamage: [550, 875, 7000] },
   },
-  spritePath: '/visuals/sprites/ruiner/runerigus_moving.gif',
+  spritePath: '/visuals/sprites/ruiner/Runerigus-sprite.webp',
 }
 
 export const SPIRITOMB: UnitDefinition = {
@@ -678,17 +697,17 @@ export const SPIRITOMB: UnitDefinition = {
   cost: 3,
   traits: ['ruiner'],
   baseStats: {
-    hp: 900, startMana: 50, maxMana: 100,
+    hp: 900, startMana: 100, maxMana: 100,
     attack: 55, special: 105, defense: 55, spDefense: 60,
     attackSpeed: 0.60, critChance: 0.25, critDamage: 1.40, range: 1,
   },
   ability: {
     id: 'spiritomb_destiny_bond',
-    name: 'Ominous Wind',
-    description: 'Create a self-centered AoE zone dealing 50/75/120 magic damage per second to adjacent enemies. Additionally, mark the most distant enemy - the mark mirrors the zone\'s damage onto them each tick.',
-    scaling: { damagePerSec: [50, 75, 120] },
+    name: 'Destiny Bond',
+    description: 'Passive: Every second, deal 75/100/500 special damage to enemies within 1 Hex and restore 20/40/100 HP for each enemy hit. On cast: mark one enemy outside the 1-hex radius — it takes the same damage and heals Spiritomb as if it were in the aura.',
+    scaling: { damage: [75, 100, 500], healPerHit: [20, 40, 100] },
   },
-  spritePath: '/visuals/sprites/ruiner/spiritomb_moving.gif',
+  spritePath: '/visuals/sprites/ruiner/Spiritomb-sprite.webp',
 }
 
 export const WHEEZING: UnitDefinition = {
@@ -743,11 +762,11 @@ export const CLAYDOL: UnitDefinition = {
   },
   ability: {
     id: 'claydol_gravity',
-    name: 'Cosmic Power',
-    description: 'Lift the 2 nearest enemies into the ascended state for 2.5 seconds. When they land, deal 350/525/850 magic damage to all enemies in a 1-hex radius with 40% splash falloff.',
-    scaling: { centerDamage: [350, 525, 850], ascentDuration: [2.5, 2.5, 2.5] },
+    name: 'Gravity',
+    description: 'Lift the 2 nearest enemies airborne for 1.5 seconds, then slam them down dealing 400/600/1000 + 5/8/10% of their max HP as special damage.',
+    scaling: { damage: [400, 600, 1000], maxHpPct: [5, 8, 10] },
   },
-  spritePath: '/visuals/sprites/ruiner/claydol_moving.gif',
+  spritePath: '/visuals/sprites/ruiner/Claydol-sprite.png',
 }
 
 export const TAPU_LELE: UnitDefinition = {
@@ -863,7 +882,7 @@ export const SNEASLER: UnitDefinition = {
     description: 'Deal 200/300/500 physical damage to the nearest enemy and apply stackable poison (30/45/75 magic damage per second for 3 seconds). If the target is already poisoned, this hit can critically strike.',
     scaling: { damage: [200, 300, 500], poisonPerSec: [30, 45, 75] },
   },
-  spritePath: '/visuals/sprites/sneasler.png',
+  spritePath: '/visuals/sprites/ascenders/Sneasler-sprite.webp',
 }
 
 export const WEAVILE: UnitDefinition = {
@@ -882,7 +901,7 @@ export const WEAVILE: UnitDefinition = {
     description: 'Empower the next 3 attacks with distinct effects: (1) 100/150/250 bonus physical damage; (2) spin AoE hitting all adjacent enemies for 80/120/200 magic damage; (3) 6/8/12% max HP bonus physical damage + knock up for 1 second.',
     scaling: { firstDmg: [100, 150, 250], spinDmg: [80, 120, 200], hpPercent: [0.06, 0.08, 0.12] },
   },
-  spritePath: '/visuals/sprites/weavile.png',
+  spritePath: '/visuals/sprites/froststone/Weavile-sprite.webp',
 }
 
 export const H_AVALUGG: UnitDefinition = {
@@ -901,7 +920,7 @@ export const H_AVALUGG: UnitDefinition = {
     description: 'Drop icicles on the 3/4/5 nearest enemies, dealing 200/300/500 physical damage each and knocking them up for 1.5/2/3 seconds.',
     scaling: { targetCount: [3, 4, 5], damage: [200, 300, 500], knockUpSeconds: [1.5, 2, 3] },
   },
-  spritePath: '/visuals/sprites/h_avalugg.png',
+  spritePath: '/visuals/sprites/froststone/h-Avalugg-sprite.png',
 }
 
 export const MAMOSWINE: UnitDefinition = {
@@ -920,7 +939,7 @@ export const MAMOSWINE: UnitDefinition = {
     description: 'Gain 40/60/100 armor and MR for 5 seconds. During this time, become a passive attack handler - each auto deals your defense + MR as bonus special damage.',
     scaling: { armorMr: [40, 60, 100] },
   },
-  spritePath: '/visuals/sprites/mamoswine.png',
+  spritePath: '/visuals/sprites/froststone/Mamoswine-sprite.webp',
 }
 
 // â"€â"€â"€ Beachy â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -998,7 +1017,7 @@ export const KLAWF: UnitDefinition = {
     description: 'Leap to the furthest enemy within 2 hexes and gain a 150/225/350 shield and +30/50/80% attack speed (decaying over 4 seconds). Also gain +20/30/50 flat attack.',
     scaling: { shieldAmount: [150, 225, 350], atkSpdBonus: [0.30, 0.50, 0.80], atkBonus: [20, 30, 50] },
   },
-  spritePath: '/visuals/sprites/klawf.png',
+  spritePath: '/visuals/sprites/ascenders/klawf-sprite.webp',
 }
 
 export const DREDNAW: UnitDefinition = {
@@ -1164,17 +1183,17 @@ export const GOLETT: UnitDefinition = {
   cost: 0,
   traits: ['ruiner'],
   baseStats: {
-    hp: 600, startMana: 0, maxMana: 9999,
+    hp: 600, startMana: 50, maxMana: 100,
     attack: 50, special: 80, defense: 35, spDefense: 30,
     attackSpeed: 0.65, critChance: 0.25, critDamage: 1.40, range: 1,
   },
   ability: {
     id: 'golett_shadow_punch',
     name: 'Shadow Punch',
-    description: 'Every 4th attack fires a shadow punch dealing 80/120/200 bonus magic damage in a 1-hex AoE.',
-    scaling: { bonusDamage: [80, 120, 200] },
+    description: 'Passive: Each auto deals +30% special as bonus magic. Active: Gains a 200/250/325 shield and empowers the next auto to deal 200/250/350 bonus physical. 2 seconds later, a shadow punch materializes and deals 100/150/200 magic to the same target.',
+    scaling: { shield: [200, 250, 325], empoweredDamage: [200, 250, 350], followUpDamage: [100, 150, 200] },
   },
-  spritePath: '/visuals/sprites/ruiner/golett_moving.gif',
+  spritePath: '/visuals/sprites/ruiner/golett-sprite.webp',
 }
 
 export const GOLURK: UnitDefinition = {
@@ -1183,17 +1202,36 @@ export const GOLURK: UnitDefinition = {
   cost: 0,
   traits: ['ruiner'],
   baseStats: {
-    hp: 950, startMana: 0, maxMana: 9999,
+    hp: 950, startMana: 50, maxMana: 100,
     attack: 70, special: 90, defense: 50, spDefense: 45,
     attackSpeed: 0.65, critChance: 0.25, critDamage: 1.40, range: 1,
   },
   ability: {
     id: 'golurk_poltergeist',
-    name: 'Shadow Punch',
-    description: 'Every 3rd attack fires a shadow punch dealing 120/180/300 bonus magic damage in a 1-hex AoE and grants a 200/300/500 shield.',
-    scaling: { bonusDamage: [120, 180, 300], shieldAmount: [200, 300, 500] },
+    name: 'Poltergeist',
+    description: 'Passive: Each auto deals +40% special as bonus magic. Active: Gains a 225/300/375 shield and empowers the next auto to deal 225/300/375 bonus physical in a 1-hex AoE, knocking up all hit. 2 seconds later, a shadow punch deals 125/175/250 magic to the same AoE targets.',
+    scaling: { shield: [225, 300, 375], empoweredDamage: [225, 300, 375], followUpDamage: [125, 175, 250] },
   },
-  spritePath: '/visuals/sprites/ruiner/golurk_moving.gif',
+  spritePath: '/visuals/sprites/ruiner/golurk-sprite.webp',
+}
+
+export const MEGA_GOLURK: UnitDefinition = {
+  id: 'mega_golurk',
+  name: 'Mega Golurk',
+  cost: 0,
+  traits: ['ruiner'],
+  baseStats: {
+    hp: 1600, startMana: 50, maxMana: 100,
+    attack: 110, special: 130, defense: 80, spDefense: 70,
+    attackSpeed: 0.60, critChance: 0.25, critDamage: 1.40, range: 1,
+  },
+  ability: {
+    id: 'mega_golurk_phantom_force',
+    name: 'Phantom Force',
+    description: 'Passive: Each auto deals +55% special as bonus magic. Active: Gains a 300/400/550 shield and empowers the next auto to deal 300/400/550 bonus physical to ALL enemies, knocking up all hit. 2 seconds later, a shadow punch deals 175/275/450 magic to all enemies.',
+    scaling: { shield: [300, 400, 550], empoweredDamage: [300, 400, 550], followUpDamage: [175, 275, 450] },
+  },
+  spritePath: '/visuals/sprites/ruiner/mega-golurk-sprite.png',
 }
 
 // â"€â"€â"€ Testing â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -1273,8 +1311,8 @@ export const ALL_UNITS: UnitDefinition[] = [
   MORELULL, MORGREM,
   ORANGURU, FEZANDIPITI,
   CELEBI, TAPU_LELE,
-  // Ruiner (3/5/7): Stonjourner(2), Absol(3), Xatu(3), Claydol(4), Spiritomb(3), Runerigus(3) + Unown(TBD)
-  STONJOURNER,
+  // Ruiner (3/5/7): Unown(2), Stonjourner(2), Absol(3), Xatu(3), Claydol(4), Spiritomb(3), Runerigus(3)
+  UNOWN, STONJOURNER,
   ABSOL, XATU, SPIRITOMB, RUNERIGUS,
   CLAYDOL,
   // Ascender (2/4): Klawf(2), Gogoat(2), Sneasler(3), Aerodactyl(5)
@@ -1286,7 +1324,7 @@ export const ALL_UNITS: UnitDefinition[] = [
   FROSLASS, WEAVILE,
   H_AVALUGG, ABOMASNOW, MAMOSWINE,
   // Summons
-  GOLETT, GOLURK,
+  GOLETT, GOLURK, MEGA_GOLURK,
   // Testing
   DUMMY, DUMMY_MELEE, DUMMY_RANGED,
 ]

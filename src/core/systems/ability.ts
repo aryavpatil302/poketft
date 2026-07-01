@@ -1,5 +1,8 @@
 import type { Unit, CombatState } from '../types'
 import { applyManaLock } from './mana'
+import { attackCooldownTicks, windupTicks } from './attack'
+import { applyDamage } from './damage'
+import { removeStatusEffectByStack } from './statusEffect'
 
 // ─── Ability handler interface ────────────────────────────────────────────────
 
@@ -24,7 +27,25 @@ export function getAbility(abilityId: string): AbilityHandler | undefined {
 // ─── Trigger ability (called when unit reaches full mana) ─────────────────────
 
 export function triggerAbility(unit: Unit, state: CombatState): void {
-  if (unit.silenced) return  // Runerigus silence blocks casts
+  // Runerigus Wandering Spirit: intercept the cast the moment it would fire —
+  // deal damage instead and consume the mark, rather than blocking casts for a duration.
+  const wanderingSpirit = unit.statusEffects.find(fx => fx.stackId === 'runerigus_wandering_spirit')
+  if (wanderingSpirit) {
+    removeStatusEffectByStack(unit, 'runerigus_wandering_spirit')
+    unit.silenced = unit.statusEffects.some(fx => fx.id === 'silence')
+    const source = state.units.get(wanderingSpirit.sourceUnitId) ?? unit
+    applyDamage(source, unit, {
+      baseAmount: wanderingSpirit.magnitude ?? 0,
+      damageType: 'magic',
+      canCrit:    false,
+      abilityId:  'runerigus_wandering_spirit',
+    }, state)
+    state.events.push({ type: 'vfx', effectId: 'wandering_spirit_consume', unitId: unit.id })
+    applyManaLock(unit)
+    return
+  }
+
+  if (unit.silenced) return  // generic silence blocks casts
 
   const unitDef_abilityId = getUnitAbilityId(unit)
   if (!unitDef_abilityId) return
@@ -40,6 +61,14 @@ export function triggerAbility(unit: Unit, state: CombatState): void {
   unit.abilityCastTimer = handler.castTimeTicks
   unit.isInWindup = false
   unit.attackWindupTimer = 0
+
+  // Cancel any in-flight auto-attack projectiles so they don't arrive alongside the spell
+  for (const [id, proj] of state.projectiles) {
+    if (proj.sourceId === unit.id && proj.damagePayload?.abilityId === 'auto_attack') {
+      state.projectiles.delete(id)
+    }
+  }
+
   state.events.push({ type: 'cast', unitId: unit.id, abilityId: unitDef_abilityId })
 }
 
@@ -48,7 +77,13 @@ export function tickAbilityCast(unit: Unit, state: CombatState): void {
   unit.abilityCastTimer--
   if (unit.abilityCastTimer > 0) return
 
-  // Cast animation done — fire the ability
+  // Set the default post-cast attack cooldown BEFORE firing onCast so abilities can
+  // override it (e.g. set attackTimer = 0 for an immediate empowered follow-up attack)
+  unit.attackTimer     = attackCooldownTicks(unit) - windupTicks(unit)
+  unit.isInWindup      = false
+  unit.attackWindupTimer = 0
+
+  // Fire the ability
   const unitDef_abilityId = getUnitAbilityId(unit)
   if (unitDef_abilityId) {
     const handler = ABILITY_REGISTRY.get(unitDef_abilityId)
@@ -57,8 +92,19 @@ export function tickAbilityCast(unit: Unit, state: CombatState): void {
     }
   }
 
+  // If the ability set attackTimer = 0 to request an immediate follow-up attack,
+  // start the windup on this same tick so there's no visible gap after the cast.
+  if (unit.attackTimer === 0 && unit.state === 'casting' && unit.targetId) {
+    const tgt = state.units.get(unit.targetId)
+    if (tgt && tgt.state !== 'dead') {
+      unit.isInWindup      = true
+      unit.attackWindupTimer = windupTicks(unit)
+      unit.state           = 'attacking'
+    }
+  }
+
   applyManaLock(unit)
-  // Only reset to idle if onCast didn't set a special state (e.g. 'leaping')
+  // Only reset to idle if onCast didn't set a special state (e.g. 'leaping', 'attacking')
   if (unit.state === 'casting') unit.state = 'idle'
 }
 
@@ -89,6 +135,7 @@ import { ClaydolAbility }     from '../abilities/claydol'
 import { AerodactylAbility }  from '../abilities/aerodactyl'
 import { GolettAbility }      from '../abilities/golett'
 import { GolurkAbility }      from '../abilities/golurk'
+import { MegaGolurkAbility }  from '../abilities/mega_golurk'
 import { StonjournerAbility } from '../abilities/stonjourner'
 import { DruddigonAbility }   from '../abilities/druddigon'
 
@@ -127,6 +174,7 @@ import { OranGuruAbility }    from '../abilities/oranguru'
 import { CelebiAbility }      from '../abilities/celebi'
 
 // Ruiner
+import { UnownAbility }       from '../abilities/unown'
 import { MorgremAbility }     from '../abilities/morgrem'
 import { SableyeAbility }     from '../abilities/sableye'
 import { AbsolAbility }       from '../abilities/absol'
@@ -169,6 +217,7 @@ registerAbility(ClaydolAbility)
 registerAbility(AerodactylAbility)
 registerAbility(GolettAbility)
 registerAbility(GolurkAbility)
+registerAbility(MegaGolurkAbility)
 registerAbility(StonjournerAbility)
 registerAbility(DruddigonAbility)
 registerAbility(ZubatAbility)
@@ -197,6 +246,7 @@ registerAbility(MorelullAbility)
 registerAbility(GogoatAbility)
 registerAbility(OranGuruAbility)
 registerAbility(CelebiAbility)
+registerAbility(UnownAbility)
 registerAbility(MorgremAbility)
 registerAbility(SableyeAbility)
 registerAbility(AbsolAbility)

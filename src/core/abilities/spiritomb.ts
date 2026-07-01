@@ -2,60 +2,81 @@ import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
+import { applyHeal } from '../systems/heal'
 import { addStatusEffect } from '../systems/statusEffect'
-import { createPersistentAoEZone } from '../systems/persistentAoE'
-import { addMark } from '../systems/marks'
-import { hexDistance } from '../hexGrid'
+import { hexesInRange, hexId, hexDistance } from '../hexGrid'
+
+declare module '../types' {
+  interface Unit {
+    _spiritombMarkedIds?: Set<string>
+  }
+}
+
+const AURA_INTERVAL = TICK_RATE  // 60 ticks = 1 second
+
+function applyAuraDamage(spiritomb: Unit, state: CombatState, dmg: number, heal: number): void {
+  for (const hex of hexesInRange(spiritomb.hexPos, 1)) {
+    const uid = state.hexOccupancy.get(hexId(hex))
+    if (!uid) continue
+    const target = state.units.get(uid)
+    if (!target || target.team === spiritomb.team || target.state === 'dead') continue
+    applyDamage(spiritomb, target, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityId: 'spiritomb_destiny_bond' }, state)
+    applyHeal(spiritomb, heal, spiritomb.id, state)
+  }
+}
 
 export const SpiritombAbility: AbilityHandler = {
   abilityId: 'spiritomb_destiny_bond',
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const damagesPerSec = [50, 75, 120] as const
-    const dmg = damagesPerSec[tier - 1]
+    const dmgValues  = [75,  100, 500] as const
+    const healValues = [20,  40,  100] as const
+    const dmg  = dmgValues[tier - 1]
+    const heal = healValues[tier - 1]
+    const spiritombId = unit.id
 
-    createPersistentAoEZone(state, {
-      id: `spiritomb_zone_${unit.id}`,
-      center: unit.hexPos,
-      radius: 1,
+    // ── Passive aura (permanent, set up once per cast to refresh closure over tier) ──
+    addStatusEffect(unit, {
+      id:           'spiritomb_destiny_aura',
       sourceUnitId: unit.id,
-      damagePerInterval: dmg,
-      intervalTicks: TICK_RATE,
-      damageType: 'magic',
-      durationTicks: 6 * TICK_RATE,
-      lastFiredTick: state.tick,
-      targetTeam: unit.team === 'player' ? 'enemy' : 'player',
+      durationTicks: -1,
+      tickInterval:  AURA_INTERVAL,
+      stackId:      'spiritomb_destiny_aura',
+      tickEffect:   (u, st) => applyAuraDamage(u, st, dmg, heal),
     })
 
-    // Mark the most distant enemy — mirrors zone damage
-    let distantEnemy: Unit | null = null
-    let maxDist = -1
+    // ── Mark nearest enemy outside 1-hex radius that hasn't been marked before ──
+    // Marks are permanent and stack — each cast adds a new mark without removing old ones.
+    const markedIds = (unit._spiritombMarkedIds ??= new Set<string>())
+    let markTarget: Unit | null = null
+    let bestDist = Infinity
     for (const other of state.units.values()) {
       if (other.team === unit.team || other.state === 'dead') continue
+      if (markedIds.has(other.id)) continue  // already marked once — pick a new unit
       const d = hexDistance(unit.hexPos, other.hexPos)
-      if (d > maxDist) { maxDist = d; distantEnemy = other }
+      if (d <= 1) continue  // must be outside the aura
+      if (d < bestDist) { bestDist = d; markTarget = other }
     }
 
-    if (distantEnemy) {
-      const mirrorTarget = distantEnemy
-      addMark(mirrorTarget, {
-        id: 'spiritomb_mirror',
+    if (markTarget) {
+      markedIds.add(markTarget.id)
+      const capturedTarget = markTarget
+      addStatusEffect(capturedTarget, {
+        id:           'spiritomb_destiny_mark',
         sourceUnitId: unit.id,
-        durationTicks: 6 * TICK_RATE,
+        durationTicks: -1,
+        tickInterval:  AURA_INTERVAL,
+        stackId:      'spiritomb_destiny_mark',
+        tickEffect:   (u, st) => {
+          const spiritomb = st.units.get(spiritombId)
+          if (!spiritomb || spiritomb.state === 'dead') return
+          applyDamage(spiritomb, u, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityId: 'spiritomb_destiny_bond' }, st)
+          applyHeal(spiritomb, heal, spiritomb.id, st)
+        },
       })
 
-      addStatusEffect(mirrorTarget, {
-        id: 'spiritomb_mirror_dmg',
-        sourceUnitId: unit.id,
-        durationTicks: 6 * TICK_RATE,
-        tickInterval: TICK_RATE,
-        tickEffect: (u, st) => {
-          if (u.state === 'dead') return
-          applyDamage(unit, u, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityId: 'spiritomb_destiny_bond' }, st)
-        },
-        stackId: `spiritomb_mirror_${mirrorTarget.id}`,
-      })
+      state.events.push({ type: 'vfx', effectId: 'spiritomb_mark_apply', unitId: unit.id, targetId: capturedTarget.id })
     }
   },
 }

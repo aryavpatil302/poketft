@@ -16,7 +16,7 @@ const MEGA_EVO_SHAKE_TICKS  = 36   // evo overlay shake  (normal sprite)
 const MEGA_PRE_GRAB_TICKS   = 24   // post-evo mega rumble before grab
 const GRAB_HOLD_TICKS       = 5    // pause on enemy hex after lunging
 const FLY_OFF_TICKS         = 14   // slide both off to the right
-const OFFSCREEN_WAIT        = 8    // hang off-screen before returning
+const OFFSCREEN_WAIT        = 30   // hang off-screen before returning (~0.5 second)
 const FLY_IN_TICKS          = 16   // slam back in from the right
 
 const OFF_SCREEN_X = 1400          // pixel X past the right board edge
@@ -54,8 +54,7 @@ export const RayquazaAbility: AbilityHandler = {
         stackId: 'rayquaza_evo_shake',
         tickEffect: (u) => { u.state = 'ascended' },
         onExpire: (u, _s) => {
-          const megaAtkBonus  = [50,   90,   500 ][tier - 1]
-          const megaAspdBonus = [0.30, 0.60, 2.00][tier - 1]
+          const megaAtkBonus = [50, 90, 500][tier - 1]
 
           // Sprite NOW snaps to mega form
           addStatusEffect(u, {
@@ -64,20 +63,13 @@ export const RayquazaAbility: AbilityHandler = {
             durationTicks: -1,
             stackId: 'rayquaza_is_mega',
           })
-          // Permanent stat bonuses that persist for the rest of combat
+          // Permanent stat bonus that persists for the rest of combat
           addStatusEffect(u, {
             id: 'rayquaza_mega_atk',
             sourceUnitId: u.id,
             durationTicks: -1,
             stackId: 'rayquaza_mega_atk',
             magnitude: megaAtkBonus,
-          })
-          addStatusEffect(u, {
-            id: 'rayquaza_mega_aspd',
-            sourceUnitId: u.id,
-            durationTicks: -1,
-            stackId: 'rayquaza_mega_aspd',
-            magnitude: megaAspdBonus,
           })
           // Phase B: 24-tick mega rumble before grab
           addStatusEffect(u, {
@@ -284,26 +276,44 @@ function doSlam(
   const slamPx = hexToPixel(slamHex, HEX_SIZE)
   state.events.push({ type: 'vfx', effectId: 'dragon_slam', x: slamPx.x, y: slamPx.y })
 
-  // Restore grabbed unit's damage immunity before the AoE lands
+  // Restore grabbed unit's damage immunity and deal full slam damage to it first
   if (grabbed) {
     removeStatusEffect(grabbed, 'rayquaza_grabbed')
     grabbed.incomingDamageMult = 1.0
-  }
-
-  // AoE: 1-hex radius = full, 2-hex radius = 50%
-  for (const hex of hexesInRange(slamHex, 2)) {
-    const uid = state.hexOccupancy.get(hexId(hex))
-    if (!uid) continue
-    const victim = state.units.get(uid)
-    if (!victim || victim.team === unit.team || victim.state === 'dead') continue
-    const dist = hexDistance(hex, slamHex)
-    const mult = dist <= 1 ? 1.0 : 0.5
-    applyDamage(unit, victim, {
-      baseAmount: Math.round(totalDmg * mult),
+    applyDamage(unit, grabbed, {
+      baseAmount: totalDmg,
       damageType: 'physical',
       canCrit: true,
       abilityId: 'rayquaza_dragon_ascent',
     }, state)
+  }
+
+  // AoE: at 3-star hits the whole board; otherwise 1-hex radius = full, 2-hex = 50%
+  if (unit.tier === 3) {
+    for (const victim of state.units.values()) {
+      if (victim.team === unit.team || victim.state === 'dead' || victim.id === grabTargetId) continue
+      applyDamage(unit, victim, {
+        baseAmount: totalDmg,
+        damageType: 'physical',
+        canCrit: true,
+        abilityId: 'rayquaza_dragon_ascent',
+      }, state)
+    }
+  } else {
+    for (const hex of hexesInRange(slamHex, 2)) {
+      const uid = state.hexOccupancy.get(hexId(hex))
+      if (!uid) continue
+      const victim = state.units.get(uid)
+      if (!victim || victim.team === unit.team || victim.state === 'dead') continue
+      const dist = hexDistance(hex, slamHex)
+      const mult = dist <= 1 ? 1.0 : 0.5
+      applyDamage(unit, victim, {
+        baseAmount: Math.round(totalDmg * mult),
+        damageType: 'physical',
+        canCrit: true,
+        abilityId: 'rayquaza_dragon_ascent',
+      }, state)
+    }
   }
 
   depositBoth(unit, state, grabTargetId, slamHex)

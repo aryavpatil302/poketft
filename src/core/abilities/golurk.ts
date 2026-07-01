@@ -1,46 +1,91 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit, PassiveAttackHandler, Shield } from '../types'
+import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
+import { addStatusEffect } from '../systems/statusEffect'
 import { hexesInRange, hexId } from '../hexGrid'
 
-// Golurk: every 3rd attack fires shadow punch + grants a shield
 export const GolurkAbility: AbilityHandler = {
   abilityId: 'golurk_poltergeist',
-  castTimeTicks: 15,
+  castTimeTicks: 1,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const damages  = [120, 180, 300] as const
-    const shields  = [200, 300, 500] as const
-    const dmg      = damages[tier - 1]
-    const shieldAmt = shields[tier - 1]
+    const shieldAmounts = [225, 300, 375] as const
+    const empoweredDmgs = [225, 300, 375] as const
+    const followUpDmgs  = [125, 175, 250] as const
+    const shieldAmt     = shieldAmounts[tier - 1]
+    const empoweredDmg  = empoweredDmgs[tier - 1]
+    const followUpDmg   = followUpDmgs[tier - 1]
+    const passivePct    = 0.40
 
-    const existing = unit.passiveAttackHandlers.find(h => h.id === 'golurk_shadow')
-    if (!existing) {
+    // Register passive (+40% special as magic on every auto) once per combat
+    if (!unit.passiveAttackHandlers.some(h => h.id === 'golurk_special_passive')) {
       const handler: PassiveAttackHandler = {
-        id: 'golurk_shadow',
-        onAttack: (src, tgt, st) => {
-          if (src.attackCount % 3 !== 0) return
-          applyDamage(src, tgt, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityId: 'golurk_poltergeist' }, st)
-          for (const hex of hexesInRange(tgt.hexPos, 1)) {
-            const uid = st.hexOccupancy.get(hexId(hex))
-            if (!uid || uid === tgt.id) continue
-            const splash = st.units.get(uid)
-            if (!splash || splash.team === src.team || splash.state === 'dead') continue
-            applyDamage(src, splash, { baseAmount: Math.round(dmg * 0.5), damageType: 'magic', canCrit: false, abilityId: 'golurk_poltergeist' }, st)
-          }
-          // Grant shield
-          const s: Shield = {
-            id: `golurk_shield_${st.tick}`,
-            sourceAbility: 'golurk_poltergeist',
-            value: shieldAmt,
-            maxValue: shieldAmt,
-            durationTicks: -1,
-          }
-          src.shields.push(s)
-          st.events.push({ type: 'shield', unitId: src.id, amount: shieldAmt })
+        id: 'golurk_special_passive',
+        onAttack(src: Unit, tgt: Unit, st: CombatState) {
+          const bonus = Math.round(src.special * passivePct)
+          applyDamage(src, tgt, { baseAmount: bonus, damageType: 'magic', canCrit: false, abilityId: 'golurk_poltergeist' }, st)
         },
       }
       unit.passiveAttackHandlers.push(handler)
     }
+
+    // Grant shield
+    const shield: Shield = {
+      id: `golurk_shield_${state.tick}`,
+      sourceAbility: 'golurk_poltergeist',
+      value: shieldAmt,
+      maxValue: shieldAmt,
+      durationTicks: 4 * TICK_RATE,
+    }
+    unit.shields.push(shield)
+    state.events.push({ type: 'shield', unitId: unit.id, amount: shieldAmt })
+    unit.attackTimer = 0
+
+    // Empower next auto: physical + 1-hex AoE + knockup primary + 2s follow-up to AoE
+    unit.attackModifiers.push({
+      id: 'shadow_punch_empowered',
+      remainingCharges: 1,
+      bonusDamage: empoweredDmg,
+      bonusDamageType: 'physical',
+      aoeRadius: 1,
+      knockUp: true,
+      onHit(source: Unit, target: Unit, st: CombatState) {
+        // Snapshot AoE targets at hit time for the follow-up
+        const aoeTargetIds: string[] = [target.id]
+        for (const hex of hexesInRange(target.hexPos, 1)) {
+          const uid = st.hexOccupancy.get(hexId(hex))
+          if (!uid || uid === target.id) continue
+          const splash = st.units.get(uid)
+          if (!splash || splash.team === source.team || splash.state === 'dead') continue
+          aoeTargetIds.push(uid)
+        }
+
+        // Ghost VFX behind each target hit
+        for (const tid of aoeTargetIds) {
+          const tUnit = st.units.get(tid)
+          if (!tUnit) continue
+          const dx   = tUnit.visualPos.x - source.visualPos.x
+          const dy   = tUnit.visualPos.y - source.visualPos.y
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          st.events.push({ type: 'vfx', effectId: 'shadow_punch_appear', sourceId: source.id, targetId: tid, dirX: dist > 0 ? dx / dist : 1, dirY: dist > 0 ? dy / dist : 0 })
+        }
+
+        addStatusEffect(source, {
+          id: 'golurk_follow_up_timer',
+          sourceUnitId: source.id,
+          durationTicks: 2 * TICK_RATE,
+          stackId: 'golurk_follow_up_timer',
+          onExpire(src2: Unit, st2: CombatState) {
+            st2.events.push({ type: 'vfx', effectId: 'shadow_punch_fly', sourceId: src2.id })
+            for (const tid of aoeTargetIds) {
+              const fTarget = st2.units.get(tid)
+              if (!fTarget || fTarget.state === 'dead') continue
+              applyDamage(src2, fTarget, { baseAmount: followUpDmg, damageType: 'magic', canCrit: false, abilityId: 'golurk_poltergeist' }, st2)
+            }
+          },
+        })
+      },
+    })
   },
 }

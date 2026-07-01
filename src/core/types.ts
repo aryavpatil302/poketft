@@ -172,6 +172,7 @@ export interface ComputedStats {
   critDamage: number
   range: number
   moveSpeed: number
+  omnivamp: number   // fraction of HP damage dealt returned as healing (0 = none)
 }
 
 export interface Unit {
@@ -288,13 +289,24 @@ export type CombatEvent =
   | { type: 'vfx';         effectId: 'blast_burn_mark_apply';     unitId: string; x: number; y: number }
   | { type: 'vfx';         effectId: 'blast_burn_detonate';       unitId: string; x: number; y: number }
   | { type: 'vfx';         effectId: 'marowak_hammer_swing';      unitId: string; dirX: number; dirY: number; swingDir: number }
-  | { type: 'vfx';         effectId: 'marowak_spin_strike';       unitId: string }
+  | { type: 'vfx';         effectId: 'marowak_shadow_bone_cone';  unitId: string; dirX: number; dirY: number; hexPositions: { x: number; y: number }[] }
   | { type: 'vfx';         effectId: 'boomburst_soundwave';       x: number; y: number; sourceId: string }
   | { type: 'vfx';         effectId: 'dragon_slam';               x: number; y: number }
   | { type: 'vfx';         effectId: 'bellibolt_discharge';       unitId: string; x: number; y: number }
   | { type: 'vfx';         effectId: 'quagsire_shield_pop';       x: number; y: number }
   | { type: 'vfx';         effectId: 'celebi_mark_apply';         unitId: string; x: number; y: number }
   | { type: 'vfx';         effectId: 'tapulele_psystrike';        targetId: string; x: number; y: number; rotation?: number }
+  | { type: 'vfx';         effectId: 'unown_hp_electric_ring';   x: number; y: number }
+  | { type: 'vfx';         effectId: 'stonjourner_rock_hit';     unitId: string }
+  | { type: 'vfx';         effectId: 'absol_night_slash';        unitId: string; startAngle: number }
+  | { type: 'vfx';         effectId: 'xatu_bounce_shot_hit';     unitId: string }
+  | { type: 'vfx';         effectId: 'claydol_gravity_cast';    unitId: string }
+  | { type: 'vfx';         effectId: 'claydol_gravity_slam';    unitId: string }
+  | { type: 'vfx';         effectId: 'spiritomb_mark_apply';    unitId: string; targetId: string }
+  | { type: 'vfx';         effectId: 'wandering_spirit_mark_apply'; unitId: string; targetId: string }
+  | { type: 'vfx';         effectId: 'wandering_spirit_consume';    unitId: string }
+  | { type: 'vfx';         effectId: 'shadow_punch_appear';         sourceId: string; targetId: string; dirX: number; dirY: number }
+  | { type: 'vfx';         effectId: 'shadow_punch_fly';            sourceId: string }
   | { type: 'leech_drain'; sourceUnitId: string; venusaurId: string }
 
 // ─── Combat world state ───────────────────────────────────────────────────────

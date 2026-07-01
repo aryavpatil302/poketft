@@ -9,11 +9,27 @@ leafImg.src = '/visuals/ability_icons/tangela_leaf.webp'
 const dragonSlamImg = new Image()
 dragonSlamImg.src = '/visuals/ability_icons/dragon-scent-slam.webp'
 
+const hpIceImg = new Image()
+hpIceImg.src = '/visuals/ability_icons/ice_hidden_power.webp'
+const hpFireImg = new Image()
+hpFireImg.src = '/visuals/ability_icons/fire_hidden_power.webp'
+const hpElectricImg = new Image()
+hpElectricImg.src = '/visuals/ability_icons/electric_hidden_power.webp'
+
 const poisonStingImg = new Image()
 poisonStingImg.src = '/visuals/ability_icons/poison_sting.webp'
 
 const powerGemImg = new Image()
 powerGemImg.src = '/visuals/ability_icons/power_gem.webp'
+
+const powerSpotImg = new Image()
+powerSpotImg.src = '/visuals/ability_icons/power_spot.webp'
+
+const nightSlashImg = new Image()
+nightSlashImg.src = '/visuals/ability_icons/night_slash.webp'
+
+const shadowPunchImg = new Image()
+shadowPunchImg.src = '/visuals/ability_icons/shadow_punch.webp'
 
 // Looping WebM video for Tangela's cast animation (created after makeLoopingVideo is defined below)
 let tangelaCastVideo: HTMLVideoElement
@@ -266,7 +282,62 @@ interface CelebiFsMarkEffect {
   maxTick: number          // 2 * TICK_RATE = 120
 }
 
-type VfxEffect = DischargeRowEffect | BeakBlastEffect | CastGlowEffect | LeafShieldEffect | TornadoEffect | SandShakeEffect | WhirlpoolEffect | WhiteSmokeEffect | CannonExplosionEffect | SmogPuffEffect | BlastBurnMarkEffect | BlastBurnDetonateEffect | BoomburstBurstEffect | DragonSlamEffect | BelliboltDischargeEffect | QuagsireShieldPopEffect | PsystrikeEffect | CelebiFsMarkEffect
+interface UnownElectricRingEffect {
+  kind: 'unown_electric_ring'
+  x: number
+  y: number
+  tick: number
+  maxTick: number
+}
+
+interface AbsolNightSlashEffect {
+  kind: 'absol_night_slash'
+  unitId: string
+  startAngle: number
+  tick: number
+  maxTick: number
+}
+
+interface ShadowBoneFireEffect {
+  kind: 'shadow_bone_fire'
+  x: number
+  y: number
+  tick: number
+  maxTick: number
+  video: HTMLVideoElement
+}
+
+interface DestinyMarkEffect {
+  kind: 'destiny_mark'
+  unitId: string        // marked enemy
+  spiritombId: string   // for alive-check
+  video: HTMLVideoElement
+  tick: number
+  maxTick: number       // 99999 = permanent until effect is gone
+}
+
+interface WanderingSpiritArmEffect {
+  kind: 'wandering_spirit_arm'
+  sourceId: string       // Runerigus
+  targetId: string       // marked enemy — arm's hand end stays attached here
+  video: HTMLVideoElement
+  tick: number
+  maxTick: number        // 99999 = permanent until mark is consumed/cleared
+  consumeAt?: number     // tick at which the mark was consumed — triggers rumble + fade-out
+}
+
+interface ShadowPunchGhostEffect {
+  kind: 'shadow_punch_ghost'
+  sourceId: string
+  primaryTargetId: string
+  dirX: number
+  dirY: number
+  tick: number
+  maxTick: number     // 99999 until fly event arrives; set to tick+FLY_TICKS on fly
+  firedAt?: number    // tick when the fly event arrived
+}
+
+type VfxEffect = DischargeRowEffect | BeakBlastEffect | CastGlowEffect | LeafShieldEffect | TornadoEffect | SandShakeEffect | WhirlpoolEffect | WhiteSmokeEffect | CannonExplosionEffect | SmogPuffEffect | BlastBurnMarkEffect | BlastBurnDetonateEffect | BoomburstBurstEffect | DragonSlamEffect | BelliboltDischargeEffect | QuagsireShieldPopEffect | PsystrikeEffect | CelebiFsMarkEffect | UnownElectricRingEffect | AbsolNightSlashEffect | ShadowBoneFireEffect | DestinyMarkEffect | WanderingSpiritArmEffect | ShadowPunchGhostEffect
 
 interface DrainProjectile {
   currentPos: { x: number; y: number }
@@ -276,7 +347,9 @@ interface DrainProjectile {
 
 export interface CastAnimation {
   unitId: string
-  type: 'shake' | 'hop' | 'dart' | 'hold_hop' | 'flap' | 'bigShake' | 'cock_toss' | 'sway' | 'squash_launch' | 'hammer_swing' | 'spin'
+  type: 'shake' | 'hop' | 'dart' | 'hold_hop' | 'flap' | 'bigShake' | 'cock_toss' | 'sway' | 'squash_launch' | 'hammer_swing' | 'spin' | 'unown_spin' | 'absol_slash' | 'claydol_gravity' | 'slam_land' | 'rune_charge_lunge' | 'ws_consume_shake'
+  targetAngle?: number  // radians — used by unown_spin
+  startAngle?: number   // radians — used by absol_slash (blade start direction)
   remaining: number
   total: number
   dirX?: number    // unit vector toward target (dart only)
@@ -532,6 +605,28 @@ export class EffectLayer {
           // Palossand shakes as it erupts the ground
           this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 25, total: 25 })
         }
+        if (ev.abilityId === 'stonjourner_power_spot') {
+          // Lunge away from the nearest ally (toward whom the rock will travel from)
+          const caster = units?.get(ev.unitId)
+          let dirX = 0, dirY = 0
+          if (caster && units) {
+            let nearestAlly: import('../../core/types').Unit | undefined
+            let bestD = Infinity
+            for (const u of units.values()) {
+              if (u.id === caster.id || u.team !== caster.team || u.state === 'dead') continue
+              const d = Math.hypot(u.visualPos.x - caster.visualPos.x, u.visualPos.y - caster.visualPos.y)
+              if (d < bestD) { bestD = d; nearestAlly = u }
+            }
+            if (nearestAlly) {
+              const dx = caster.visualPos.x - nearestAlly.visualPos.x
+              const dy = caster.visualPos.y - nearestAlly.visualPos.y
+              const len = Math.hypot(dx, dy)
+              if (len > 0) { dirX = dx / len; dirY = dy / len }
+            }
+          }
+          // Short lunge away (18 ticks: 10 out, 8 back)
+          this.castAnimations.push({ unitId: ev.unitId, type: 'dart', remaining: 18, total: 18, apexAt: 10, dirX, dirY })
+        }
         if (ev.abilityId === 'a_exeggutor_egg_bomb') {
           // 30 ticks cock-back, 5 tick pause, 10 tick snap — egg launches at snap start
           this.castAnimations.push({ unitId: ev.unitId, type: 'cock_toss', remaining: 45, total: 45, apexAt: 30 })
@@ -581,6 +676,11 @@ export class EffectLayer {
           // Quick squash-then-stretch: squash down, snap tall to emphasize launch, recover
           this.castAnimations.push({ unitId: ev.unitId, type: 'squash_launch', remaining: 28, total: 28 })
         }
+        if (ev.abilityId === 'unown_hidden_power') {
+          // Spin to a random angle (60°–180°, either direction) then snap back on launch
+          const targetAngle = (Math.PI / 3 + Math.random() * (Math.PI * 2 / 3)) * (Math.random() < 0.5 ? 1 : -1)
+          this.castAnimations.push({ unitId: ev.unitId, type: 'unown_spin', remaining: 40, total: 40, targetAngle })
+        }
         if (ev.abilityId === 'vikavolt_discharge') {
           const caster = units?.get(ev.unitId)
           const target = caster?.targetId ? units?.get(caster.targetId) : undefined
@@ -598,9 +698,14 @@ export class EffectLayer {
       if (ev.type === 'vfx' && ev.effectId === 'marowak_hammer_swing') {
         this.castAnimations.push({ unitId: ev.unitId, type: 'hammer_swing', remaining: 26, total: 26, dirX: ev.dirX, dirY: ev.dirY, swingDir: ev.swingDir })
       }
-      if (ev.type === 'vfx' && ev.effectId === 'marowak_spin_strike') {
-        this.castAnimations.push({ unitId: ev.unitId, type: 'spin', remaining: 18, total: 18 })
-        // (fire effect handled by unitLayer via modifier check)
+      if (ev.type === 'vfx' && ev.effectId === 'marowak_shadow_bone_cone') {
+        // Deep forward lunge on the 3rd auto
+        this.castAnimations.push({ unitId: ev.unitId, type: 'hammer_swing', remaining: 26, total: 26, dirX: ev.dirX, dirY: ev.dirY, swingDir: 1 })
+        // Purple flame erupts briefly at each affected hex (target + cone)
+        const FIRE_TICKS = 40
+        for (const pos of ev.hexPositions) {
+          this.vfxEffects.push({ kind: 'shadow_bone_fire', x: pos.x, y: pos.y, tick: 0, maxTick: FIRE_TICKS, video: spawnOneShot('/visuals/ability_icons/shadow_bone_fire.webm') })
+        }
       }
       if (ev.type === 'vfx' && ev.effectId === 'boomburst_soundwave') {
         this.vfxEffects.push({
@@ -617,6 +722,76 @@ export class EffectLayer {
           cx: ev.x, cy: ev.y,
           tick: 0,
           maxTick: 35,  // ~0.58s fade-out
+        })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'stonjourner_rock_hit') {
+        this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 20, total: 20 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'xatu_bounce_shot_hit') {
+        this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 16, total: 16 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'claydol_gravity_cast') {
+        // rise(12) + hold(90) + fall(12) = 114 ticks; apexAt marks end of rise
+        this.castAnimations.push({ unitId: ev.unitId, type: 'claydol_gravity', remaining: 114, total: 114, apexAt: 12 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'claydol_gravity_slam') {
+        this.castAnimations.push({ unitId: ev.unitId, type: 'slam_land', remaining: 28, total: 28 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'spiritomb_mark_apply') {
+        // Rumble on Spiritomb at cast
+        this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 16, total: 16 })
+        // Marks are permanent and stack — each cast adds a new mark video without removing old ones.
+        const v = document.createElement('video')
+        v.loop = true; v.muted = true; v.playsInline = true; v.preload = 'auto'
+        v.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none'
+        document.body.appendChild(v)
+        v.src = '/visuals/ability_icons/destiny_mark.webm'
+        v.play().catch(() => {})
+        this.vfxEffects.push({ kind: 'destiny_mark', unitId: ev.targetId, spiritombId: ev.unitId, video: v, tick: 0, maxTick: 99999 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'wandering_spirit_mark_apply') {
+        const caster = units?.get(ev.unitId)
+        const target = units?.get(ev.targetId)
+        let dirX = 0, dirY = 1
+        if (caster && target) {
+          const dx = target.visualPos.x - caster.visualPos.x
+          const dy = target.visualPos.y - caster.visualPos.y
+          const d  = Math.sqrt(dx * dx + dy * dy)
+          if (d > 0) { dirX = dx / d; dirY = dy / d }
+        }
+        // Squash-charge then lunge once — skip if a lunge is already queued (3-star fires multiple events)
+        if (!this.castAnimations.some(a => a.unitId === ev.unitId && a.type === 'rune_charge_lunge')) {
+          this.castAnimations.push({ unitId: ev.unitId, type: 'rune_charge_lunge', remaining: 26, total: 26, apexAt: 10, dirX, dirY })
+        }
+
+        const v = document.createElement('video')
+        v.loop = true; v.muted = true; v.playsInline = true; v.preload = 'auto'
+        v.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none'
+        document.body.appendChild(v)
+        v.src = '/visuals/ability_icons/wandering_spirit.webm'
+        v.play().catch(() => {})
+        this.vfxEffects.push({ kind: 'wandering_spirit_arm', sourceId: ev.unitId, targetId: ev.targetId, video: v, tick: 0, maxTick: 99999 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'wandering_spirit_consume') {
+        const RUMBLE_TICKS = 14
+        for (const e of this.vfxEffects) {
+          if (e.kind === 'wandering_spirit_arm' && e.targetId === ev.unitId && e.consumeAt === undefined) {
+            e.consumeAt = e.tick
+            e.maxTick   = e.tick + RUMBLE_TICKS
+          }
+        }
+        this.castAnimations.push({ unitId: ev.unitId, type: 'ws_consume_shake', remaining: RUMBLE_TICKS, total: RUMBLE_TICKS })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'absol_night_slash') {
+        const SLASH_TICKS = 18
+        this.castAnimations.push({ unitId: ev.unitId, type: 'absol_slash', remaining: SLASH_TICKS, total: SLASH_TICKS, startAngle: ev.startAngle })
+        this.vfxEffects.push({ kind: 'absol_night_slash', unitId: ev.unitId, startAngle: ev.startAngle, tick: 0, maxTick: SLASH_TICKS })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'unown_hp_electric_ring') {
+        this.vfxEffects.push({
+          kind: 'unown_electric_ring',
+          x: ev.x, y: ev.y,
+          tick: 0, maxTick: 24,
         })
       }
       if (ev.type === 'vfx' && ev.effectId === 'quagsire_shield_pop') {
@@ -638,6 +813,26 @@ export class EffectLayer {
           maxTick: 60,
           video: spawnOneShot('/visuals/ability_icons/Electrophoresis.webm'),
         })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'shadow_punch_appear') {
+        this.vfxEffects.push({
+          kind: 'shadow_punch_ghost',
+          sourceId: ev.sourceId,
+          primaryTargetId: ev.targetId,
+          dirX: ev.dirX,
+          dirY: ev.dirY,
+          tick: 0,
+          maxTick: 99999,
+        })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'shadow_punch_fly') {
+        const FLY_TICKS = 22
+        for (const e of this.vfxEffects) {
+          if (e.kind === 'shadow_punch_ghost' && e.sourceId === ev.sourceId && e.firedAt === undefined) {
+            e.firedAt = e.tick
+            e.maxTick = e.tick + FLY_TICKS
+          }
+        }
       }
     }
   }
@@ -725,7 +920,7 @@ export class EffectLayer {
     for (const effect of this.vfxEffects) {
       effect.tick++
       if (effect.tick > effect.maxTick) {
-        if (effect.kind === 'beak_blast' || effect.kind === 'tornado' || effect.kind === 'sand_shake' || effect.kind === 'whirlpool' || effect.kind === 'white_smoke' || effect.kind === 'blast_burn_mark' || effect.kind === 'blast_burn_detonate' || effect.kind === 'boomburst_burst' || effect.kind === 'bellibolt_discharge' || effect.kind === 'tapulele_psystrike' || effect.kind === 'celebi_fs_mark') {
+        if (effect.kind === 'beak_blast' || effect.kind === 'tornado' || effect.kind === 'sand_shake' || effect.kind === 'whirlpool' || effect.kind === 'white_smoke' || effect.kind === 'blast_burn_mark' || effect.kind === 'blast_burn_detonate' || effect.kind === 'boomburst_burst' || effect.kind === 'bellibolt_discharge' || effect.kind === 'tapulele_psystrike' || effect.kind === 'celebi_fs_mark' || effect.kind === 'destiny_mark' || effect.kind === 'wandering_spirit_arm') {
           effect.video.pause()
           effect.video.remove()
         }
@@ -752,6 +947,12 @@ export class EffectLayer {
         case 'quagsire_shield_pop':         this.drawQuagsireShieldPop(ctx, effect);              break
         case 'tapulele_psystrike':          this.drawPsystrike(ctx, effect, state);               break
         case 'celebi_fs_mark':              this.drawCelebiFsMark(ctx, effect, state);             break
+        case 'unown_electric_ring':         this.drawUnownElectricRing(ctx, effect);               break
+        case 'absol_night_slash':           this.drawAbsolNightSlash(ctx, effect, state);           break
+        case 'shadow_bone_fire':            this.drawShadowBoneFire(ctx, effect);                  break
+        case 'destiny_mark':                this.drawDestinyMark(ctx, effect, state);               break
+        case 'wandering_spirit_arm':         this.drawWanderingSpiritArm(ctx, effect, state);         break
+        case 'shadow_punch_ghost':           this.drawShadowPunchGhost(ctx, effect, state);           break
       }
       aliveVfx.push(effect)
     }
@@ -895,6 +1096,98 @@ export class EffectLayer {
     ctx.translate(effect.x, effect.y)
     ctx.rotate(effect.angle)  // right side of image faces outward
     ctx.drawImage(smogImg, -size / 2, -size / 2, size, size)
+    ctx.restore()
+  }
+
+  // ─── Destiny Mark (loops on marked enemy while effect is active) ────────────
+
+  private drawDestinyMark(ctx: CanvasRenderingContext2D, effect: DestinyMarkEffect, state: CombatState): void {
+    const unit      = state.units.get(effect.unitId)
+    const spiritomb = state.units.get(effect.spiritombId)
+    const isActive  = unit && unit.state !== 'dead'
+                   && spiritomb && spiritomb.state !== 'dead'
+                   && unit.statusEffects.some(fx => fx.stackId === 'spiritomb_destiny_mark')
+    if (!isActive) { effect.tick = effect.maxTick + 1; return }
+    if (effect.video.readyState < 2) return
+    const size   = HEX_SIZE * 0.55
+    const barTop = unit.visualPos.y - HEX_SIZE * 0.80 - 16
+    ctx.drawImage(effect.video, unit.visualPos.x - size / 2, barTop - size, size, size)
+  }
+
+  // ─── Wandering Spirit arm (Runerigus) ────────────────────────────────────
+  // Stretches from Runerigus to the marked enemy, hand-end always touching the
+  // target; rumbles briefly and fades out the moment the mark is consumed.
+
+  private drawWanderingSpiritArm(ctx: CanvasRenderingContext2D, effect: WanderingSpiritArmEffect, state: CombatState): void {
+    const source = state.units.get(effect.sourceId)
+    const target = state.units.get(effect.targetId)
+    const stillMarked = target?.statusEffects.some(fx => fx.stackId === 'runerigus_wandering_spirit') ?? false
+    const isActive = !!source && source.state !== 'dead' && !!target && target.state !== 'dead'
+                  && (effect.consumeAt !== undefined || stillMarked)
+    if (!isActive) { effect.tick = effect.maxTick + 1; return }
+    if (effect.video.readyState < 2) return
+
+    let tx = target!.visualPos.x
+    let ty = target!.visualPos.y
+
+    if (effect.consumeAt !== undefined) {
+      const shakeElapsed = effect.tick - effect.consumeAt
+      const decay = Math.max(0, 1 - shakeElapsed / 14)
+      const intensity = decay * 6
+      tx += Math.sin(effect.tick * 1.7) * intensity
+      ty += Math.cos(effect.tick * 1.4 + 0.5) * intensity
+    }
+
+    const sx = source!.visualPos.x
+    const sy = source!.visualPos.y
+    const fullDx = tx - sx
+    const fullDy = ty - sy
+    const fullDist = Math.sqrt(fullDx * fullDx + fullDy * fullDy)
+    if (fullDist < 1) return
+    const angle = Math.atan2(fullDy, fullDx)
+
+    // Grow the arm out from Runerigus to the target over a short window after the
+    // charge/lunge settles, rather than popping in at full length.
+    const GROW_DELAY = 12
+    const GROW_TICKS = 16
+    const growElapsed = effect.tick - GROW_DELAY
+    if (growElapsed <= 0) return
+    const growT = Math.min(1, growElapsed / GROW_TICKS)
+    const growEase = 1 - (1 - growT) * (1 - growT)  // ease-out
+    const dist = fullDist * growEase
+
+    if (dist < 4) return
+
+    const vw = effect.video.videoWidth
+    const vh = effect.video.videoHeight
+    if (!vw || !vh) return
+
+    const armHeight  = HEX_SIZE * 0.42
+    const handLen    = HEX_SIZE * 0.55   // fixed on-screen size — never stretched
+    const handHeight = armHeight * 1.7
+    const overshoot  = HEX_SIZE * 0.15   // pushes the hand past the target's center so it sits over the sprite, not just touching its tip
+    const handSrcFrac = 0.35             // left ~35% of the source video is the hand; the rest is the tapering tendril
+
+    const handSrcW = vw * handSrcFrac
+    const tendrilSrcW = vw - handSrcW
+
+    const handEndX   = dist + overshoot          // farthest reach (fingertips), past the target
+    const handStartX = handEndX - handLen        // wrist, where the hand meets the tendril
+    const tendrilLen = Math.max(0, handStartX)   // stretches to fill the rest of the gap back to Runerigus
+
+    ctx.save()
+    ctx.translate(sx, sy)
+    ctx.rotate(angle)
+    // Pivot at the hand's farthest reach point, then mirror so the video's native left
+    // edge (fingertips) lands there while everything else trails back toward Runerigus.
+    ctx.translate(handEndX, 0)
+    ctx.scale(-1, 1)
+    // Hand: drawn at a fixed size (no stretch) so it stays proportioned over the target.
+    ctx.drawImage(effect.video, 0, 0, handSrcW, vh, 0, -handHeight / 2, handLen, handHeight)
+    // Tendril: the only part that stretches, filling the gap between the hand and Runerigus.
+    if (tendrilLen > 0) {
+      ctx.drawImage(effect.video, handSrcW, 0, tendrilSrcW, vh, handLen, -armHeight / 2, tendrilLen, armHeight)
+    }
     ctx.restore()
   }
 
@@ -1057,6 +1350,26 @@ export class EffectLayer {
   private drawProjectile(ctx: CanvasRenderingContext2D, proj: Projectile, state?: CombatState): void {
     if (proj.abilityId === 'tropius_leaf_tornado') return  // tornado visual handled by TornadoEffect
 
+    if (proj.abilityId === 'unown_hidden_power_ice' || proj.abilityId === 'unown_hidden_power_fire' || proj.abilityId === 'unown_hidden_power_electric') {
+      const img = proj.abilityId === 'unown_hidden_power_ice'      ? hpIceImg
+                : proj.abilityId === 'unown_hidden_power_fire'     ? hpFireImg
+                                                                    : hpElectricImg
+      const size = 44
+      if (img.complete && img.naturalWidth > 0) {
+        // Spin the icon as it travels
+        const target = state?.units.get(proj.targetId)
+        const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
+        const ty = target?.visualPos.y ?? proj.currentPos.y
+        const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
+        ctx.save()
+        ctx.translate(proj.currentPos.x, proj.currentPos.y)
+        ctx.rotate(angle)
+        ctx.drawImage(img, -size / 2, -size / 2, size, size)
+        ctx.restore()
+        return
+      }
+    }
+
     if (proj.abilityId === 'a_raichu_surge_surfer' && surgeSurferImg.complete && surgeSurferImg.naturalWidth > 0) {
       const target = state?.units.get(proj.targetId)
       const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
@@ -1093,6 +1406,12 @@ export class EffectLayer {
         ctx.drawImage(img, proj.currentPos.x - size / 2, proj.currentPos.y - size / 2, size, size)
         return
       }
+    }
+
+    if (proj.abilityId === 'stonjourner_power_spot' && powerSpotImg.complete && powerSpotImg.naturalWidth > 0) {
+      const size = 48
+      ctx.drawImage(powerSpotImg, proj.currentPos.x - size / 2, proj.currentPos.y - size / 2, size, size)
+      return
     }
 
     if ((proj.abilityId === 'sableye_power_gem_damage' || proj.abilityId === 'sableye_power_gem_shield')
@@ -1379,6 +1698,98 @@ export class EffectLayer {
     ctx.save()
     ctx.globalAlpha = 1.0
     ctx.drawImage(vid, cx - size / 2, cy - size / 2, size, size)
+    ctx.restore()
+  }
+
+  private drawUnownElectricRing(ctx: CanvasRenderingContext2D, effect: UnownElectricRingEffect): void {
+    if (!hpElectricImg.complete || !hpElectricImg.naturalWidth) return
+    const t      = effect.tick / effect.maxTick
+    // Expand from half-size to ~1-hex radius coverage over the duration
+    const minSize = HEX_SIZE * 1.2
+    const maxSize = HEX_SIZE * 3.6   // covers the 1-hex neighbor ring
+    const size   = minSize + (maxSize - minSize) * t
+    const alpha  = Math.max(0, 1 - t)
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.drawImage(hpElectricImg, effect.x - size / 2, effect.y - size / 2, size, size)
+    ctx.restore()
+  }
+
+  private drawShadowBoneFire(ctx: CanvasRenderingContext2D, effect: ShadowBoneFireEffect): void {
+    if (effect.video.readyState < 2) return
+    const t     = effect.tick / effect.maxTick
+    const size  = HEX_SIZE * 2.8
+    const alpha = t > 0.65 ? 1 - (t - 0.65) / 0.35 : 1
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.drawImage(effect.video, effect.x - size / 2, effect.y - size / 2, size, size)
+    ctx.restore()
+  }
+
+  private drawAbsolNightSlash(ctx: CanvasRenderingContext2D, effect: AbsolNightSlashEffect, state?: CombatState): void {
+    if (!nightSlashImg.complete || !nightSlashImg.naturalWidth) return
+    const unit = state?.units.get(effect.unitId)
+    if (!unit || unit.state === 'dead') return
+    const { x, y } = unit.visualPos
+    const t     = effect.tick / effect.maxTick
+    const angle = effect.startAngle + t * Math.PI * 2
+    // Fade out over last 25%
+    const alpha = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1
+
+    // Blade base starts inside the sprite (negative innerR) and extends to the 1-hex ring
+    const outerR   = HEX_SIZE * Math.sqrt(3)  // ~107px — center of adjacent hexes
+    const innerR   = -8                        // base overlaps sprite so it appears to jut from his head
+    const bladeLen = outerR - innerR           // ~115px
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.translate(x, y)
+    ctx.rotate(angle)  // point radially outward in the sweep direction
+    // Draw image as a square along the radial axis; half above, half below the line
+    ctx.drawImage(nightSlashImg, innerR, -bladeLen * 0.5, bladeLen, bladeLen)
+    ctx.restore()
+  }
+
+  private drawShadowPunchGhost(ctx: CanvasRenderingContext2D, effect: ShadowPunchGhostEffect, state: CombatState): void {
+    if (!shadowPunchImg.complete || !shadowPunchImg.naturalWidth) return
+    const target = state.units.get(effect.primaryTargetId)
+    if (!target || target.state === 'dead') { effect.maxTick = 0; return }
+    const source = state.units.get(effect.sourceId)
+    if (!source || source.state === 'dead') { effect.maxTick = 0; return }
+
+    const W = HEX_SIZE * 1.3
+    const H = HEX_SIZE * 0.9
+    const GHOST_DIST        = HEX_SIZE * 0.95
+    const MATERIALIZE_TICKS = 120
+    // Ghost faces toward the caster (into the target from behind)
+    const ghostAngle = Math.atan2(-effect.dirY, -effect.dirX)
+    // Ghost sits behind the target on the far side from the caster
+    const ghostX = target.visualPos.x + effect.dirX * GHOST_DIST
+    const ghostY = target.visualPos.y + effect.dirY * GHOST_DIST
+
+    ctx.save()
+
+    if (effect.firedAt === undefined) {
+      // Materialize: 90% transparent → 0% transparent (alpha 0.10 → 1.0) over 2 seconds
+      const alpha = 0.10 + Math.min(effect.tick / MATERIALIZE_TICKS, 1) * 0.90
+      ctx.globalAlpha = alpha
+      ctx.translate(ghostX, ghostY)
+      ctx.rotate(ghostAngle)
+      ctx.drawImage(shadowPunchImg, -W / 2, -H / 2, W, H)
+    } else {
+      // Fly: punch travels from behind the target through and past toward the caster
+      const FLY_TICKS = effect.maxTick - effect.firedAt
+      const t         = Math.min((effect.tick - effect.firedAt) / FLY_TICKS, 1)
+      const ease      = 1 - (1 - t) * (1 - t)
+      const endX      = target.visualPos.x - effect.dirX * HEX_SIZE * 1.5
+      const endY      = target.visualPos.y - effect.dirY * HEX_SIZE * 1.5
+      const alpha     = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1
+      ctx.globalAlpha = alpha
+      ctx.translate(ghostX + ease * (endX - ghostX), ghostY + ease * (endY - ghostY))
+      ctx.rotate(ghostAngle)
+      ctx.drawImage(shadowPunchImg, -W / 2, -H / 2, W, H)
+    }
+
     ctx.restore()
   }
 }

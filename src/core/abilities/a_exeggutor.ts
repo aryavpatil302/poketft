@@ -36,19 +36,22 @@ export const AExeggutorAbility: AbilityHandler = {
       launchDist,
       damagePayload: { baseAmount, damageType: 'magic', canCrit: false },
       onHit: (source: Unit | undefined, hitTarget: Unit, st: CombatState) => {
-        if (!source || hitTarget.state === 'dead') return
+        if (!source) return
 
-        const bonusTrueDmg = Math.round(spellBuff * 0.05 * baseAmount)
-        if (bonusTrueDmg > 0) {
-          applyDamage(source, hitTarget, {
-            baseAmount: bonusTrueDmg,
-            damageType: 'true',
-            canCrit: false,
-            abilityId: 'a_exeggutor_egg_bomb',
-          }, st)
+        // Bonus true damage only if the target survived the main hit
+        if (hitTarget.state !== 'dead') {
+          const bonusTrueDmg = Math.round(spellBuff * 0.05 * baseAmount)
+          if (bonusTrueDmg > 0) {
+            applyDamage(source, hitTarget, {
+              baseAmount: bonusTrueDmg,
+              damageType: 'true',
+              canCrit: false,
+              abilityId: 'a_exeggutor_egg_bomb',
+            }, st)
+          }
         }
 
-        // Bounce to a random enemy within 2 hexes of the hit target (not the same target)
+        // Bounce always fires, even if the first hit killed the target
         const bounceTargets = [...st.units.values()].filter(u =>
           u.team !== source.team &&
           u.state !== 'dead' &&
