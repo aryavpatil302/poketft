@@ -1,0 +1,54 @@
+{
+  "label": "doll",
+  "units": [
+    {
+      "id": "claydol",
+      "tier": 2,
+      "col": 5,
+      "row": 6,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 5,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 3,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 3,
+      "col": 5,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 1,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 3,
+      "col": 1,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

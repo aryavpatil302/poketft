@@ -1,0 +1,54 @@
+{
+  "label": "spirttomb",
+  "units": [
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 6,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 0,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 0,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 6,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "spiritomb",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    }
+  ]
+}

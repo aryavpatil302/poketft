@@ -1,0 +1,19 @@
+{
+  "label": "zubat test",
+  "units": [
+    {
+      "id": "zubat",
+      "tier": 1,
+      "col": 6,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 2,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "label": "wak",
+  "units": [
+    {
+      "id": "a_marowak",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 4,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 3,
+      "row": 1,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 4,
+      "row": 1,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 5,
+      "row": 2,
+      "team": "enemy"
+    }
+  ]
+}

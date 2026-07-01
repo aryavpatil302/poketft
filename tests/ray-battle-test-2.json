@@ -1,0 +1,117 @@
+{
+  "label": "ray battle test",
+  "units": [
+    {
+      "id": "rayquaza",
+      "tier": 2,
+      "col": 4,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "noivern",
+      "tier": 2,
+      "col": 3,
+      "row": 6,
+      "team": "player"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 3,
+      "col": 1,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "talonflame",
+      "tier": 3,
+      "col": 5,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "wheezing",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "tropius",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "ribombee",
+      "tier": 2,
+      "col": 6,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "gible",
+      "tier": 2,
+      "col": 0,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "tapu_bulu",
+      "tier": 1,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "venusaur",
+      "tier": 3,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "a_exeggutor",
+      "tier": 3,
+      "col": 0,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "a_raichu",
+      "tier": 2,
+      "col": 1,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "kingler",
+      "tier": 2,
+      "col": 5,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "blastoise",
+      "tier": 2,
+      "col": 6,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "wailord",
+      "tier": 2,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "tangela",
+      "tier": 2,
+      "col": 1,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

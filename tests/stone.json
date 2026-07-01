@@ -1,0 +1,33 @@
+{
+  "label": "stone",
+  "units": [
+    {
+      "id": "stonjourner",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "tangela",
+      "tier": 2,
+      "col": 5,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "kingler",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "graveler",
+      "tier": 1,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

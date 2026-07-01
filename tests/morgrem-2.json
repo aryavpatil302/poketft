@@ -1,0 +1,26 @@
+{
+  "label": "morgrem",
+  "units": [
+    {
+      "id": "morgrem",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "kingler",
+      "tier": 1,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

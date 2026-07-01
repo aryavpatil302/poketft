@@ -1,0 +1,117 @@
+{
+  "label": "ruiner v3",
+  "units": [
+    {
+      "id": "tangela",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "ribombee",
+      "tier": 3,
+      "col": 1,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "venusaur",
+      "tier": 2,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "vigoroth",
+      "tier": 1,
+      "col": 1,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "toucannon",
+      "tier": 2,
+      "col": 5,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "tropius",
+      "tier": 2,
+      "col": 0,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "unown",
+      "tier": 2,
+      "col": 5,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "mega_golurk",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "absol",
+      "tier": 2,
+      "col": 0,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "xatu",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "spiritomb",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "runerigus",
+      "tier": 1,
+      "col": 6,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "claydol",
+      "tier": 1,
+      "col": 2,
+      "row": 6,
+      "team": "player"
+    },
+    {
+      "id": "tapu_bulu",
+      "tier": 2,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "stonjourner",
+      "tier": 2,
+      "col": 1,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "vikavolt",
+      "tier": 2,
+      "col": 3,
+      "row": 2,
+      "team": "enemy"
+    }
+  ]
+}
