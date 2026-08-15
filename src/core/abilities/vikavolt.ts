@@ -50,10 +50,11 @@ export const VikavoltAbility: AbilityHandler = {
       const shieldBonus   = Math.round(totalShieldHp * 0.33)
 
       applyDamage(unit, other, {
-        baseAmount: damage + shieldBonus,
-        damageType: 'magic',
-        canCrit:    false,
-        abilityId:  'vikavolt_discharge',
+        baseAmount:        damage + shieldBonus,
+        damageType:        'magic',
+        canCrit:           false,
+        abilityScalingStat: 'special',
+        abilityId:         'vikavolt_discharge',
       }, state)
 
       if (other.currentHp <= 0) continue

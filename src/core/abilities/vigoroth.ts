@@ -3,6 +3,8 @@ import type { CombatState, Unit, Shield } from '../types'
 import { hexDistance, hexId, getNeighbors, isValidHex } from '../hexGrid'
 import { addStatusEffect, removeStatusEffect } from '../systems/statusEffect'
 import { startLeap } from '../systems/movement'
+import { addShield } from '../systems/shield'
+import { computeStats } from '../unitFactory'
 
 // Find the furthest enemy within `range` hexes, or null if none
 function findFurthestEnemyInRange(unit: Unit, state: CombatState, range: number): Unit | null {
@@ -31,11 +33,12 @@ export const VigorothAbility: AbilityHandler = {
   castTimeTicks: 15,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const shieldValues   = [150,  200,  250 ] as const
+    const shieldValues   = [200,  350,  500 ] as const
     const atkSpdBonuses  = [0.20, 0.30, 0.50] as const
     const atkDmgBonuses  = [50,   75,   100 ] as const
 
-    const shieldAmount = shieldValues[tier - 1]
+    const spMult       = (unit._computedStats ?? computeStats(unit)).special / 100
+    const shieldAmount = Math.round(shieldValues[tier - 1] * spMult)
     const atkSpdBonus  = atkSpdBonuses[tier - 1]
     const atkDmgBonus  = atkDmgBonuses[tier - 1]
 
@@ -86,14 +89,13 @@ export const VigorothAbility: AbilityHandler = {
         value: shieldAmount,
         maxValue: shieldAmount,
         effectiveMaxHp: u.currentHp + shieldAmount,
-        durationTicks: 240,   // 4 seconds
+        durationTicks: 360,   // 6 seconds
         onExpire: (expUnit: Unit) => {
           removeStatusEffect(expUnit, 'atkSpd_buff')
           removeStatusEffect(expUnit, 'dmg_buff')
         },
       }
-      u.shields.push(shield)
-      s.events.push({ type: 'shield', unitId: u.id, amount: shieldAmount })
+      addShield(u, shield, s)
     })
 
     // Lock onto the leap target and enter leaping state

@@ -5,6 +5,8 @@ import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
 import { startLeap } from '../systems/movement'
 import { hexId, hexDistance, getNeighbors, isValidHex } from '../hexGrid'
+import { computeStats } from '../unitFactory'
+import { combatRng } from '../rng'
 const LEAP_HASTE = 4.0
 
 export const GibleAbility: AbilityHandler = {
@@ -13,10 +15,11 @@ export const GibleAbility: AbilityHandler = {
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
     const stunDurations = [1.5, 2.0, 2.5] as const
-    const damageValues  = [150, 200, 275] as const
+    const damageValues  = [300, 400, 550] as const
 
     const stunDuration = stunDurations[tier - 1]
-    const damageAmount = damageValues[tier - 1]
+    const stats        = computeStats(unit)
+    const damageAmount = Math.round(stats.attack * (damageValues[tier - 1] / 100))
 
     // Pick a random in-range enemy, excluding current attack target unless it's the only option
     const inRange = [...state.units.values()].filter(u =>
@@ -26,7 +29,7 @@ export const GibleAbility: AbilityHandler = {
     const pool = preferred.length > 0 ? preferred : inRange
     const leapTarget: Unit | null =
       pool.length > 0
-        ? pool[Math.floor(Math.random() * pool.length)]
+        ? pool[Math.floor(combatRng() * pool.length)]
         : (unit.targetId ? state.units.get(unit.targetId) ?? null : null)
 
     if (!leapTarget || leapTarget.state === 'dead') return
@@ -56,6 +59,13 @@ export const GibleAbility: AbilityHandler = {
         durationTicks: Math.round(stunDuration * TICK_RATE),
         stackId: 'gible_target_lock',
       })
+
+      // Quick forward lunge into the target at the moment of the bite (separate from
+      // the leap that got him adjacent — that just closes the distance, this is the strike).
+      const dx = tgt.visualPos.x - u.visualPos.x
+      const dy = tgt.visualPos.y - u.visualPos.y
+      const len = Math.hypot(dx, dy) || 1
+      s.events.push({ type: 'vfx', effectId: 'gible_bite_lunge', unitId: u.id, dirX: dx / len, dirY: dy / len })
 
       applyDamage(u, tgt, {
         baseAmount: damageAmount,

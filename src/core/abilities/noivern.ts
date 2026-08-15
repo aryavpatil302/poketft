@@ -34,10 +34,11 @@ export const NoivernAbility: AbilityHandler = {
           if (target.team === u.team || target.state === 'dead') continue
           if (Math.abs(target.hexPos.row - u.hexPos.row) > 3) continue
           applyDamage(u, target, {
-            baseAmount: damage,
-            damageType: 'magic',
-            canCrit: false,
-            abilityId: 'noivern_boomburst',
+            baseAmount:        damage,
+            damageType:        'magic',
+            canCrit:           false,
+            abilityScalingStat: 'special',
+            abilityId:         'noivern_boomburst',
           }, s)
         }
       },

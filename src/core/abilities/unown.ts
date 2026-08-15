@@ -6,6 +6,7 @@ import { addStatusEffect } from '../systems/statusEffect'
 import { createProjectile } from '../projectile'
 import { hexesInRange, hexId } from '../hexGrid'
 import { findNearestEnemies } from '../systems/targeting'
+import { combatRng } from '../rng'
 
 type HpType = 'ice' | 'fire' | 'electric'
 
@@ -24,7 +25,7 @@ export const UnownAbility: AbilityHandler = {
       : findNearestEnemies(unit, state, 1)[0]
     if (!target) return
 
-    const hpType: HpType  = HP_TYPES[Math.floor(Math.random() * 3)]
+    const hpType: HpType  = HP_TYPES[Math.floor(combatRng() * 3)]
     const finalDamage      = hpType === 'fire' ? Math.round(baseDamage * 1.5) : baseDamage
     const casterId         = unit.id
 
@@ -36,10 +37,11 @@ export const UnownAbility: AbilityHandler = {
       hitRadius: 10,
       abilityId: `unown_hidden_power_${hpType}`,
       damagePayload: {
-        baseAmount: finalDamage,
-        damageType: 'magic',
-        canCrit:    false,
-        abilityId:  'unown_hidden_power',
+        baseAmount:        finalDamage,
+        damageType:        'magic',
+        canCrit:           false,
+        abilityScalingStat: 'special',
+        abilityId:         'unown_hidden_power',
       },
       onHit: (src, hitTarget, st) => {
         if (hitTarget.state === 'dead') return
@@ -58,10 +60,11 @@ export const UnownAbility: AbilityHandler = {
             const victim = st.units.get(uid)
             if (!victim || victim.team !== hitTarget.team || victim.state === 'dead') continue
             applyDamage(src ?? hitTarget, victim, {
-              baseAmount: Math.round(finalDamage * 0.5),
-              damageType: 'magic',
-              canCrit:    false,
-              abilityId:  'unown_hidden_power',
+              baseAmount:        Math.round(finalDamage * 0.5),
+              damageType:        'magic',
+              canCrit:           false,
+              abilityScalingStat: 'special',
+              abilityId:         'unown_hidden_power',
             }, st)
           }
           st.events.push({

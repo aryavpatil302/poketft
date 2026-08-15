@@ -3,6 +3,7 @@ import type { CombatState, Unit } from '../types'
 import { applyDamage, mitigationFactor } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
 import { hexId, hexDistance, hexKnockbackPath, hexToPixel, isValidHex } from '../hexGrid'
+import { releaseHexes } from '../systems/movement'
 import { computeStats } from '../unitFactory'
 import { HEX_SIZE } from '../constants'
 
@@ -33,8 +34,9 @@ export const DruddigonAbility: AbilityHandler = {
   castTimeTicks: CAST_TICKS,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const damageValues = [300, 450, 700] as const
-    const damage = damageValues[tier - 1]
+    const damageValues = [450, 550, 650] as const
+    const stats  = computeStats(unit)
+    const damage = Math.round(stats.attack * (damageValues[tier - 1] / 100))
 
     const attackTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
     const target = (attackTarget && attackTarget.state !== 'dead' && attackTarget.team !== unit.team)
@@ -143,7 +145,7 @@ export const DruddigonAbility: AbilityHandler = {
         } else {
           sliding.currentHp = 0
           sliding.state = 'dead'
-          s.hexOccupancy.delete(hexId(sliding.hexPos))
+          releaseHexes(sliding, s)
           s.events.push({ type: 'death', unitId: sliding.id, sourceId: druddigonId, abilityId: 'druddigon_dragon_tail' })
         }
       },

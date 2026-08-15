@@ -32,77 +32,62 @@ describe('Ferrothorn - Iron Barbs', () => {
     expect(state.events.some(e => e.type === 'cast')).toBe(true)
   })
 
-  it('applies iron_barbs status to caster (tier 1)', () => {
+  it('applies iron_barbs retaliation status to caster (tier 1)', () => {
     cast(caster, state)
     const barbs = caster.statusEffects.find(e => e.id === 'iron_barbs')
     expect(barbs).toBeDefined()
   })
 
-  it('iron_barbs magnitude equals totalShield / 4 at tier 1 (300/4 = 75)', () => {
+  it('iron_barbs retaliation damage is 75 at tier 1', () => {
     cast(caster, state)
     const barbs = caster.statusEffects.find(e => e.id === 'iron_barbs')
-    expect(barbs!.magnitude).toBe(300 / 4)
+    expect(barbs!.magnitude).toBe(75)
   })
 
-  it('iron_barbs duration is 4 * TICK_RATE at tier 1', () => {
+  it('iron_barbs duration is 4 seconds', () => {
     cast(caster, state)
     const barbs = caster.statusEffects.find(e => e.id === 'iron_barbs')
     expect(barbs!.durationTicks).toBe(4 * TICK_RATE)
   })
 
-  it('applies a shield to caster equal to totalShield value (tier 1 = 300)', () => {
+  it('applies a durability buff (tier 1 = 25% defense and sp. defense)', () => {
     cast(caster, state)
-    const shield = caster.shields.find(s => s.sourceAbility === 'ferrothorn_iron_barbs')
-    expect(shield).toBeDefined()
-    expect(shield!.value).toBe(300)
+    const dura = caster.statusEffects.find(e => e.id === 'iron_barbs_durability')
+    expect(dura).toBeDefined()
+    expect(dura!.magnitude).toBeCloseTo(0.25)
+    expect(dura!.durationTicks).toBe(4 * TICK_RATE)
   })
 
-  it('shield duration matches barbs duration (4 * TICK_RATE at tier 1)', () => {
-    cast(caster, state)
-    const shield = caster.shields.find(s => s.sourceAbility === 'ferrothorn_iron_barbs')
-    expect(shield!.durationTicks).toBe(4 * TICK_RATE)
-  })
-
-  it('tier 2: iron_barbs magnitude is 400/4 = 100', () => {
+  it('tier 2: retaliation 150, durability 30%', () => {
     const t2 = makeUnit('ferrothorn', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     const e2 = makeUnit('dummy', 'enemy', 1)
     e2.hexPos = { col: 3, row: 2 }
     const s2 = createCombatState([t2], [e2])
     cast(t2, s2)
-    const barbs = t2.statusEffects.find(e => e.id === 'iron_barbs')
-    expect(barbs!.magnitude).toBe(400 / 4)
-    const shield = t2.shields.find(s => s.sourceAbility === 'ferrothorn_iron_barbs')
-    expect(shield!.value).toBe(400)
-    expect(barbs!.durationTicks).toBe(5 * TICK_RATE)
+    expect(t2.statusEffects.find(e => e.id === 'iron_barbs')!.magnitude).toBe(150)
+    expect(t2.statusEffects.find(e => e.id === 'iron_barbs_durability')!.magnitude).toBeCloseTo(0.30)
   })
 
-  it('tier 3: iron_barbs magnitude is 600/4 = 150, duration = 6 * TICK_RATE', () => {
+  it('tier 3: retaliation 225, durability 40%', () => {
     const t3 = makeUnit('ferrothorn', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     const e3 = makeUnit('dummy', 'enemy', 1)
     e3.hexPos = { col: 3, row: 2 }
     const s3 = createCombatState([t3], [e3])
     cast(t3, s3)
-    const barbs = t3.statusEffects.find(e => e.id === 'iron_barbs')
-    expect(barbs!.magnitude).toBe(600 / 4)
-    const shield = t3.shields.find(s => s.sourceAbility === 'ferrothorn_iron_barbs')
-    expect(shield!.value).toBe(600)
-    expect(barbs!.durationTicks).toBe(6 * TICK_RATE)
-  })
-
-  it('emits a shield event after cast', () => {
-    cast(caster, state)
-    const shieldEvt = state.events.find(e => e.type === 'shield')
-    expect(shieldEvt).toBeDefined()
-    if (shieldEvt?.type === 'shield') {
-      expect(shieldEvt.amount).toBe(300)
-    }
+    expect(t3.statusEffects.find(e => e.id === 'iron_barbs')!.magnitude).toBe(225)
+    expect(t3.statusEffects.find(e => e.id === 'iron_barbs_durability')!.magnitude).toBeCloseTo(0.40)
   })
 
   it('iron_barbs stackId is "iron_barbs"', () => {
     cast(caster, state)
     const barbs = caster.statusEffects.find(e => e.stackId === 'iron_barbs')
     expect(barbs).toBeDefined()
+  })
+
+  it('adds a brief rumble animation on cast', () => {
+    cast(caster, state)
+    expect(caster.statusEffects.some(e => e.stackId === 'ferrothorn_rumble')).toBe(true)
   })
 })

@@ -1,0 +1,19 @@
+{
+  "label": "drednaw",
+  "units": [
+    {
+      "id": "drednaw",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "label": "sableye test",
+  "units": [
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 5,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 2,
+      "col": 6,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy_ranged",
+      "tier": 1,
+      "col": 4,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "sableye",
+      "tier": 1,
+      "col": 6,
+      "row": 7,
+      "team": "player"
+    }
+  ]
+}

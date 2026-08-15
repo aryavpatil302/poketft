@@ -1,0 +1,33 @@
+{
+  "label": "2 star rai test",
+  "units": [
+    {
+      "id": "kingler",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "a_raichu",
+      "tier": 2,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "zubat",
+      "tier": 1,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "graveler",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    }
+  ]
+}

@@ -40,43 +40,88 @@ describe('Oranguru - Stored Power', () => {
     expect(caster.passiveAttackHandlers[0].id).toContain('oranguru_wave')
   })
 
-  it('adds oranguru_instruct status effect lasting 5 seconds', () => {
+  it('adds a permanent oranguru_stored_power status (suppresses mana gain)', () => {
     cast(caster, state, 20)
     const status = caster.statusEffects.find(e => e.id === 'oranguru_stored_power')
     expect(status).toBeDefined()
-    expect(status!.durationTicks).toBe(5 * TICK_RATE)
+    expect(status!.durationTicks).toBe(-1)
     expect(status!.stackId).toBe('oranguru_stored_power')
+    expect(status!.suppressManaGain).toBe(true)
   })
 
-  it('handler deals magic damage to target on each call', () => {
+  it('handler fires a magic wave projectile at the target on each call', () => {
     cast(caster, state, 20)
-    const hpBefore = enemy.currentHp
     const handler = caster.passiveAttackHandlers[0]
     handler.onAttack(caster, enemy, state)
-    expect(enemy.currentHp).toBeLessThan(hpBefore)
+    const proj = [...state.projectiles.values()].find(p => p.abilityId === 'oranguru_stored_power')
+    expect(proj).toBeDefined()
+    expect(proj!.damagePayload?.damageType).toBe('magic')
+    // tier 1: 80% of special (100) = 80 base damage
+    expect(proj!.damagePayload?.baseAmount).toBe(80)
   })
 
-  it('handler grants mana to caster on every 5th call (manaGain=15 at tier 1)', () => {
+  it('every 3rd wave grants permanent bonus special (tier 1 = +1) and empowered damage', () => {
     cast(caster, state, 20)
-    caster.currentMana = 0
     const handler = caster.passiveAttackHandlers[0]
-    // Call 5 times; the 5th should trigger mana gain
-    for (let i = 0; i < 5; i++) handler.onAttack(caster, enemy, state)
-    expect(caster.currentMana).toBe(15)
+    for (let i = 0; i < 3; i++) handler.onAttack(caster, enemy, state)
+    const buff = caster.statusEffects.find(e => e.stackId === 'oranguru_sp_buff')
+    expect(buff).toBeDefined()
+    expect(buff!.magnitude).toBe(1)
+    // 3rd wave is empowered: base 80 + 100 bonus (plus any special growth)
+    const empProj = [...state.projectiles.values()].find(p => p.abilityId === 'oranguru_stored_power_emp')
+    expect(empProj).toBeDefined()
+    expect(empProj!.damagePayload!.baseAmount).toBeGreaterThanOrEqual(180)
   })
 
-  it('handler does not grant mana on the 4th call (only on 5th)', () => {
+  it('does not grant the special buff before the 3rd wave', () => {
     cast(caster, state, 20)
-    caster.currentMana = 0
     const handler = caster.passiveAttackHandlers[0]
-    for (let i = 0; i < 4; i++) handler.onAttack(caster, enemy, state)
-    expect(caster.currentMana).toBe(0)
+    for (let i = 0; i < 2; i++) handler.onAttack(caster, enemy, state)
+    expect(caster.statusEffects.some(e => e.stackId === 'oranguru_sp_buff')).toBe(false)
   })
 
-  it('handler removes itself when instruct status expires', () => {
+  it('the stored power status is permanent (never expires)', () => {
     cast(caster, state, 20)
     const status = caster.statusEffects.find(e => e.id === 'oranguru_stored_power')!
-    if (status.onExpire) status.onExpire(caster, state)
-    expect(caster.passiveAttackHandlers).toHaveLength(0)
+    expect(status.durationTicks).toBe(-1)
+    expect(status.onExpire).toBeUndefined()
+  })
+
+  it('every 3rd wave grants a 2-second attack speed buff scaled by special (tier 1: 20% at 100 special)', () => {
+    cast(caster, state, 20)
+    const handler = caster.passiveAttackHandlers[0]
+    for (let i = 0; i < 3; i++) handler.onAttack(caster, enemy, state)
+    const buff = caster.statusEffects.find(e => e.stackId === 'oranguru_wave_atkspd')
+    expect(buff).toBeDefined()
+    expect(buff!.id).toBe('atkSpd_buff')
+    expect(buff!.durationTicks).toBe(2 * TICK_RATE)
+    // special is 100 at this point (pre-gain snapshot from computeStats at the 3rd wave) → full 20%
+    expect(buff!.magnitude).toBeCloseTo(0.20, 5)
+  })
+
+  it('does not grant the attack speed buff before the 3rd wave', () => {
+    cast(caster, state, 20)
+    const handler = caster.passiveAttackHandlers[0]
+    for (let i = 0; i < 2; i++) handler.onAttack(caster, enemy, state)
+    expect(caster.statusEffects.some(e => e.stackId === 'oranguru_wave_atkspd')).toBe(false)
+  })
+
+  it('a later empowered wave scales the attack speed bonus up with the special gained from earlier procs', () => {
+    cast(caster, state, 20)
+    const handler = caster.passiveAttackHandlers[0]
+    for (let i = 0; i < 3; i++) handler.onAttack(caster, enemy, state)
+    const first = caster.statusEffects.find(e => e.stackId === 'oranguru_wave_atkspd')!.magnitude!
+    for (let i = 0; i < 3; i++) handler.onAttack(caster, enemy, state)   // waves 4-6, 6th is empowered again
+    const second = caster.statusEffects.find(e => e.stackId === 'oranguru_wave_atkspd')!.magnitude!
+    expect(second).toBeGreaterThan(first)
+  })
+
+  it('refreshes (does not stack) on repeated empowered waves — one entry, duration reset', () => {
+    cast(caster, state, 20)
+    const handler = caster.passiveAttackHandlers[0]
+    for (let i = 0; i < 9; i++) handler.onAttack(caster, enemy, state)
+    const buffs = caster.statusEffects.filter(e => e.stackId === 'oranguru_wave_atkspd')
+    expect(buffs).toHaveLength(1)
+    expect(buffs[0].durationTicks).toBe(2 * TICK_RATE)
   })
 })

@@ -2,6 +2,8 @@ import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit, Shield } from '../types'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
+import { addShield } from '../systems/shield'
+import { computeStats } from '../unitFactory'
 
 export const XatuAbility: AbilityHandler = {
   abilityId: 'xatu_magic_bounce',
@@ -10,7 +12,8 @@ export const XatuAbility: AbilityHandler = {
   onCast(unit: Unit, state: CombatState, tier: number): void {
     const shieldValues = [400, 475, 600] as const
     const ratios       = [0.90, 1.20, 1.50] as const
-    const shieldVal    = shieldValues[tier - 1]
+    const spMult       = (unit._computedStats ?? computeStats(unit)).special / 100
+    const shieldVal    = Math.round(shieldValues[tier - 1] * spMult)
     const ratio        = ratios[tier - 1]
     const DURATION     = 3 * TICK_RATE  // 180 ticks
 
@@ -42,7 +45,6 @@ export const XatuAbility: AbilityHandler = {
       },
     }
 
-    unit.shields.push(shield)
-    state.events.push({ type: 'shield', unitId: unit.id, amount: shieldVal })
+    addShield(unit, shield, state)
   },
 }

@@ -4,8 +4,9 @@ import type { OffsetCoord } from '../hexGrid'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
 import { findNearestEnemies } from '../systems/targeting'
-import { startLeap, findBestAttackHex } from '../systems/movement'
-import { hexDistance, hexId } from '../hexGrid'
+import { startLeap, findBestAttackHex, claimHex } from '../systems/movement'
+import { hexDistance } from '../hexGrid'
+import { computeStats } from '../unitFactory'
 
 // ~0.5s total: cockback (30% of outbound) → sharp strike → quick return
 const OUTBOUND_TICKS = 18   // ~0.3s outbound per target
@@ -20,9 +21,9 @@ export const TalonflameAbility: AbilityHandler = {
   castTimeTicks: 15,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const damages = [200, 325, 500] as const
+    const dmgPcts = [350, 565, 715] as const
     const returnHex: OffsetCoord = { ...unit.hexPos }
-    diveAt(unit, state, damages[tier - 1], returnHex, 0)
+    diveAt(unit, state, Math.round(computeStats(unit).attack * (dmgPcts[tier - 1] / 100)), returnHex, 0)
   },
 }
 
@@ -73,8 +74,9 @@ function diveAt(
       // (it's now free, so it's the "closest hex to the target just killed")
       diveAt(u, s, Math.round(damage * RECAST_PCT), { ...enemyHex }, depth + 1)
     } else if (depth > 0) {
-      // Chain recast that didn't kill — rest near THIS target, not the original home hex
-      const nearHex = findBestAttackHex(u, tgt!, s) ?? returnHex
+      // Chain recast that didn't kill — rest near THIS target, not the original
+      // home hex (tgt can be gone entirely, not just dead — fall back home)
+      const nearHex = (tgt ? findBestAttackHex(u, tgt, s) : null) ?? returnHex
       returnHome(u, s, nearHex)
     } else {
       returnHome(u, s, returnHex)
@@ -86,16 +88,10 @@ function diveAt(
 
 function returnHome(unit: Unit, state: CombatState, dest: OffsetCoord): void {
   const haste = Math.max(0, TICK_RATE / (RETURN_TICKS * unit.moveSpeed) - 1)
-  const srcHex = { ...unit.hexPos }
   startLeap(unit, dest, state, haste, (u, s) => {
-    // If landing somewhere new, physically relocate the unit
-    if (dest.col !== srcHex.col || dest.row !== srcHex.row) {
-      s.hexOccupancy.delete(hexId(srcHex))
-      u.hexPos = { ...dest }
-      if (!s.hexOccupancy.has(hexId(dest))) {
-        s.hexOccupancy.set(hexId(dest), u.id)
-      }
-    }
+    // Visual-only leap, so hexPos is committed here. dest may have been taken
+    // during the flight — claimHex falls back to the nearest open hex.
+    claimHex(u, dest, s)
     u.state = 'idle'
   }, undefined, true)
   unit.state = 'leaping'

@@ -1,25 +1,23 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
 import { applyHeal } from '../systems/heal'
-import { findNearestAlly } from '../systems/targeting'
+import { addStatusEffect } from '../systems/statusEffect'
+import { computeStats } from '../unitFactory'
 
 export const GogoatAbility: AbilityHandler = {
   abilityId: 'gogoat_grass_pelt',
   castTimeTicks: 20,
 
-  onCast(unit: Unit, state: CombatState, tier: number): void {
-    const bonusDamages = [50,  75,  125] as const
-    const selfHeals    = [50,  75,  125] as const
-    const allyHeals    = [25,  40,  60 ] as const
+  onCast(unit: Unit, _state: CombatState, tier: number): void {
+    const healValues   = [105, 145, 200] as const
+    const bonusDmgVals = [50,   80, 120] as const
 
-    const bonusDamage = bonusDamages[tier - 1]
-    const selfHeal    = selfHeals[tier - 1]
-    const allyHeal    = allyHeals[tier - 1]
+    const spMult      = (unit._computedStats ?? computeStats(unit)).special / 100
+    const healAmount  = Math.round(healValues[tier - 1] * spMult)
+    const bonusDamage = bonusDmgVals[tier - 1]
+    const sourceId    = unit.id
 
-    // Capture values in closure for the onHit callback
-    const selfHealAmount = selfHeal
-    const allyHealAmount = allyHeal
-    const sourceId = unit.id
+    unit.attackTimer = 0
 
     for (let i = 0; i < 3; i++) {
       unit.attackModifiers.push({
@@ -28,11 +26,16 @@ export const GogoatAbility: AbilityHandler = {
         bonusDamage,
         bonusDamageType: 'physical',
         onHit: (src: Unit, _tgt: Unit, st: CombatState) => {
-          // Heal self
-          applyHeal(src, selfHealAmount, sourceId, st)
-          // Heal nearest ally
-          const ally = findNearestAlly(src, st)
-          if (ally) applyHeal(ally, allyHealAmount, sourceId, st)
+          applyHeal(src, healAmount, sourceId, st)
+          // Keep the 70px lunge branch active through the retract phase.
+          // The modifier is consumed at the hit frame, so this status effect
+          // covers the remaining ~13 retract ticks for the last auto.
+          addStatusEffect(src, {
+            id: 'gogoat_lunge_active',
+            sourceUnitId: src.id,
+            durationTicks: 25,
+            stackId: 'gogoat_lunge',
+          })
         },
       })
     }

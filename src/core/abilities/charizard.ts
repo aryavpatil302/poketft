@@ -5,6 +5,7 @@ import { addMark, hasMark, removeMark } from '../systems/marks'
 import { findNearestEnemies } from '../systems/targeting'
 import { hexDistance } from '../hexGrid'
 import { createProjectile } from '../projectile'
+import { computeStats } from '../unitFactory'
 
 const MARK_ID = 'charizard_flame_mark'
 
@@ -13,15 +14,16 @@ export const CharizardAbility: AbilityHandler = {
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const fireballCounts  = [3, 4, 10]   as const
-    const fireballDamages = [300, 500, 2000] as const
-    const killCounts      = [1, 1, 10]   as const
-    const detonateDamages = [500, 700, 3000] as const
+    const fireballCounts = [3, 4, 10]    as const
+    const fireballPcts   = [375, 625, 2500] as const
+    const killCounts     = [1, 1, 10]    as const
+    const detonatePcts   = [625, 875, 3750] as const
 
+    const stats          = computeStats(unit)
     const fireballCount  = fireballCounts[tier - 1]
-    const fireballDamage = fireballDamages[tier - 1]
+    const fireballDamage = Math.round(stats.attack * (fireballPcts[tier - 1] / 100))
     const killCount      = killCounts[tier - 1]
-    const detonateDamage = detonateDamages[tier - 1]
+    const detonateDamage = Math.round(stats.attack * (detonatePcts[tier - 1] / 100))
     const sourceId       = unit.id
 
     const markedEnemies = [...state.units.values()].filter(

@@ -1,0 +1,40 @@
+{
+  "label": "sand 5 beachy",
+  "units": [
+    {
+      "id": "a_raichu",
+      "tier": 2,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "a_exeggutor",
+      "tier": 1,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "palossand",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "graveler",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "kingler",
+      "tier": 2,
+      "col": 4,
+      "row": 5,
+      "team": "player"
+    }
+  ]
+}

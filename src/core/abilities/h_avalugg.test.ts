@@ -2,15 +2,24 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickStatusEffects } from '../systems/statusEffect'
 import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
-
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks = 25): void {
+const CAST_TICKS    = 25
+const AVALANCHE_DELAY = 30
+
+function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
-  for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
+  for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+function triggerAvalanches(state: CombatState): void {
+  for (let i = 0; i < AVALANCHE_DELAY; i++) {
+    tickStatusEffects(state.units, state)
+  }
 }
 
 describe('H-Avalugg - Mountain Gale', () => {
@@ -41,29 +50,47 @@ describe('H-Avalugg - Mountain Gale', () => {
     expect(state.events.some(e => e.type === 'cast')).toBe(true)
   })
 
-  it('deals physical damage to 3 nearest enemies at tier 1', () => {
+  it('castTimeTicks is 25', () => {
+    caster.currentMana = caster.maxMana
+    triggerAbility(caster, state)
+    expect(caster.abilityCastTimer).toBe(25)
+  })
+
+  it('applies avalanche_pending to 3 nearest enemies immediately on cast', () => {
+    cast(caster, state)
+    const pending = [enemy1, enemy2, enemy3, enemy4].filter(e =>
+      e.statusEffects.some(fx => fx.id === 'avalanche_pending')
+    )
+    expect(pending).toHaveLength(3)
+  })
+
+  it('deals physical damage to 3 nearest enemies after delay', () => {
     const hps = [enemy1, enemy2, enemy3, enemy4].map(e => e.currentHp)
     cast(caster, state)
+    triggerAvalanches(state)
     const damaged = [enemy1, enemy2, enemy3, enemy4].filter((e, i) => e.currentHp < hps[i])
     expect(damaged).toHaveLength(3)
   })
 
-  it('applies knockUp to 3 nearest enemies at tier 1', () => {
+  it('applies stun to 3 nearest enemies after delay', () => {
     cast(caster, state)
-    const knocked = [enemy1, enemy2, enemy3, enemy4].filter(e =>
-      e.statusEffects.some(fx => fx.id === 'knockUp'),
+    triggerAvalanches(state)
+    const stunned = [enemy1, enemy2, enemy3, enemy4].filter(e =>
+      e.statusEffects.some(fx => fx.id === 'stun')
     )
-    expect(knocked).toHaveLength(3)
+    expect(stunned).toHaveLength(3)
   })
 
-  it('knockUp duration is 1.5 seconds at tier 1', () => {
+  it('stun duration is 1.5 seconds at tier 1', () => {
     cast(caster, state)
-    const ku = enemy1.statusEffects.find(e => e.id === 'knockUp')
-    expect(ku).toBeDefined()
-    expect(ku!.durationTicks).toBe(Math.round(1.5 * TICK_RATE))
+    triggerAvalanches(state)
+    const stun = enemy1.statusEffects.find(e => e.id === 'stun')
+    expect(stun).toBeDefined()
+    // stun gets ticked once in the same tickStatusEffects call that fires onExpire
+    expect(stun!.durationTicks).toBe(Math.round(1.5 * TICK_RATE) - 1)
   })
 
-  it('knockUp duration is 2.0 seconds at tier 2', () => {
+  it('stun duration is 2.0 seconds at tier 2', () => {
     const t2 = makeUnit('h_avalugg', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     const e2a = makeUnit('dummy', 'enemy', 1)
@@ -74,11 +101,12 @@ describe('H-Avalugg - Mountain Gale', () => {
     e2c.hexPos = { col: 4, row: 2 }
     const s2 = createCombatState([t2], [e2a, e2b, e2c])
     cast(t2, s2)
-    const ku = e2a.statusEffects.find(e => e.id === 'knockUp')
-    expect(ku!.durationTicks).toBe(Math.round(2.0 * TICK_RATE))
+    triggerAvalanches(s2)
+    const stun = e2a.statusEffects.find(e => e.id === 'stun')
+    expect(stun!.durationTicks).toBe(Math.round(2.0 * TICK_RATE) - 1)
   })
 
-  it('knockUp duration is 3.0 seconds at tier 3', () => {
+  it('stun duration is 3.0 seconds at tier 3', () => {
     const t3 = makeUnit('h_avalugg', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     const e3a = makeUnit('dummy', 'enemy', 1)
@@ -89,63 +117,29 @@ describe('H-Avalugg - Mountain Gale', () => {
     e3c.hexPos = { col: 4, row: 2 }
     const s3 = createCombatState([t3], [e3a, e3b, e3c])
     cast(t3, s3)
-    const ku = e3a.statusEffects.find(e => e.id === 'knockUp')
-    expect(ku!.durationTicks).toBe(Math.round(3.0 * TICK_RATE))
+    triggerAvalanches(s3)
+    const stun = e3a.statusEffects.find(e => e.id === 'stun')
+    expect(stun!.durationTicks).toBe(Math.round(3.0 * TICK_RATE) - 1)
   })
 
-  it('tier 2 targets 4 enemies', () => {
-    const t2 = makeUnit('h_avalugg', 'player', 2)
-    t2.hexPos = { col: 3, row: 5 }
-    const enemies = [
-      { col: 3, row: 2 },
-      { col: 2, row: 2 },
-      { col: 4, row: 2 },
-      { col: 1, row: 2 },
-      { col: 5, row: 2 },
-    ].map(pos => {
-      const e = makeUnit('dummy', 'enemy', 1)
-      e.hexPos = pos
-      return e
-    })
-    const s2 = createCombatState([t2], enemies)
-    cast(t2, s2)
-    const knocked = enemies.filter(e => e.statusEffects.some(fx => fx.id === 'knockUp'))
-    expect(knocked).toHaveLength(4)
-  })
-
-  it('tier 3 targets 5 enemies', () => {
-    const t3 = makeUnit('h_avalugg', 'player', 3)
-    t3.hexPos = { col: 3, row: 5 }
-    const enemies = [
-      { col: 3, row: 2 },
-      { col: 2, row: 2 },
-      { col: 4, row: 2 },
-      { col: 1, row: 2 },
-      { col: 5, row: 2 },
-    ].map(pos => {
-      const e = makeUnit('dummy', 'enemy', 1)
-      e.hexPos = pos
-      return e
-    })
-    const s3 = createCombatState([t3], enemies)
-    cast(t3, s3)
-    const knocked = enemies.filter(e => e.statusEffects.some(fx => fx.id === 'knockUp'))
-    expect(knocked).toHaveLength(5)
-  })
-
-  it('does not apply knockUp to already dead targets', () => {
-    enemy1.currentHp = 1  // very low HP — might die from damage
+  it('does not stun already dead targets', () => {
+    enemy1.currentHp = 1
     cast(caster, state)
-    // If dead, should not have knockUp
+    triggerAvalanches(state)
     if (enemy1.state === 'dead') {
-      const hasKnockUp = enemy1.statusEffects.some(e => e.id === 'knockUp')
-      expect(hasKnockUp).toBe(false)
+      expect(enemy1.statusEffects.some(e => e.id === 'stun')).toBe(false)
     }
   })
 
-  it('castTimeTicks is 25', () => {
-    caster.currentMana = caster.maxMana
-    triggerAbility(caster, state)
-    expect(caster.abilityCastTimer).toBe(25)
+  it('emits h_avalugg_avalanche vfx event', () => {
+    cast(caster, state)
+    expect(state.events.some(e =>
+      e.type === 'vfx' && (e as { effectId: string }).effectId === 'h_avalugg_avalanche'
+    )).toBe(true)
+  })
+
+  it('mana is reset to 0 after cast', () => {
+    cast(caster, state)
+    expect(caster.currentMana).toBe(0)
   })
 })

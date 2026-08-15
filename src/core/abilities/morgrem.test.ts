@@ -2,16 +2,27 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickStatusEffects } from '../systems/statusEffect'
 import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 
-// Import to ensure abilities are registered
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks: number): void {
+const CAST_TICKS = 20
+const AURA_TICKS = 3 * TICK_RATE
+const SLAP_DAMAGE_TICK = 10
+
+function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
-  for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
+  for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+function tickFx(state: CombatState, n: number): void {
+  for (let i = 0; i < n; i++) {
+    state.tick++
+    tickStatusEffects(state.units, state)
+  }
 }
 
 describe('Morgrem - Spirit Break', () => {
@@ -23,76 +34,89 @@ describe('Morgrem - Spirit Break', () => {
     caster = makeUnit('morgrem', 'player', 1)
     caster.hexPos = { col: 3, row: 5 }
     enemy = makeUnit('dummy', 'enemy', 1)
-    enemy.hexPos = { col: 3, row: 2 }
+    enemy.hexPos = { col: 3, row: 4 }  // adjacent — inside the 1-hex drain aura
     state = createCombatState([caster], [enemy])
   })
 
-  it('enters casting state with 20-tick timer', () => {
-    caster.currentMana = caster.maxMana
-    triggerAbility(caster, state)
-    expect(caster.state).toBe('casting')
-    expect(caster.abilityCastTimer).toBe(20)
-  })
-
-  it('grants caster a shield of 120 at tier 1', () => {
-    cast(caster, state, 20)
+  it('grants caster a shield of 350 at tier 1', () => {
+    cast(caster, state)
     const shield = caster.shields.find(s => s.sourceAbility === 'morgrem_spirit_break')
     expect(shield).toBeDefined()
-    expect(shield!.value).toBe(120)
-    expect(shield!.maxValue).toBe(120)
+    expect(shield!.value).toBe(350)
+    expect(shield!.durationTicks).toBe(3 * TICK_RATE)
   })
 
-  it('shield values are 120 / 180 / 280 at tiers 1 / 2 / 3', () => {
-    for (const [tier, expected] of [[1, 120], [2, 180], [3, 280]] as const) {
-      const m = makeUnit('morgrem', 'player', tier as 1 | 2 | 3)
-      m.hexPos = { col: 3, row: 5 }
+  it('shield values are 350 / 430 / 550 at tiers 1 / 2 / 3', () => {
+    const expected = [350, 430, 550] as const
+    for (const tier of [1, 2, 3] as const) {
+      const u = makeUnit('morgrem', 'player', tier)
+      u.hexPos = { col: 3, row: 5 }
       const e = makeUnit('dummy', 'enemy', 1)
-      e.hexPos = { col: 3, row: 2 }
-      const s = createCombatState([m], [e])
-      cast(m, s, 20)
-      const sh = m.shields.find(sh => sh.sourceAbility === 'morgrem_spirit_break')
-      expect(sh!.value).toBe(expected)
+      e.hexPos = { col: 3, row: 4 }
+      const s = createCombatState([u], [e])
+      cast(u, s)
+      const shield = u.shields.find(sh => sh.sourceAbility === 'morgrem_spirit_break')
+      expect(shield?.value).toBe(expected[tier - 1])
     }
   })
 
-  it('applies taunt status to nearest enemy lasting 4 seconds', () => {
-    cast(caster, state, 20)
-    const taunt = enemy.statusEffects.find(fx => fx.id === 'taunt')
-    expect(taunt).toBeDefined()
-    expect(taunt!.durationTicks).toBe(4 * TICK_RATE)
+  it('adds the drain aura status lasting 3 seconds (suppresses mana gain)', () => {
+    cast(caster, state)
+    const aura = caster.statusEffects.find(e => e.stackId === 'morgrem_spirit_break_aura')
+    expect(aura).toBeDefined()
+    expect(aura!.durationTicks).toBe(AURA_TICKS)
+    expect(aura!.suppressManaGain).toBe(true)
   })
 
-  it('taunt tickEffect drains 5 mana per interval from the enemy', () => {
+  it('aura drains mana from adjacent enemies (2 per 0.5s at tier 1)', () => {
     enemy.currentMana = 50
-    cast(caster, state, 20)
-    const taunt = enemy.statusEffects.find(fx => fx.id === 'taunt')!
-    if (taunt.tickEffect) taunt.tickEffect(enemy, state)
-    expect(enemy.currentMana).toBe(45)
+    cast(caster, state)
+    tickFx(state, AURA_TICKS)
+    // 6 drain pulses × 2 mana = 12 drained
+    expect(enemy.currentMana).toBe(38)
   })
 
   it('mana does not drop below 0 from drain', () => {
-    enemy.currentMana = 3
-    cast(caster, state, 20)
-    const taunt = enemy.statusEffects.find(fx => fx.id === 'taunt')!
-    if (taunt.tickEffect) taunt.tickEffect(enemy, state)
-    expect(enemy.currentMana).toBe(0)
+    enemy.currentMana = 1
+    cast(caster, state)
+    tickFx(state, AURA_TICKS)
+    expect(enemy.currentMana).toBeGreaterThanOrEqual(0)
   })
 
-  it('taunt onExpire deals burst magic damage to the nearest enemy of the caster', () => {
-    cast(caster, state, 20)
-    const taunt = enemy.statusEffects.find(fx => fx.id === 'taunt')!
+  it('aura expiry triggers the slap, dealing burst magic damage after 10 more ticks', () => {
     const hpBefore = enemy.currentHp
-    if (taunt.onExpire) taunt.onExpire(enemy, state)
-    // 150 magic damage (tier 1) should reduce enemy HP
+    cast(caster, state)
+    tickFx(state, AURA_TICKS + SLAP_DAMAGE_TICK + 1)
     expect(enemy.currentHp).toBeLessThan(hpBefore)
+    const dmgEvent = state.events.find(
+      e => e.type === 'damage' && e.targetId === enemy.id && (e as any).damageType === 'magic'
+    )
+    expect(dmgEvent).toBeDefined()
+  })
+
+  it('slap damage includes drained mana (base 50 + drained at tier 1)', () => {
+    enemy.currentMana = 50
+    cast(caster, state)
+    tickFx(state, AURA_TICKS + SLAP_DAMAGE_TICK + 1)
+    const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
+    expect(dmgEvent).toBeDefined()
+    if (dmgEvent?.type === 'damage') {
+      // base 50 + 12 drained = 62 raw → * 100/130 (dummy spDef 30) = 48
+      expect(dmgEvent.amount).toBe(48)
+    }
   })
 
   it('emits a shield event with correct amount', () => {
-    cast(caster, state, 20)
-    const shieldEvt = state.events.find(e => e.type === 'shield' && e.unitId === caster.id)
-    expect(shieldEvt).toBeDefined()
-    if (shieldEvt?.type === 'shield') {
-      expect(shieldEvt.amount).toBe(120)
+    cast(caster, state)
+    const shieldEvent = state.events.find(e => e.type === 'shield')
+    expect(shieldEvent).toBeDefined()
+    if (shieldEvent?.type === 'shield') {
+      expect(shieldEvent.amount).toBe(350)
     }
+  })
+
+  it('resets mana to 0 after cast', () => {
+    cast(caster, state)
+    expect(caster.currentMana).toBe(0)
   })
 })

@@ -248,7 +248,7 @@ On cast, gain a 800/1250/3000 health shield for every enemy in a 2 hex radius en
 
 Barraskewda : Fishous Rend
 melee
-Dash to the lowest Health enemy within 2 hexes. Strike viciously, dealing 200/320/550 attack damage. Subsequent strikes have the mana cost reduced by 10, up to a floor of 30
+Dash to the lowest Health enemy within 2 hexes. Strike viciously, dealing 400/600/900 attack damage. Subsequent strikes have the mana cost reduced by 10, up to a floor of 30
 
 
 Temporal Woods Trait

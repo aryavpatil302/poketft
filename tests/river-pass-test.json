@@ -1,0 +1,54 @@
+{
+  "label": "river pass test",
+  "units": [
+    {
+      "id": "drednaw",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "bellibolt",
+      "tier": 1,
+      "col": 6,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 3,
+      "col": 1,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 3,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 3,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 3,
+      "col": 0,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 1,
+      "col": 6,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

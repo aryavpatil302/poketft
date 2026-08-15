@@ -2,18 +2,28 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickLeapPixel } from '../systems/movement'
 import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 
 // Import to ensure abilities are registered
 import '../systems/ability'
 
-const CAST_TICKS = 20
+const CAST_TICKS = 15
 
 function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
   for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+// Mirrors combatEngine tickLeapMovement — advances the leap until landing.
+function advanceLeaps(unit: Unit, state: CombatState, maxTicks = 3000): void {
+  for (let t = 0; t < maxTicks; t++) {
+    if (unit.state !== 'leaping') break
+    const arrived = tickLeapPixel(unit, state)
+    if (arrived && !(unit as any)._leap) unit.state = 'idle'
+  }
 }
 
 describe('Gible - Bite', () => {
@@ -57,29 +67,30 @@ describe('Gible - Bite', () => {
     expect(caster.targetId).toBe(enemy.id)
   })
 
-  it('applies stun status to the target', () => {
+  it('applies stun status to the target on landing', () => {
     cast(caster, state)
+    advanceLeaps(caster, state)
     const stun = enemy.statusEffects.find(e => e.id === 'stun')
     expect(stun).toBeDefined()
   })
 
-  it('tier 1 - stun duration is 1 second', () => {
+  it('tier 1 - stun duration is 1.5 seconds', () => {
     cast(caster, state)
+    advanceLeaps(caster, state)
     const stun = enemy.statusEffects.find(e => e.id === 'stun')
-    expect(stun?.durationTicks).toBe(Math.round(1 * TICK_RATE))
+    expect(stun?.durationTicks).toBe(Math.round(1.5 * TICK_RATE))
   })
 
-  it('tier 2 - stun duration is 1.5 seconds', () => {
+  it('tier 2 - stun duration is 2 seconds', () => {
     const t2 = makeUnit('gible', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
     e.hexPos = { col: 3, row: 2 }
     const s = createCombatState([t2], [e])
-    t2.currentMana = t2.maxMana
-    triggerAbility(t2, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
+    cast(t2, s)
+    advanceLeaps(t2, s)
     const stun = e.statusEffects.find(fx => fx.id === 'stun')
-    expect(stun?.durationTicks).toBe(Math.round(1.5 * TICK_RATE))
+    expect(stun?.durationTicks).toBe(Math.round(2 * TICK_RATE))
   })
 
   it('tier 3 - stun duration is 2.5 seconds', () => {
@@ -88,17 +99,17 @@ describe('Gible - Bite', () => {
     const e = makeUnit('dummy', 'enemy', 1)
     e.hexPos = { col: 3, row: 2 }
     const s = createCombatState([t3], [e])
-    t3.currentMana = t3.maxMana
-    triggerAbility(t3, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
+    cast(t3, s)
+    advanceLeaps(t3, s)
     const stun = e.statusEffects.find(fx => fx.id === 'stun')
     expect(stun?.durationTicks).toBe(Math.round(2.5 * TICK_RATE))
   })
 
-  it('deals physical damage to the target', () => {
+  it('deals physical damage to the target on landing', () => {
     enemy.maxHp = 10000
     enemy.currentHp = 10000
     cast(caster, state)
+    advanceLeaps(caster, state)
     expect(enemy.currentHp).toBeLessThan(10000)
     const dmgEvent = state.events.find(
       e => e.type === 'damage' && (e as any).damageType === 'physical' && e.targetId === enemy.id
@@ -114,6 +125,7 @@ describe('Gible - Bite', () => {
     caster.critChance = 0
     caster._computedStats = null
     cast(caster, state)
+    advanceLeaps(caster, state)
 
     const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
     expect(dmgEvent).toBeDefined()
@@ -122,7 +134,7 @@ describe('Gible - Bite', () => {
     }
   })
 
-  it('tier 2 - deals 225 physical damage (before mitigation)', () => {
+  it('tier 2 - deals 300 physical damage (before mitigation)', () => {
     const t2 = makeUnit('gible', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     t2.critChance = 0
@@ -134,17 +146,17 @@ describe('Gible - Bite', () => {
     e._computedStats = null
     e.hexPos = { col: 3, row: 2 }
     const s = createCombatState([t2], [e])
-    t2.currentMana = t2.maxMana
-    triggerAbility(t2, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
+    cast(t2, s)
+    advanceLeaps(t2, s)
 
     const dmgEvent = s.events.find(ev => ev.type === 'damage' && ev.targetId === e.id)
+    expect(dmgEvent).toBeDefined()
     if (dmgEvent?.type === 'damage') {
-      expect(dmgEvent.amount).toBe(225)
+      expect(dmgEvent.amount).toBe(300)
     }
   })
 
-  it('tier 3 - deals 375 physical damage (before mitigation)', () => {
+  it('tier 3 - deals 622 physical damage (before mitigation)', () => {
     const t3 = makeUnit('gible', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     t3.critChance = 0
@@ -156,13 +168,13 @@ describe('Gible - Bite', () => {
     e._computedStats = null
     e.hexPos = { col: 3, row: 2 }
     const s = createCombatState([t3], [e])
-    t3.currentMana = t3.maxMana
-    triggerAbility(t3, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
+    cast(t3, s)
+    advanceLeaps(t3, s)
 
     const dmgEvent = s.events.find(ev => ev.type === 'damage' && ev.targetId === e.id)
+    expect(dmgEvent).toBeDefined()
     if (dmgEvent?.type === 'damage') {
-      expect(dmgEvent.amount).toBe(375)
+      expect(dmgEvent.amount).toBe(622)
     }
   })
 
@@ -172,6 +184,7 @@ describe('Gible - Bite', () => {
     state = createCombatState([caster], [enemy])
     // Since enemy is out of range and no targetId, nothing should happen
     cast(caster, state)
+    advanceLeaps(caster, state)
     // No damage events (no valid target)
     const dmgEvents = state.events.filter(e => e.type === 'damage')
     expect(dmgEvents).toHaveLength(0)

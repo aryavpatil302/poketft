@@ -1,5 +1,6 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
+import { addShield } from '../systems/shield'
 import {
   hexDistance,
   offsetToCube,
@@ -20,8 +21,8 @@ export const TropiusAbility: AbilityHandler = {
   onCast(unit: Unit, state: CombatState, tier: number): void {
     const damageValues   = [200, 275,  800] as const
     const knockUpSecs    = [2,   2,    5  ] as const
-    const shieldPerHit   = [100, 130,  400] as const
-    const shieldDurSecs  = [3,   4,    10 ] as const
+    const shieldPerHit   = [200, 350,  1000] as const
+    const shieldDurSecs  = [4,   4,    10 ] as const
 
     const damage        = damageValues[tier - 1]
     const knockupTicks  = knockUpSecs[tier - 1] * 60
@@ -105,10 +106,11 @@ export const TropiusAbility: AbilityHandler = {
         onHit: (_src, tgt, hitState) => {
           const caster = hitState.units.get(casterId)
           applyDamage(caster ?? tgt, tgt, {
-            baseAmount: damage,
-            damageType: 'magic',
-            canCrit:    false,
-            abilityId:  'tropius_leaf_tornado',
+            baseAmount:        damage,
+            damageType:        'magic',
+            canCrit:           false,
+            abilityScalingStat: 'special',
+            abilityId:         'tropius_leaf_tornado',
           }, hitState)
           if (tgt.currentHp > 0) {
             addStatusEffect(tgt, {
@@ -117,25 +119,22 @@ export const TropiusAbility: AbilityHandler = {
               durationTicks: knockupTicks,
               stackId:       `tropius_knockup_${tgt.id}`,
             })
+            // Gain the shield only once this unit is actually knocked up — one
+            // shield per knock-up, staggered as each tornado hit lands (rather
+            // than the full amount all at once at cast time).
+            if (caster && caster.state !== 'dead') {
+              addShield(caster, {
+                id: `tropius_tornado_${caster.id}_${tgt.id}_${hitState.tick}`,
+                sourceAbility: 'tropius_leaf_tornado',
+                value: shieldPer,
+                maxValue: shieldPer,
+                durationTicks: shieldDurTicks,
+              }, hitState)
+            }
           }
         },
       })
       state.projectiles.set(proj.id, proj)
-    }
-
-    // Gain a shield for each enemy that will be hit (count known at cast time)
-    const enemiesHit = hitIds.size
-    if (enemiesHit > 0) {
-      const totalShield = enemiesHit * shieldPer
-      const shieldId    = `tropius_tornado_${unit.id}_${state.tick}`
-      unit.shields.push({
-        id:           shieldId,
-        sourceAbility: 'tropius_leaf_tornado',
-        value:        totalShield,
-        maxValue:     totalShield,
-        durationTicks: shieldDurTicks,
-      })
-      state.events.push({ type: 'shield', unitId: unit.id, amount: totalShield })
     }
   },
 }

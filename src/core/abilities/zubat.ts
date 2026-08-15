@@ -4,6 +4,7 @@ import { TICK_RATE } from '../constants'
 import { addStatusEffect } from '../systems/statusEffect'
 import { createProjectile } from '../projectile'
 import { findNearestEnemies } from '../systems/targeting'
+import { computeStats } from '../unitFactory'
 
 const POISON_DURATION_TICKS = 4 * TICK_RATE  // 4 seconds
 const POISON_TICKS          = 4              // one proc per second × 4 = total
@@ -17,7 +18,8 @@ export const ZubatAbility: AbilityHandler = {
     const poisonTotal = [20,  50,  75 ] as const
 
     const damage        = damages[tier - 1]
-    const poisonPerTick = Math.round(poisonTotal[tier - 1] / POISON_TICKS)
+    const spMult        = (unit._computedStats ?? computeStats(unit)).special / 100
+    const poisonPerTick = Math.round(poisonTotal[tier - 1] / POISON_TICKS * spMult)
 
     const atkTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
     const target = (atkTarget && atkTarget.state !== 'dead' && atkTarget.team !== unit.team)
@@ -34,9 +36,10 @@ export const ZubatAbility: AbilityHandler = {
       startPos: { ...unit.visualPos },
       speed: 12,
       damagePayload: {
-        baseAmount: damage,
-        damageType: 'magic',
-        canCrit: false,
+        baseAmount:        damage,
+        damageType:        'magic',
+        canCrit:           false,
+        abilityScalingStat: 'special',
       },
       onHit: (_src, hitTarget, _hitState) => {
         if (hitTarget.state === 'dead') return

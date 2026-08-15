@@ -20,7 +20,7 @@ function applyAuraDamage(spiritomb: Unit, state: CombatState, dmg: number, heal:
     if (!uid) continue
     const target = state.units.get(uid)
     if (!target || target.team === spiritomb.team || target.state === 'dead') continue
-    applyDamage(spiritomb, target, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityId: 'spiritomb_destiny_bond' }, state)
+    applyDamage(spiritomb, target, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'spiritomb_destiny_bond' }, state)
     applyHeal(spiritomb, heal, spiritomb.id, state)
   }
 }
@@ -71,7 +71,7 @@ export const SpiritombAbility: AbilityHandler = {
         tickEffect:   (u, st) => {
           const spiritomb = st.units.get(spiritombId)
           if (!spiritomb || spiritomb.state === 'dead') return
-          applyDamage(spiritomb, u, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityId: 'spiritomb_destiny_bond' }, st)
+          applyDamage(spiritomb, u, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'spiritomb_destiny_bond' }, st)
           applyHeal(spiritomb, heal, spiritomb.id, st)
         },
       })

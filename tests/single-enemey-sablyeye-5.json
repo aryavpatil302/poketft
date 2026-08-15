@@ -1,0 +1,19 @@
+{
+  "label": "single enemey sablyeye",
+  "units": [
+    {
+      "id": "sableye",
+      "tier": 1,
+      "col": 6,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 1,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

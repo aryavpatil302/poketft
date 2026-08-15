@@ -2,6 +2,7 @@ import '../core/systems/ability'   // registers all ability handlers (side-effec
 
 import { makeUnit } from '../core/unitFactory'
 import { createCombatState, runCombat } from '../core/combatEngine'
+import { setCombatRng, type Rng } from '../core/rng'
 import type { Team } from '../core/types'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -11,6 +12,7 @@ export interface UnitSpec {
   tier: 1 | 2 | 3
   col:  number
   row:  number
+  item?: string         // equipped item id (one per unit); its passive fires in combat
 }
 
 export interface DamageBreakdown {
@@ -97,10 +99,29 @@ export interface SimulationReport {
 
 // ─── Main API ─────────────────────────────────────────────────────────────────
 
+// `rng`, when passed, seeds every gameplay-affecting random draw made during
+// combat (crit rolls, target tie-breaks, bounce/pool picks — see
+// src/core/rng.ts) for the duration of this call, then reverts to Math.random.
+// Used by the training CLI so repeated evaluations of a candidate genome are
+// judged against the same random draws as its rivals (common random numbers).
 export function runSimulation(
   playerSpecs: UnitSpec[],
   enemySpecs:  UnitSpec[],
   trials = 100,
+  rng?: Rng,
+): SimulationReport {
+  setCombatRng(rng ?? null)
+  try {
+    return runSimulationInner(playerSpecs, enemySpecs, trials)
+  } finally {
+    setCombatRng(null)
+  }
+}
+
+function runSimulationInner(
+  playerSpecs: UnitSpec[],
+  enemySpecs:  UnitSpec[],
+  trials: number,
 ): SimulationReport {
   const pAcc = playerSpecs.map(s => makeAcc(s, 'player'))
   const eAcc = enemySpecs.map(s =>  makeAcc(s, 'enemy'))
@@ -121,11 +142,13 @@ export function runSimulation(
     const playerUnits = playerSpecs.map(s => {
       const u = makeUnit(s.id, 'player', s.tier)
       u.hexPos = { col: s.col, row: s.row }
+      if (s.item) u.items = [s.item]
       return u
     })
     const enemyUnits = enemySpecs.map(s => {
       const u = makeUnit(s.id, 'enemy', s.tier)
       u.hexPos = { col: s.col, row: s.row }
+      if (s.item) u.items = [s.item]
       return u
     })
 

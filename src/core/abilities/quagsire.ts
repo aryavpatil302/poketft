@@ -4,6 +4,8 @@ import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
 import { hexesInRange, hexId, hexDistance } from '../hexGrid'
+import { addShield } from '../systems/shield'
+import { computeStats } from '../unitFactory'
 
 export const QuagsireAbility: AbilityHandler = {
   abilityId: 'quagsire_unaware',
@@ -15,6 +17,7 @@ export const QuagsireAbility: AbilityHandler = {
 
     const shieldPer = shieldsPerEnemy[tier - 1]
     const aoeDmg    = aoeDamages[tier - 1]
+    const spMult    = (unit._computedStats ?? computeStats(unit)).special / 100
 
     // Count enemies within 2 hexes
     let enemyCount = 0
@@ -22,7 +25,7 @@ export const QuagsireAbility: AbilityHandler = {
       if (other.team === unit.team || other.state === 'dead') continue
       if (hexDistance(unit.hexPos, other.hexPos) <= 2) enemyCount++
     }
-    const totalShield = shieldPer * Math.max(1, enemyCount)
+    const totalShield = Math.round(shieldPer * spMult * Math.max(1, enemyCount))
 
     // Taunt enemies within 1 hex for 4 seconds
     for (const other of state.units.values()) {
@@ -52,7 +55,7 @@ export const QuagsireAbility: AbilityHandler = {
           if (!uid) continue
           const target = state.units.get(uid)
           if (!target || target.team === u.team || target.state === 'dead') continue
-          applyDamage(u, target, { baseAmount: aoeDmg, damageType: 'magic', canCrit: false, abilityId: 'quagsire_unaware' }, state)
+          applyDamage(u, target, { baseAmount: aoeDmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'quagsire_unaware' }, state)
           if (target.currentHp > 0) {
             addStatusEffect(target, {
               id: 'chill',
@@ -73,7 +76,6 @@ export const QuagsireAbility: AbilityHandler = {
       },
     }
 
-    unit.shields.push(shield)
-    state.events.push({ type: 'shield', unitId: unit.id, amount: totalShield })
+    addShield(unit, shield, state)
   },
 }

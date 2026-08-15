@@ -1,21 +1,37 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
+import { TICK_RATE } from '../constants'
 import { hexDistance } from '../hexGrid'
 import { applyDamage } from '../systems/damage'
+import { applyHeal } from '../systems/heal'
 import { createProjectile } from '../projectile'
+
+const HEAL_BLOCK_TICKS = 3 * TICK_RATE
+
+function applyBeakBlastHealBlock(target: Unit, sourceId: string): void {
+  const existing = target.statusEffects.find(fx => fx.stackId === 'beak_blast_healblock')
+  if (existing) { existing.durationTicks = HEAL_BLOCK_TICKS }
+  else {
+    target.statusEffects.push({
+      id: 'healBlock', sourceUnitId: sourceId,
+      durationTicks: HEAL_BLOCK_TICKS, magnitude: 0.33,
+      stackId: 'beak_blast_healblock',
+    })
+  }
+}
 
 export const ToucannonAbility: AbilityHandler = {
   abilityId: 'toucannon_beak_blast',
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const mainDamageValues  = [300, 475, 2000] as const
-    const healValues        = [75,  100,  500] as const
-    const splashDamValues   = [200, 275,  600] as const
+    const mainDamageRatios = [7.0, 15.0, 30.0] as const   // 700 / 1500 / 3000 % of attack
+    const healValues       = [75,  100,  500 ] as const
+    const splashDamValues  = [200, 275,  600 ] as const
 
-    const mainDamage   = mainDamageValues[tier - 1]
-    const healAmount   = healValues[tier - 1]
-    const splashDamage = splashDamValues[tier - 1]
+    const mainDamageRatio = mainDamageRatios[tier - 1]
+    const healAmount      = healValues[tier - 1]
+    const splashDamage    = splashDamValues[tier - 1]
 
     // Target current auto-attack target, fall back to nearest enemy
     const target: Unit | null = (unit.targetId ? state.units.get(unit.targetId) ?? null : null)
@@ -41,12 +57,17 @@ export const ToucannonAbility: AbilityHandler = {
       startPos: { ...unit.visualPos },
       speed: 14,
       damagePayload: {
-        baseAmount: mainDamage,
-        damageType: 'physical',
-        canCrit:    true,
+        baseAmount:   0,
+        damageType:   'physical',
+        canCrit:      true,
+        scalingStat:  'attack',
+        scalingRatio: mainDamageRatio,
       },
       onHit: (_source, hitTarget, hitState) => {
         const caster = hitState.units.get(casterId)
+
+        // Primary target: heal block
+        applyBeakBlastHealBlock(hitTarget, casterId)
 
         // AoE explosion in 1 hex radius around the blast target
         for (const other of hitState.units.values()) {
@@ -55,24 +76,16 @@ export const ToucannonAbility: AbilityHandler = {
 
           if (other.team === casterTeam) {
             // Ally: heal
-            const actualHeal = Math.min(healAmount, other.maxHp - other.currentHp)
-            if (actualHeal > 0) {
-              other.currentHp += actualHeal
-              hitState.events.push({
-                type:     'heal',
-                targetId: other.id,
-                amount:   actualHeal,
-                sourceId: casterId,
-              })
-            }
+            applyHeal(other, healAmount, casterId, hitState)
           } else {
-            // Enemy: splash magic damage
+            // Enemy: splash damage + heal block
             applyDamage(
               caster ?? hitTarget,
               other,
               { baseAmount: splashDamage, damageType: 'magic', canCrit: false, abilityId: 'toucannon_beak_blast' },
               hitState,
             )
+            applyBeakBlastHealBlock(other, casterId)
           }
         }
         // Visual: expanding explosion ring at impact point

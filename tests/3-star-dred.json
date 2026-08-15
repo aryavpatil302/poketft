@@ -1,0 +1,54 @@
+{
+  "label": "3 star dred",
+  "units": [
+    {
+      "id": "drednaw",
+      "tier": 3,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "bellibolt",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "snorunt",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "torkoal",
+      "tier": 3,
+      "col": 1,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "wheezing",
+      "tier": 1,
+      "col": 5,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "noivern",
+      "tier": 1,
+      "col": 3,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "froslass",
+      "tier": 3,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    }
+  ]
+}

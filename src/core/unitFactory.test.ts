@@ -44,7 +44,7 @@ describe('makeUnit', () => {
 
   it('copies traits from definition', () => {
     const u = makeUnit('tangela', 'player', 1)
-    expect(u.traits).toContain('jungle')
+    expect(u.types).toContain('jungle')
   })
 
   it('starts with empty items and status effects', () => {

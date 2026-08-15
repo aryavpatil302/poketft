@@ -297,3 +297,32 @@ describe('hexesInRange', () => {
     }
   })
 })
+
+// ─── findPath soft-blocking (moving units) ───────────────────────────────────
+
+describe('findPath — softBlocked hexes', () => {
+  it('soft-blocked hexes are traversable at a penalty; hard blocks force detours', () => {
+    const occupied = new Map<string, string>()
+    occupied.set('1,0', 'mover1')
+    const soft = new Map<string, number>([['1,0', 4]])
+
+    const hard     = findPath({ col: 0, row: 0 }, { col: 2, row: 0 }, occupied, 'u1')
+    const softPath = findPath({ col: 0, row: 0 }, { col: 2, row: 0 }, occupied, 'u1', 0, soft)
+
+    expect(softPath.reachable).toBe(true)
+    // Soft path never worse than the hard-blocked detour
+    expect(softPath.path.length).toBeLessThanOrEqual(hard.path.length)
+  })
+
+  it('goal fully walled by moving units is still reachable through them', () => {
+    // Surround the goal's approach with "moving" occupants
+    const occupied = new Map<string, string>()
+    const soft = new Map<string, number>()
+    for (const [id, uid] of [['1,0','m1'],['1,1','m2'],['0,1','m3']] as const) {
+      occupied.set(id, uid)
+      soft.set(id, 4)
+    }
+    const res = findPath({ col: 0, row: 0 }, { col: 3, row: 0 }, occupied, 'u1', 1, soft)
+    expect(res.reachable).toBe(true)
+  })
+})

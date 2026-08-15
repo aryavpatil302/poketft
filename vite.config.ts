@@ -78,5 +78,77 @@ export default defineConfig({
         })
       },
     },
+
+    {
+      name: 'trait-diagram-api',
+
+      configureServer(server) {
+        // GET: current units + traits, loaded live through Vite's own
+        // transform pipeline so it's always in sync with the TS source
+        // (no separate parser to keep in sync).
+        server.middlewares.use('/api/trait-diagram-data', async (req, res) => {
+          if (req.method !== 'GET') { res.statusCode = 405; res.end(); return }
+          try {
+            const unitsMod  = await server.ssrLoadModule('/src/data/units.ts')
+            const traitsMod = await server.ssrLoadModule('/src/data/traits.ts')
+            const units = (unitsMod.ALL_UNITS as Array<{
+              id: string; name: string; cost: number; types: string[]; spritePath: string; isDummy?: boolean
+            }>)
+              .filter(u => !u.isDummy && u.cost > 0)
+              .map(u => ({ id: u.id, name: u.name, cost: u.cost, types: u.types, spritePath: u.spritePath }))
+            const traits = (traitsMod.ALL_TRAITS as Array<{ id: string; name: string }>)
+              .map(t => ({ id: t.id, name: t.name }))
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ units, traits }))
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: String(err) }))
+          }
+        })
+
+        // POST { traits: { [unitId]: string[] } }: rewrite each named unit's
+        // `types: [...]` line in src/data/units.ts in place. Units not in the
+        // payload (dummies, summons, anything the diagram didn't send) are
+        // left untouched. Line-based rather than a full AST rewrite so
+        // comments/formatting elsewhere in the file survive untouched.
+        server.middlewares.use('/api/save-traits', (req, res) => {
+          if (req.method !== 'POST') { res.statusCode = 405; res.end(); return }
+
+          let body = ''
+          req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+          req.on('end', () => {
+            try {
+              const payload: { traits: Record<string, string[]> } = JSON.parse(body)
+              const unitsPath = path.join(ROOT, 'src', 'data', 'units.ts')
+              const lines = fs.readFileSync(unitsPath, 'utf8').split('\n')
+
+              let currentUnitId: string | null = null
+              let changed = 0
+              for (let i = 0; i < lines.length; i++) {
+                const idMatch = lines[i].match(/^\s*id:\s*'([^']+)',?\s*$/)
+                if (idMatch) { currentUnitId = idMatch[1]; continue }
+
+                const typesMatch = lines[i].match(/^(\s*types:\s*\[)[^\]]*(\],?\s*)$/)
+                if (typesMatch && currentUnitId && payload.traits[currentUnitId]) {
+                  const newTypes = payload.traits[currentUnitId].map(t => `'${t}'`).join(', ')
+                  lines[i] = `${typesMatch[1]}${newTypes}${typesMatch[2]}`
+                  changed++
+                  currentUnitId = null   // one types: line per unit block
+                }
+              }
+
+              if (changed === 0) throw new Error('No matching units found to update — is the file format unchanged?')
+
+              fs.writeFileSync(unitsPath, lines.join('\n'))
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: true, changed }))
+            } catch (err) {
+              res.writeHead(500, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: false, error: String(err) }))
+            }
+          })
+        })
+      },
+    },
   ],
 })

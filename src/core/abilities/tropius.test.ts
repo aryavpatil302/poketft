@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickProjectiles } from '../projectile'
 import type { Unit, CombatState } from '../types'
 import '../systems/ability'
 
@@ -11,6 +12,12 @@ function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
   for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+function resolveProjectiles(state: CombatState, maxTicks = 500): void {
+  for (let i = 0; i < maxTicks && state.projectiles.size > 0; i++) {
+    tickProjectiles(state)
+  }
 }
 
 describe('Tropius - Leaf Tornado', () => {
@@ -47,6 +54,7 @@ describe('Tropius - Leaf Tornado', () => {
 
   it('deals magic damage to enemies in the tornado path', () => {
     cast(caster, state)
+    resolveProjectiles(state)
     expect(enemy.currentHp).toBeLessThan(enemy.maxHp)
   })
 
@@ -54,6 +62,7 @@ describe('Tropius - Leaf Tornado', () => {
     enemy.maxHp = 999999
     enemy.currentHp = 999999
     cast(caster, state)
+    resolveProjectiles(state)
     const knockUp = enemy.statusEffects.find(fx => fx.id === 'knockUp')
     expect(knockUp).toBeDefined()
   })
@@ -84,23 +93,28 @@ describe('Tropius - Leaf Tornado', () => {
     }
   })
 
-  it('grants a shield for each enemy hit', () => {
+  it('grants a shield only once an enemy is actually knocked up', () => {
+    enemy.maxHp = 999999
+    enemy.currentHp = 999999
     cast(caster, state)
-    // At least one enemy hit → at least 1 shield
+    // No shield at cast time — it lands when the tornado knocks the enemy up.
+    expect(caster.shields.some(s => s.sourceAbility === 'tropius_leaf_tornado')).toBe(false)
+    resolveProjectiles(state)
     expect(caster.shields.some(s => s.sourceAbility === 'tropius_leaf_tornado')).toBe(true)
   })
 
-  it('tier 1 shield value is 100 per enemy hit', () => {
+  it('tier 1 shield value is 200 per enemy knocked up', () => {
+    enemy.maxHp = 999999
+    enemy.currentHp = 999999
     cast(caster, state)
+    resolveProjectiles(state)
     const shield = caster.shields.find(s => s.sourceAbility === 'tropius_leaf_tornado')
-    if (shield) {
-      // 1 enemy hit × 100 = 100
-      expect(shield.value).toBe(100)
-    }
+    expect(shield).toBeDefined()
+    expect(shield!.value).toBe(200)
   })
 
-  it('shield scales with number of enemies hit', () => {
-    // Place 2 enemies in the tornado corridor
+  it('grants one shield per enemy knocked up', () => {
+    // Place 2 enemies in the tornado corridor; both survive → 2 separate shields
     const e2 = makeUnit('dummy', 'enemy', 1)
     e2.hexPos = { col: 0, row: 1 }
     e2.maxHp = 999999
@@ -110,21 +124,25 @@ describe('Tropius - Leaf Tornado', () => {
     state = createCombatState([caster], [enemy, e2])
     caster.targetId = enemy.id
     cast(caster, state)
-    const shield = caster.shields.find(s => s.sourceAbility === 'tropius_leaf_tornado')
-    if (shield) {
-      expect(shield.value).toBeGreaterThanOrEqual(100)
-    }
+    resolveProjectiles(state)
+    const shields = caster.shields.filter(s => s.sourceAbility === 'tropius_leaf_tornado')
+    expect(shields).toHaveLength(2)
   })
 
   it('does nothing when no enemies exist', () => {
     state = createCombatState([caster], [])
     cast(caster, state)
+    resolveProjectiles(state)
     expect(state.events.some(e => e.type === 'damage')).toBe(false)
     expect(caster.shields).toHaveLength(0)
   })
 
-  it('emits a shield event for each cast that hits at least one enemy', () => {
+  it('emits a shield event once an enemy is knocked up', () => {
+    enemy.maxHp = 999999
+    enemy.currentHp = 999999
     cast(caster, state)
+    resolveProjectiles(state)
+    // state.events accumulates across tickProjectiles here (only advanceCombatTick clears it)
     const shieldEvent = state.events.find(e => e.type === 'shield' && e.unitId === caster.id)
     expect(shieldEvent).toBeDefined()
   })

@@ -84,11 +84,12 @@ export const TapuLeleAbility: AbilityHandler = {
         stackId: `tapulele_psystrike_${target.id}`,
         onExpire: (_t, st) => {
           applyDamage(unit, target, {
-            baseAmount: damage * hitCount,
-            damageType: 'magic',
-            canCrit: false,
-            abilityId: 'tapulele_natures_madness',
-            spDefPiercePct: psychic ? pierce : undefined,
+            baseAmount:        damage * hitCount,
+            damageType:        'magic',
+            canCrit:           false,
+            abilityScalingStat: 'special',
+            abilityId:         'tapulele_natures_madness',
+            spDefPiercePct:    psychic ? pierce : undefined,
           }, st)
         },
       })

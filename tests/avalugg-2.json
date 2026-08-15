@@ -1,0 +1,33 @@
+{
+  "label": "avalugg",
+  "units": [
+    {
+      "id": "kingler",
+      "tier": 1,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "klawf",
+      "tier": 1,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "h_avalugg",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickProjectiles } from '../projectile'
 import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 
@@ -14,6 +15,12 @@ function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
   for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+function resolveProjectiles(state: CombatState, maxTicks = 300): void {
+  for (let i = 0; i < maxTicks && state.projectiles.size > 0; i++) {
+    tickProjectiles(state)
+  }
 }
 
 describe('Torkoal - White Smoke', () => {
@@ -94,20 +101,21 @@ describe('Torkoal - White Smoke', () => {
     expect(caster.currentHp).toBe(caster.maxHp)
   })
 
-  it('tier 1 - applies blind to the highest attack enemy (magnitude 0.80)', () => {
+  it('tier 1 - smoke projectile applies blind to the target on hit', () => {
     cast(caster, state)
+    resolveProjectiles(state)
     const blind = enemy.statusEffects.find(e => e.id === 'blind')
     expect(blind).toBeDefined()
-    expect(blind?.magnitude).toBeCloseTo(0.80)
   })
 
-  it('tier 1 - blind duration is 3 seconds', () => {
+  it('tier 1 - blind duration is 2 seconds', () => {
     cast(caster, state)
+    resolveProjectiles(state)
     const blind = enemy.statusEffects.find(e => e.id === 'blind')
-    expect(blind?.durationTicks).toBe(3 * TICK_RATE)
+    expect(blind?.durationTicks).toBe(2 * TICK_RATE)
   })
 
-  it('tier 2 - blind duration is 4 seconds', () => {
+  it('tier 2 - blind duration is 2 seconds', () => {
     const t2 = makeUnit('torkoal', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
@@ -116,11 +124,12 @@ describe('Torkoal - White Smoke', () => {
     t2.currentMana = t2.maxMana
     triggerAbility(t2, s)
     for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
+    resolveProjectiles(s)
     const blind = e.statusEffects.find(fx => fx.id === 'blind')
-    expect(blind?.durationTicks).toBe(4 * TICK_RATE)
+    expect(blind?.durationTicks).toBe(2 * TICK_RATE)
   })
 
-  it('tier 3 - blind duration is 5 seconds', () => {
+  it('tier 3 - blind duration is 3 seconds', () => {
     const t3 = makeUnit('torkoal', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
@@ -129,14 +138,26 @@ describe('Torkoal - White Smoke', () => {
     t3.currentMana = t3.maxMana
     triggerAbility(t3, s)
     for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
+    resolveProjectiles(s)
     const blind = e.statusEffects.find(fx => fx.id === 'blind')
-    expect(blind?.durationTicks).toBe(5 * TICK_RATE)
+    expect(blind?.durationTicks).toBe(3 * TICK_RATE)
   })
 
-  it('blind has stackId torkoal_blind', () => {
+  it('blind has a torkoal stackId scoped to the target', () => {
     cast(caster, state)
+    resolveProjectiles(state)
     const blind = enemy.statusEffects.find(e => e.id === 'blind')
-    expect(blind?.stackId).toBe('torkoal_blind')
+    expect(blind?.stackId).toBe(`torkoal_blind_${enemy.id}`)
+  })
+
+  it('projectile deals magic damage on hit (tier 1 = 100 base)', () => {
+    cast(caster, state)
+    resolveProjectiles(state)
+    const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
+    expect(dmgEvent).toBeDefined()
+    if (dmgEvent?.type === 'damage') {
+      expect(dmgEvent.damageType).toBe('magic')
+    }
   })
 
   it('does not crash with no enemies present', () => {

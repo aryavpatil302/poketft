@@ -2,18 +2,36 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { TICK_RATE } from '../constants'
+import { tickStatusEffects } from '../systems/statusEffect'
+import { tickProjectiles } from '../projectile'
 import type { Unit, CombatState } from '../types'
 
 // Import to ensure abilities are registered
 import '../systems/ability'
 
-const CAST_TICKS = 20
+const CAST_TICKS = 15
 
 function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
   for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+// Fire staggered launches (status onExpire) and fly all projectiles to impact.
+function resolveProjectiles(state: CombatState, maxTicks = 300): void {
+  for (let i = 0; i < maxTicks; i++) {
+    state.tick++
+    tickStatusEffects(state.units, state)
+    tickProjectiles(state)
+    if (state.projectiles.size === 0 &&
+        ![...state.units.values()].some(u => u.statusEffects.some(fx => fx.id === 'typhlosion_launch'))) {
+      break
+    }
+  }
+}
+
+function typhloProjectiles(state: CombatState) {
+  return [...state.projectiles.values()].filter(p => p.abilityId === 'typhlosion_eruption')
 }
 
 describe('Typhlosion - Eruption', () => {
@@ -25,7 +43,7 @@ describe('Typhlosion - Eruption', () => {
     caster = makeUnit('typhlosion', 'player', 1)
     caster.hexPos = { col: 3, row: 5 }
     enemy = makeUnit('dummy', 'enemy', 1)
-    enemy.hexPos = { col: 3, row: 2 }
+    enemy.hexPos = { col: 3, row: 2 }  // distance 3 — inside range 4
     state = createCombatState([caster], [enemy])
   })
 
@@ -42,117 +60,78 @@ describe('Typhlosion - Eruption', () => {
     expect(state.events.some(e => e.type === 'cast')).toBe(true)
   })
 
-  it('resets mana to 0 after cast animation completes', () => {
+  it('resets mana to 0 after cast animation', () => {
     cast(caster, state)
     expect(caster.currentMana).toBe(0)
   })
 
-  it('tier 1 - deals damage to exactly 1 enemy', () => {
-    const enemy2 = makeUnit('dummy', 'enemy', 1)
-    enemy2.hexPos = { col: 4, row: 2 }
-    const enemy3 = makeUnit('dummy', 'enemy', 1)
-    enemy3.hexPos = { col: 5, row: 2 }
-    state = createCombatState([caster], [enemy, enemy2, enemy3])
-
-    const hpBefore2 = enemy2.currentHp
-    const hpBefore3 = enemy3.currentHp
-
+  it('tier 1 - launches 1 fireball projectile at an in-range enemy', () => {
     cast(caster, state)
-
-    // Only the nearest enemy should take damage (tier 1 = 1 target)
-    const damaged = [enemy, enemy2, enemy3].filter(e => e.currentHp < e.maxHp)
-    expect(damaged).toHaveLength(1)
+    expect(typhloProjectiles(state)).toHaveLength(1)
+    expect(typhloProjectiles(state)[0].targetId).toBe(enemy.id)
   })
 
-  it('tier 2 - deals damage to exactly 2 enemies', () => {
+  it('tier 1 - fireball has 110 base physical damage (200% attack)', () => {
+    cast(caster, state)
+    const proj = typhloProjectiles(state)[0]
+    expect(proj.damagePayload?.baseAmount).toBe(110)
+    expect(proj.damagePayload?.damageType).toBe('physical')
+  })
+
+  it('tier 2 - launches fireballs at 2 enemies (staggered)', () => {
     const t2 = makeUnit('typhlosion', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     const e1 = makeUnit('dummy', 'enemy', 1)
-    e1.hexPos = { col: 3, row: 2 }
+    e1.hexPos = { col: 3, row: 3 }
     const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 4, row: 2 }
-    const e3 = makeUnit('dummy', 'enemy', 1)
-    e3.hexPos = { col: 5, row: 2 }
-    const s = createCombatState([t2], [e1, e2, e3])
-    t2.currentMana = t2.maxMana
-    triggerAbility(t2, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
-
-    const damaged = [e1, e2, e3].filter(e => e.currentHp < e.maxHp)
-    expect(damaged).toHaveLength(2)
+    e2.hexPos = { col: 2, row: 3 }
+    const s = createCombatState([t2], [e1, e2])
+    cast(t2, s)
+    // First fireball launches immediately; second after a 5-tick stagger
+    expect(typhloProjectiles(s)).toHaveLength(1)
+    for (let i = 0; i < 6; i++) { s.tick++; tickStatusEffects(s.units, s) }
+    expect(typhloProjectiles(s)).toHaveLength(2)
   })
 
-  it('tier 3 - deals damage to exactly 3 enemies', () => {
+  it('tier 2 - fireballs have 291 base damage (350% attack)', () => {
+    const t2 = makeUnit('typhlosion', 'player', 2)
+    t2.hexPos = { col: 3, row: 5 }
+    const e1 = makeUnit('dummy', 'enemy', 1)
+    e1.hexPos = { col: 3, row: 3 }
+    const s = createCombatState([t2], [e1])
+    cast(t2, s)
+    expect(typhloProjectiles(s)[0].damagePayload?.baseAmount).toBe(291)
+  })
+
+  it('tier 3 - fireballs have 625 base damage (500% attack)', () => {
     const t3 = makeUnit('typhlosion', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     const e1 = makeUnit('dummy', 'enemy', 1)
-    e1.hexPos = { col: 3, row: 2 }
-    const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 4, row: 2 }
-    const e3 = makeUnit('dummy', 'enemy', 1)
-    e3.hexPos = { col: 5, row: 2 }
-    const s = createCombatState([t3], [e1, e2, e3])
-    t3.currentMana = t3.maxMana
-    triggerAbility(t3, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
-
-    const damaged = [e1, e2, e3].filter(e => e.currentHp < e.maxHp)
-    expect(damaged).toHaveLength(3)
+    e1.hexPos = { col: 3, row: 3 }
+    const s = createCombatState([t3], [e1])
+    cast(t3, s)
+    expect(typhloProjectiles(s)[0].damagePayload?.baseAmount).toBe(625)
   })
 
-  it('tier 1 - deals magic damage (emits damage event)', () => {
-    cast(caster, state)
-    const dmgEvent = state.events.find(e => e.type === 'damage')
-    expect(dmgEvent).toBeDefined()
-    if (dmgEvent?.type === 'damage') {
-      expect(dmgEvent.damageType).toBe('magic')
-      expect(dmgEvent.targetId).toBe(enemy.id)
-    }
-  })
-
-  it('tier 1 - reduces enemy HP', () => {
-    cast(caster, state)
-    expect(enemy.currentHp).toBeLessThan(enemy.maxHp)
-  })
-
-  it('tier 1 - applies burn status effect to hit enemy', () => {
-    cast(caster, state)
-    const burn = enemy.statusEffects.find(e => e.id === 'burn')
-    expect(burn).toBeDefined()
-  })
-
-  it('burn has correct duration (3 seconds)', () => {
-    cast(caster, state)
-    const burn = enemy.statusEffects.find(e => e.id === 'burn')
-    expect(burn?.durationTicks).toBe(3 * TICK_RATE)
-  })
-
-  it('burn has correct magnitude (30 dmg/sec) and tickInterval (1 tick = TICK_RATE)', () => {
-    cast(caster, state)
-    const burn = enemy.statusEffects.find(e => e.id === 'burn')
-    expect(burn?.magnitude).toBe(30)
-    expect(burn?.tickInterval).toBe(TICK_RATE)
-  })
-
-  it('burn tick effect deals true damage to enemy', () => {
-    cast(caster, state)
-    const burn = enemy.statusEffects.find(e => e.id === 'burn')
-    expect(burn?.tickEffect).toBeDefined()
-
+  it('fireball impact reduces enemy HP', () => {
     const hpBefore = enemy.currentHp
-    burn!.tickEffect!(enemy, state)
-
-    expect(enemy.currentHp).toBe(Math.max(0, hpBefore - 30))
-    const burnDmgEvent = state.events.find(
-      e => e.type === 'damage' && (e as any).damageType === 'true' && e.targetId === enemy.id
-    )
-    expect(burnDmgEvent).toBeDefined()
+    cast(caster, state)
+    resolveProjectiles(state)
+    expect(enemy.currentHp).toBeLessThan(hpBefore)
   })
 
-  it('does nothing when there are no enemies', () => {
-    state = createCombatState([caster], [])
+  it('does not target enemies beyond attack range', () => {
+    enemy.hexPos = { col: 3, row: 0 }  // distance 5 — out of range 4
+    state = createCombatState([caster], [enemy])
     cast(caster, state)
-    // No errors, no damage events
+    expect(typhloProjectiles(state)).toHaveLength(0)
+  })
+
+  it('does nothing when no enemies are in range', () => {
+    enemy.hexPos = { col: 0, row: 0 }
+    state = createCombatState([caster], [enemy])
+    cast(caster, state)
+    resolveProjectiles(state)
     expect(state.events.some(e => e.type === 'damage')).toBe(false)
   })
 })

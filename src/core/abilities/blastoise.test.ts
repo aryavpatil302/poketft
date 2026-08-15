@@ -76,8 +76,12 @@ describe('Blastoise - Hydro Cannons', () => {
   })
 
   it('incrementSpellBuff increments counter for beachy Blastoise', () => {
-    cast(caster, state, 20)
-    expect(state.spellBuffCounters.get(caster.id)).toBe(1)
+    // Need 2 beachy species for the threshold to activate
+    const beachyAlly = makeUnit('palossand', 'player', 1)
+    beachyAlly.hexPos = { col: 5, row: 5 }
+    const s = createCombatState([caster, beachyAlly], [enemy])
+    cast(caster, s, 20)
+    expect(s.spellBuffCounters.get(caster.id)).toBe(1)
   })
 
   it('recasting replaces existing handler rather than adding a second one', () => {

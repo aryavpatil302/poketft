@@ -57,11 +57,17 @@ state.projectiles.set(projId, createProjectile({
     baseAmount: scalingValues[tier - 1],
     damageType: 'magic',
     canCrit: false,
-    scalingStat: 'special',
-    scalingRatio: 0,
+    abilityScalingStat: 'special',   // see "Damage scaling conventions" below
   },
 }))
 ```
+
+### Damage scaling conventions
+Two different, mutually-exclusive ways to scale a `damagePayload` off a stat — pick one:
+- **Multiplicative % (most common for spell casters)** — `abilityScalingStat: 'attack' | 'special'` only. `baseAmount` is treated as a **percentage**: `finalBase = round(baseAmount * statValue / 100)`, where `special: 100`/`attack: 100` is the no-bonus baseline. `baseAmount: 60` on a unit with 150 special deals 90 base damage. Use for "X% special/attack as damage."
+- **Additive ratio** — `scalingStat: 'attack' | 'special'` + `scalingRatio: number`. `finalBase = baseAmount + statValue * scalingRatio`. Use for "deals X plus Y% of attack" style abilities (e.g. `scalingRatio: 0.5` adds +50% of the stat on top of the flat `baseAmount`).
+
+Don't set both `abilityScalingStat` and `scalingStat`/`scalingRatio` on the same payload — see `src/core/systems/damage.ts`'s `applyDamage` for the exact order they're applied in.
 
 ### AoE damage in a hex radius
 ```typescript
@@ -81,6 +87,19 @@ import { findBestAttackHex } from '../systems/movement'
 const dest = findBestAttackHex(unit, leapTarget, state)
 teleportUnit(unit, dest, state)  // updates hexPos + hexOccupancy
 ```
+
+### Knockback / forced movement
+Any effect that yanks a unit out of `'moving'`/`'leaping'` state (knockback, a stun landing mid-dash, dropping a carried unit) must free its in-flight hex claim first, or two units can end up sharing a hex:
+```typescript
+import { cancelInFlightMovement } from '../systems/movement'
+if (target.state === 'moving' || target.state === 'leaping') {
+  cancelInFlightMovement(target, state)
+}
+target.hexPos = knockbackDest
+state.hexOccupancy.set(hexId(knockbackDest), target.id)
+target.state = 'idle'
+```
+`tickStatusEffects` already calls `cancelInFlightMovement` automatically when it applies stun/knockUp — this is only needed for *new* forced-repositioning effects you write yourself.
 
 ### Stun
 ```typescript

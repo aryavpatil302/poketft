@@ -1,0 +1,61 @@
+{
+  "label": "beachy 8",
+  "units": [
+    {
+      "id": "a_raichu",
+      "tier": 2,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "a_exeggutor",
+      "tier": 2,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "palossand",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "tropius",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "h_avalugg",
+      "tier": 2,
+      "col": 1,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "blastoise",
+      "tier": 2,
+      "col": 2,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 2,
+      "col": 4,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "graveler",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    }
+  ]
+}

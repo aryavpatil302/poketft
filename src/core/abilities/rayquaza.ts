@@ -6,10 +6,10 @@ import { applyDamage } from '../systems/damage'
 import { addStatusEffect, removeStatusEffect } from '../systems/statusEffect'
 import {
   hexesInRange, hexId, hexDistance,
-  hexToPixel, pixelToHex, getNeighbors, isValidHex,
+  hexToPixel, pixelToHex, isValidHex,
 } from '../hexGrid'
 import { findNearestEnemies } from '../systems/targeting'
-import { startLeap } from '../systems/movement'
+import { startLeap, findNearestOpenHex } from '../systems/movement'
 
 // ─── Phase timing (ticks) ─────────────────────────────────────────────────────
 const MEGA_EVO_SHAKE_TICKS  = 36   // evo overlay shake  (normal sprite)
@@ -338,7 +338,7 @@ function depositBoth(
   if (grabAlive) {
     removeStatusEffect(grabbed!, 'rayquaza_grabbed')
     grabbed!.incomingDamageMult = 1.0
-    const dest = findNearestOpenHex(slamHex, state, taken)
+    const dest = findNearestOpenHex(slamHex, state, { excluded: taken })
     if (dest) {
       taken.add(hexId(dest))
       grabbed!.hexPos    = { ...dest }
@@ -350,7 +350,7 @@ function depositBoth(
 
   // Rayquaza lands adjacent to grabbed unit (so he's in attack range); falls back to slamHex
   const rayqSrc = grabAlive ? grabbed!.hexPos : slamHex
-  const rayqDest = findNearestOpenHex(rayqSrc, state, taken)
+  const rayqDest = findNearestOpenHex(rayqSrc, state, { excluded: taken })
   if (rayqDest) {
     unit.hexPos    = { ...rayqDest }
     unit.visualPos = hexToPixel(rayqDest, HEX_SIZE)
@@ -364,29 +364,6 @@ function depositBoth(
   }
 }
 
-// BFS outward from fromHex; skips hexes in `excluded` (already assigned this turn)
-function findNearestOpenHex(
-  fromHex: OffsetCoord,
-  state: CombatState,
-  excluded: Set<string>,
-): OffsetCoord | null {
-  const visited = new Set<string>()
-  const queue: OffsetCoord[] = [fromHex]
-
-  while (queue.length > 0) {
-    const current = queue.shift()!
-    const key     = hexId(current)
-    if (visited.has(key)) continue
-    visited.add(key)
-
-    if (!isValidHex(current)) continue
-
-    // Open = nothing in occupancy map AND not already assigned this deposit
-    if (!state.hexOccupancy.get(key) && !excluded.has(key)) return current
-
-    for (const n of getNeighbors(current)) {
-      if (!visited.has(hexId(n))) queue.push(n)
-    }
-  }
-  return null
-}
+// findNearestOpenHex now lives in systems/movement.ts — same BFS, shared with
+// every other placement path. Both units' hexes are freed before it runs, and
+// `excluded` keeps this deposit from assigning the same hex twice.

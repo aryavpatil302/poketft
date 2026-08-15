@@ -1,0 +1,89 @@
+{
+  "label": "temp 6",
+  "units": [
+    {
+      "id": "morgrem",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "oranguru",
+      "tier": 1,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 3,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "celebi",
+      "tier": 1,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "fezandipiti",
+      "tier": 1,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 2,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 2,
+      "col": 0,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 2,
+      "col": 6,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "tapu_lele",
+      "tier": 1,
+      "col": 2,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "morelull",
+      "tier": 1,
+      "col": 6,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "dummy_ranged",
+      "tier": 2,
+      "col": 0,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_ranged",
+      "tier": 2,
+      "col": 5,
+      "row": 0,
+      "team": "enemy"
+    }
+  ]
+}

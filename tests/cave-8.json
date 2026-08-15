@@ -1,0 +1,61 @@
+{
+  "label": "cave 8",
+  "units": [
+    {
+      "id": "zubat",
+      "tier": 3,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "druddigon",
+      "tier": 3,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "ferrothorn",
+      "tier": 3,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "absol",
+      "tier": 2,
+      "col": 1,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "sableye",
+      "tier": 3,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "excadrill",
+      "tier": 3,
+      "col": 3,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "barraskewda",
+      "tier": 2,
+      "col": 5,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "quagsire",
+      "tier": 2,
+      "col": 5,
+      "row": 4,
+      "team": "player"
+    }
+  ]
+}

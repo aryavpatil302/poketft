@@ -10,10 +10,17 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "cucumber-js e2e/features/**/*.feature",
-    "test:e2e:ability": "cucumber-js"
+    "test:e2e:ability": "cucumber-js",
+    "train-bots": "tsx src/econ/train.ts",
+    "train-comps": "tsx src/econ/trainCompositionAffinities.ts",
+    "train-catalog": "tsx src/econ/trainCatalogComps.ts",
+    "grow-catalog": "tsx src/econ/growCatalog.ts",
+    "train-all": "tsx src/econ/trainAll.ts",
+    "sim-bots": "tsx src/sim/botLeague.ts"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^12.9.0",
+    "@types/node": "^26.1.1",
     "chromedriver": "^148.0.4",
     "selenium-webdriver": "^4.44.0",
     "tsx": "^4.22.3",

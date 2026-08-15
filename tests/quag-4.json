@@ -1,0 +1,68 @@
+{
+  "label": "quag",
+  "units": [
+    {
+      "id": "quagsire",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "tangela",
+      "tier": 3,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 1,
+      "col": 1,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 1,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 1,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 1,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 1,
+      "col": 5,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 1,
+      "col": 0,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 1,
+      "col": 6,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

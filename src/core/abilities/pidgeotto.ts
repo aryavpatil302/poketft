@@ -32,6 +32,9 @@ export const PidgeottoAbility: AbilityHandler = {
   onCast(unit: Unit, _state: CombatState, tier: number): void {
     const mult = ([1.10, 1.20, 1.50] as const)[tier - 1]
 
+    // Fire the double auto 1 tick after the cast completes
+    unit.attackTimer = 1
+
     // First wing slap: right wing (CW cock → CCW strike)
     unit.attackModifiers.push({
       id: 'pidgeotto_wing_slap',

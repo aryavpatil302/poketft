@@ -1,0 +1,26 @@
+{
+  "label": "bulu test",
+  "units": [
+    {
+      "id": "tapu_bulu",
+      "tier": 1,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "tangela",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "vigoroth",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    }
+  ]
+}

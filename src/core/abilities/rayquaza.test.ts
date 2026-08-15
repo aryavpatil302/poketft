@@ -2,20 +2,36 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { TICK_RATE } from '../constants'
+import { tickStatusEffects, addStatusEffect } from '../systems/statusEffect'
+import { tickLeapPixel } from '../systems/movement'
 import type { Unit, CombatState } from '../types'
 
 // Import to ensure abilities are registered
 import '../systems/ability'
 
-const CAST_TICKS = 20
-const ASCENT_DURATION = 2 * TICK_RATE  // 120 ticks
+const CAST_TICKS = 10
 
 function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
   for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
 }
+
+// Drives the full phased sequence: status ticks + leap movement, like the engine.
+function run(caster: Unit, state: CombatState, ticks: number): void {
+  for (let i = 0; i < ticks; i++) {
+    state.tick++
+    if (caster.state === 'leaping') {
+      const arrived = tickLeapPixel(caster, state)
+      if (arrived && !(caster as any)._leap) caster.state = 'idle'
+    }
+    tickStatusEffects(state.units, state)
+  }
+}
+
+// Evo (36) + rumble (24) + leap + hold (5) + fly off (14) + wait (30) + fly in (16)
+// with generous headroom for the leap portion.
+const FULL_SEQUENCE_TICKS = 300
 
 describe('Rayquaza - Dragon Ascent', () => {
   let caster: Unit
@@ -37,184 +53,121 @@ describe('Rayquaza - Dragon Ascent', () => {
     expect(caster.abilityCastTimer).toBe(CAST_TICKS)
   })
 
-  it('emits a cast event', () => {
-    caster.currentMana = caster.maxMana
-    triggerAbility(caster, state)
-    expect(state.events.some(e => e.type === 'cast')).toBe(true)
-  })
-
-  it('resets mana to 0 after cast animation', () => {
-    cast(caster, state)
-    expect(caster.currentMana).toBe(0)
-  })
-
-  it('sets caster state to ascended after cast', () => {
+  it('first cast starts the mega evolution shake (ascended + invulnerable)', () => {
     cast(caster, state)
     expect(caster.state).toBe('ascended')
+    expect(caster.incomingDamageMult).toBe(0)
+    expect(caster.statusEffects.some(e => e.stackId === 'rayquaza_evo_shake')).toBe(true)
   })
 
-  it('sets nearest enemy state to ascended', () => {
+  it('becomes mega with a permanent attack bonus after the evo shake', () => {
     cast(caster, state)
+    run(caster, state, 37)
+    expect(caster.statusEffects.some(e => e.id === 'rayquaza_is_mega')).toBe(true)
+    const atkBuff = caster.statusEffects.find(e => e.stackId === 'rayquaza_mega_atk')
+    expect(atkBuff).toBeDefined()
+    expect(atkBuff!.magnitude).toBe(50)  // tier 1
+    expect(atkBuff!.durationTicks).toBe(-1)
+  })
+
+  it('grabs the target after the pre-grab rumble (target ascended + grabbed)', () => {
+    cast(caster, state)
+    run(caster, state, 37 + 24)
     expect(enemy.state).toBe('ascended')
+    expect(enemy.statusEffects.some(e => e.stackId === 'rayquaza_grabbed')).toBe(true)
+    expect(enemy.incomingDamageMult).toBe(0)
   })
 
-  it('adds a rayquaza_ascent countdown status effect on caster', () => {
+  it('full sequence slams and deals physical damage to the grabbed enemy', () => {
+    enemy.defense = 0
+    enemy._computedStats = null
+    caster.critChance = 0
+    caster._computedStats = null
     cast(caster, state)
-    const ascent = caster.statusEffects.find(e => e.id === 'rayquaza_ascent')
-    expect(ascent).toBeDefined()
-  })
+    run(caster, state, FULL_SEQUENCE_TICKS)
 
-  it('ascent countdown duration is 2 seconds (120 ticks)', () => {
-    cast(caster, state)
-    const ascent = caster.statusEffects.find(e => e.id === 'rayquaza_ascent')
-    expect(ascent?.durationTicks).toBe(ASCENT_DURATION)
-  })
-
-  it('ascent has stackId rayquaza_ascent', () => {
-    cast(caster, state)
-    const ascent = caster.statusEffects.find(e => e.id === 'rayquaza_ascent')
-    expect(ascent?.stackId).toBe('rayquaza_ascent')
-  })
-
-  it('ascent onExpire restores caster state to idle', () => {
-    cast(caster, state)
-    const ascent = caster.statusEffects.find(e => e.id === 'rayquaza_ascent')
-    expect(ascent?.onExpire).toBeDefined()
-
-    // Register enemy in occupancy for slam to potentially hit
-    state.hexOccupancy.set(`${enemy.hexPos.col},${enemy.hexPos.row}`, enemy.id)
-
-    ascent!.onExpire!(caster, state)
-    expect(caster.state).toBe('idle')
-  })
-
-  it('ascent onExpire restores target state from ascended to idle', () => {
-    cast(caster, state)
-    const ascent = caster.statusEffects.find(e => e.id === 'rayquaza_ascent')
-
-    state.hexOccupancy.set(`${enemy.hexPos.col},${enemy.hexPos.row}`, enemy.id)
-    ascent!.onExpire!(caster, state)
-
-    expect(enemy.state).toBe('idle')
-  })
-
-  it('ascent onExpire deals slam damage to enemy at target location', () => {
-    enemy.maxHp = 10000
-    enemy.currentHp = 10000
-    enemy.spDefense = 0
-
-    cast(caster, state)
-    const ascent = caster.statusEffects.find(e => e.id === 'rayquaza_ascent')
-
-    // Place enemy occupancy so slam can find them
-    state.hexOccupancy.set(`${enemy.hexPos.col},${enemy.hexPos.row}`, enemy.id)
-
-    const hpBefore = enemy.currentHp
-    ascent!.onExpire!(caster, state)
-
-    expect(enemy.currentHp).toBeLessThan(hpBefore)
-  })
-
-  it('tier 1 - center slam deals 500 true damage', () => {
-    enemy.maxHp = 10000
-    enemy.currentHp = 10000
-    state = createCombatState([caster], [enemy])
-    state.hexOccupancy.set(`${enemy.hexPos.col},${enemy.hexPos.row}`, enemy.id)
-
-    cast(caster, state)
-    const ascent = caster.statusEffects.find(e => e.id === 'rayquaza_ascent')
-    ascent!.onExpire!(caster, state)
-
-    const trueDmgEvent = state.events.find(
-      e => e.type === 'damage' && (e as any).damageType === 'true' && e.targetId === enemy.id
+    const dmgEvent = state.events.find(
+      e => e.type === 'damage' && e.targetId === enemy.id && (e as any).damageType === 'physical'
     )
-    expect(trueDmgEvent).toBeDefined()
-    if (trueDmgEvent?.type === 'damage') {
-      expect(trueDmgEvent.amount).toBe(500)
+    expect(dmgEvent).toBeDefined()
+    if (dmgEvent?.type === 'damage') {
+      // tier 1: 300 + 2% of grabbed max HP (1500) = 330
+      expect(dmgEvent.amount).toBe(330)
     }
   })
 
-  it('tier 2 - center slam deals 750 true damage', () => {
+  it('tier 2 slam deals 450 + 5% of grabbed max HP', () => {
     const t2 = makeUnit('rayquaza', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
+    t2.critChance = 0
+    t2._computedStats = null
     const e = makeUnit('dummy', 'enemy', 1)
-    e.maxHp = 10000
-    e.currentHp = 10000
     e.hexPos = { col: 3, row: 2 }
+    e.defense = 0
+    e._computedStats = null
     const s = createCombatState([t2], [e])
-    s.hexOccupancy.set(`${e.hexPos.col},${e.hexPos.row}`, e.id)
+    cast(t2, s)
+    run(t2, s, FULL_SEQUENCE_TICKS)
 
-    t2.currentMana = t2.maxMana
-    triggerAbility(t2, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
-
-    const ascent = t2.statusEffects.find(fx => fx.id === 'rayquaza_ascent')
-    ascent!.onExpire!(t2, s)
-
-    const trueDmgEvent = s.events.find(
-      ev => ev.type === 'damage' && (ev as any).damageType === 'true' && ev.targetId === e.id
-    )
-    if (trueDmgEvent?.type === 'damage') {
-      expect(trueDmgEvent.amount).toBe(750)
+    const dmgEvent = s.events.find(ev => ev.type === 'damage' && ev.targetId === e.id)
+    expect(dmgEvent).toBeDefined()
+    if (dmgEvent?.type === 'damage') {
+      // 450 + 0.05 * 1500 = 525
+      expect(dmgEvent.amount).toBe(525)
     }
   })
 
-  it('tier 3 - center slam deals 1200 true damage', () => {
-    const t3 = makeUnit('rayquaza', 'player', 3)
-    t3.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.maxHp = 10000
-    e.currentHp = 10000
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t3], [e])
-    s.hexOccupancy.set(`${e.hexPos.col},${e.hexPos.row}`, e.id)
-
-    t3.currentMana = t3.maxMana
-    triggerAbility(t3, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
-
-    const ascent = t3.statusEffects.find(fx => fx.id === 'rayquaza_ascent')
-    ascent!.onExpire!(t3, s)
-
-    const trueDmgEvent = s.events.find(
-      ev => ev.type === 'damage' && (ev as any).damageType === 'true' && ev.targetId === e.id
-    )
-    if (trueDmgEvent?.type === 'damage') {
-      expect(trueDmgEvent.amount).toBe(1200)
-    }
-  })
-
-  it('slam deals reduced damage at distance 1 (50% of center)', () => {
-    // Place a second enemy adjacent to primary target
-    enemy.maxHp = 10000
-    enemy.currentHp = 10000
-
-    const adjacentEnemy = makeUnit('dummy', 'enemy', 1)
-    adjacentEnemy.maxHp = 10000
-    adjacentEnemy.currentHp = 10000
-    adjacentEnemy.hexPos = { col: 3, row: 1 }  // one hex away from enemy at row 2
-
-    state = createCombatState([caster], [enemy, adjacentEnemy])
-    state.hexOccupancy.set(`${enemy.hexPos.col},${enemy.hexPos.row}`, enemy.id)
-    state.hexOccupancy.set(`${adjacentEnemy.hexPos.col},${adjacentEnemy.hexPos.row}`, adjacentEnemy.id)
-
+  it('restores both units to playable state after the slam', () => {
+    enemy.maxHp = 100000
+    enemy.currentHp = 100000
     cast(caster, state)
-    const ascent = caster.statusEffects.find(e => e.id === 'rayquaza_ascent')
-    ascent!.onExpire!(caster, state)
+    run(caster, state, FULL_SEQUENCE_TICKS)
 
-    // adjacentEnemy should take 50% = 250 true damage
-    const adjDmgEvent = state.events.find(
-      e => e.type === 'damage' && (e as any).damageType === 'true' && e.targetId === adjacentEnemy.id
-    )
-    if (adjDmgEvent?.type === 'damage') {
-      expect(adjDmgEvent.amount).toBe(250)
+    expect(caster.state).toBe('idle')
+    expect(caster.incomingDamageMult).toBe(1.0)
+    expect(caster.statusEffects.some(e => e.id === 'rayquaza_flying')).toBe(false)
+    if (enemy.state !== 'dead') {
+      expect(enemy.state).toBe('idle')
+      expect(enemy.incomingDamageMult).toBe(1.0)
+      expect(enemy.statusEffects.some(e => e.stackId === 'rayquaza_grabbed')).toBe(false)
     }
   })
 
-  it('does not set enemy to ascended when no enemies exist', () => {
+  it('rayquaza targets the grabbed enemy after depositing', () => {
+    enemy.maxHp = 100000
+    enemy.currentHp = 100000
+    cast(caster, state)
+    run(caster, state, FULL_SEQUENCE_TICKS)
+    if (enemy.state !== 'dead') {
+      expect(caster.targetId).toBe(enemy.id)
+    }
+  })
+
+  it('second cast (already mega) skips the evolution and grabs immediately', () => {
+    enemy.maxHp = 100000
+    enemy.currentHp = 100000
+    cast(caster, state)
+    run(caster, state, FULL_SEQUENCE_TICKS)
+
+    // Recast: no new evo shake; grab starts right away
+    cast(caster, state)
+    expect(caster.statusEffects.some(e => e.stackId === 'rayquaza_evo_shake')).toBe(false)
+    expect(enemy.statusEffects.some(e => e.stackId === 'rayquaza_grabbed')).toBe(true)
+  })
+
+  it('is CC-immune while mega (stun blocked)', () => {
+    cast(caster, state)
+    run(caster, state, 37)
+    expect(caster.statusEffects.some(e => e.id === 'rayquaza_is_mega')).toBe(true)
+    addStatusEffect(caster, { id: 'stun', sourceUnitId: 'x', durationTicks: 60 })
+    expect(caster.statusEffects.some(e => e.id === 'stun')).toBe(false)
+  })
+
+  it('does nothing when no enemies exist', () => {
     state = createCombatState([caster], [])
+    caster.targetId = null
     cast(caster, state)
-    // Caster is still ascended, no crash
-    expect(caster.state).toBe('ascended')
+    run(caster, state, FULL_SEQUENCE_TICKS)
+    expect(state.events.some(e => e.type === 'damage')).toBe(false)
   })
 })

@@ -57,7 +57,7 @@ describe('Sneasler - Dire Claw', () => {
     expect(enemy.currentHp).toBeLessThan(hpBefore)
   })
 
-  it('tier 2 - deals 231 physical damage after mitigation (300 raw)', () => {
+  it('tier 2 - deals 375 physical damage after mitigation (488 raw)', () => {
     const t2 = makeUnit('sneasler', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
@@ -66,12 +66,12 @@ describe('Sneasler - Dire Claw', () => {
     cast(t2, s)
     const dmgEvent = s.events.find(ev => ev.type === 'damage' && ev.targetId === e.id)
     if (dmgEvent?.type === 'damage') {
-      // 300 raw * 100/130 = 231
-      expect(dmgEvent.amount).toBe(231)
+      // 488 raw * 100/130 = 375
+      expect(dmgEvent.amount).toBe(375)
     }
   })
 
-  it('tier 3 - deals 385 physical damage after mitigation (500 raw)', () => {
+  it('tier 3 - deals 912 physical damage after mitigation (1185 raw)', () => {
     const t3 = makeUnit('sneasler', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
@@ -80,8 +80,8 @@ describe('Sneasler - Dire Claw', () => {
     cast(t3, s)
     const dmgEvent = s.events.find(ev => ev.type === 'damage' && ev.targetId === e.id)
     if (dmgEvent?.type === 'damage') {
-      // 500 raw * 100/130 = 385
-      expect(dmgEvent.amount).toBe(385)
+      // 1185 raw * 100/130 = 912
+      expect(dmgEvent.amount).toBe(912)
     }
   })
 
@@ -93,20 +93,18 @@ describe('Sneasler - Dire Claw', () => {
     }
   })
 
-  it('poison has 3-second duration (3 * TICK_RATE)', () => {
+  it('poison has 4-second duration (4 * TICK_RATE)', () => {
     cast(caster, state)
     const poison = enemy.statusEffects.find(fx => fx.id === 'poison')
-    if (poison) {
-      expect(poison.durationTicks).toBe(3 * TICK_RATE)
-    }
+    expect(poison).toBeDefined()
+    expect(poison!.durationTicks).toBe(4 * TICK_RATE)
   })
 
-  it('tier 1 - poison magnitude is 30 (dmg per TICK_RATE)', () => {
+  it('tier 1 - poison magnitude is 20 (dmg per TICK_RATE)', () => {
     cast(caster, state)
     const poison = enemy.statusEffects.find(fx => fx.id === 'poison')
-    if (poison) {
-      expect(poison.magnitude).toBe(30)
-    }
+    expect(poison).toBeDefined()
+    expect(poison!.magnitude).toBe(20)
   })
 
   it('canCrit is false when target is NOT already poisoned', () => {

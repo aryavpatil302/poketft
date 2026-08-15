@@ -1,0 +1,33 @@
+{
+  "label": "snorunt",
+  "units": [
+    {
+      "id": "snorunt",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy_ranged",
+      "tier": 1,
+      "col": 2,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_ranged",
+      "tier": 1,
+      "col": 4,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

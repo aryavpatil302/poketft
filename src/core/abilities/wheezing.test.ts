@@ -2,18 +2,27 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickStatusEffects } from '../systems/statusEffect'
 import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 
 // Import to ensure abilities are registered
 import '../systems/ability'
 
-const CAST_TICKS = 20
+const CAST_TICKS     = 15
+const PULSE_INTERVAL = Math.round(TICK_RATE * 0.5)
 
 function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
   for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+function tickFx(state: CombatState, n: number): void {
+  for (let i = 0; i < n; i++) {
+    state.tick++
+    tickStatusEffects(state.units, state)
+  }
 }
 
 describe('Wheezing - Poison Gas', () => {
@@ -25,7 +34,7 @@ describe('Wheezing - Poison Gas', () => {
     caster = makeUnit('wheezing', 'player', 1)
     caster.hexPos = { col: 3, row: 5 }
     enemy = makeUnit('dummy', 'enemy', 1)
-    enemy.hexPos = { col: 3, row: 2 }
+    enemy.hexPos = { col: 3, row: 4 }  // adjacent — inside the 1-hex gas cloud
     state = createCombatState([caster], [enemy])
   })
 
@@ -47,164 +56,101 @@ describe('Wheezing - Poison Gas', () => {
     expect(caster.currentMana).toBe(0)
   })
 
-  it('tier 1 - creates a persistent AoE zone', () => {
+  it('adds the gas active status effect lasting 5 seconds', () => {
     cast(caster, state)
-    expect(state.persistentAoEZones.length).toBeGreaterThan(0)
+    const gas = caster.statusEffects.find(e => e.stackId === 'wheezing_gas_active')
+    expect(gas).toBeDefined()
+    expect(gas!.durationTicks).toBe(5 * TICK_RATE)
+    expect(gas!.tickInterval).toBe(PULSE_INTERVAL)
   })
 
-  it('tier 1 - zone has correct damage per interval (40)', () => {
+  it('suppresses mana gain while the gas is active', () => {
     cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.damagePerInterval).toBe(40)
+    const supp = caster.statusEffects.find(e => e.stackId === 'wheezing_mana_suppressed')
+    expect(supp).toBeDefined()
+    tickFx(state, 1)
+    expect(caster.manaLockTimer).toBeGreaterThan(0)
   })
 
-  it('tier 2 - zone has correct damage per interval (60)', () => {
+  it('gas pulse damages adjacent enemies (magic)', () => {
+    cast(caster, state)
+    const hpBefore = enemy.currentHp
+    tickFx(state, PULSE_INTERVAL)  // reach the first pulse
+    expect(enemy.currentHp).toBeLessThan(hpBefore)
+    const dmgEvent = state.events.find(
+      e => e.type === 'damage' && e.targetId === enemy.id && (e as any).damageType === 'magic'
+    )
+    expect(dmgEvent).toBeDefined()
+  })
+
+  it('gas pulse does not hit enemies farther than 1 hex', () => {
+    const farEnemy = makeUnit('dummy', 'enemy', 1)
+    farEnemy.hexPos = { col: 3, row: 2 }
+    state = createCombatState([caster], [farEnemy])
+    cast(caster, state)
+    tickFx(state, PULSE_INTERVAL)
+    expect(state.events.some(e => e.type === 'damage' && e.targetId === farEnemy.id)).toBe(false)
+  })
+
+  it('tier 1 pulse deals 8 base magic damage (6 after dummy spDef mitigation)', () => {
+    cast(caster, state)
+    tickFx(state, PULSE_INTERVAL)
+    const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
+    expect(dmgEvent).toBeDefined()
+    if (dmgEvent?.type === 'damage') {
+      // 8 raw * 100/130 (dummy spDefense 30) = 6
+      expect(dmgEvent.amount).toBe(6)
+    }
+  })
+
+  it('applies 30% armor and sp. defense shred to pulsed enemies', () => {
+    cast(caster, state)
+    tickFx(state, PULSE_INTERVAL)
+    const sunder = enemy.statusEffects.find(e => e.stackId === `wheezing_sunder_${enemy.id}`)
+    const shred  = enemy.statusEffects.find(e => e.stackId === `wheezing_shred_${enemy.id}`)
+    expect(sunder).toBeDefined()
+    expect(sunder!.magnitude).toBe(0.30)
+    expect(shred).toBeDefined()
+    expect(shred!.magnitude).toBe(0.30)
+  })
+
+  it('heals wheezing per enemy hit (tier 1 = 50)', () => {
+    caster.currentHp = caster.maxHp - 500
+    cast(caster, state)
+    const hpBefore = caster.currentHp
+    tickFx(state, PULSE_INTERVAL)
+    expect(caster.currentHp).toBe(hpBefore + 50)
+  })
+
+  it('tier 2 heals 75 per enemy hit', () => {
     const t2 = makeUnit('wheezing', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
+    e.hexPos = { col: 3, row: 4 }
     const s = createCombatState([t2], [e])
-    t2.currentMana = t2.maxMana
-    triggerAbility(t2, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
-    expect(s.persistentAoEZones[0].damagePerInterval).toBe(60)
+    t2.currentHp = t2.maxHp - 500
+    cast(t2, s)
+    const hpBefore = t2.currentHp
+    tickFx(s, PULSE_INTERVAL)
+    expect(t2.currentHp).toBe(hpBefore + 75)
   })
 
-  it('tier 3 - zone has correct damage per interval (100)', () => {
+  it('tier 3 heals 200 per enemy hit', () => {
     const t3 = makeUnit('wheezing', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
+    e.hexPos = { col: 3, row: 4 }
     const s = createCombatState([t3], [e])
-    t3.currentMana = t3.maxMana
-    triggerAbility(t3, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
-    expect(s.persistentAoEZones[0].damagePerInterval).toBe(100)
+    t3.currentHp = t3.maxHp - 500
+    cast(t3, s)
+    const hpBefore = t3.currentHp
+    tickFx(s, PULSE_INTERVAL)
+    expect(t3.currentHp).toBe(hpBefore + 200)
   })
 
-  it('zone is centered on the caster hex', () => {
+  it('gas expires after 5 seconds', () => {
     cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.center).toEqual(caster.hexPos)
-  })
-
-  it('zone has radius 2', () => {
-    cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.radius).toBe(2)
-  })
-
-  it('zone targets the enemy team', () => {
-    cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.targetTeam).toBe('enemy')
-  })
-
-  it('zone has magic damage type', () => {
-    cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.damageType).toBe('magic')
-  })
-
-  it('tier 1 - zone duration is 6 seconds', () => {
-    cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.durationTicks).toBe(6 * TICK_RATE)
-  })
-
-  it('tier 2 - zone duration is 7 seconds', () => {
-    const t2 = makeUnit('wheezing', 'player', 2)
-    t2.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t2], [e])
-    t2.currentMana = t2.maxMana
-    triggerAbility(t2, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
-    expect(s.persistentAoEZones[0].durationTicks).toBe(7 * TICK_RATE)
-  })
-
-  it('tier 3 - zone duration is 8 seconds', () => {
-    const t3 = makeUnit('wheezing', 'player', 3)
-    t3.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t3], [e])
-    t3.currentMana = t3.maxMana
-    triggerAbility(t3, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
-    expect(s.persistentAoEZones[0].durationTicks).toBe(8 * TICK_RATE)
-  })
-
-  it('zone applies armor and sp defense reduction', () => {
-    cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.armorReduction).toBe(10)
-    expect(zone.spDefReduction).toBe(10)
-  })
-
-  it('zone fires every 30 ticks', () => {
-    cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.intervalTicks).toBe(30)
-  })
-
-  it('wheezing gains wheezing_stack status effect for self-buff', () => {
-    cast(caster, state)
-    const stack = caster.statusEffects.find(e => e.id === 'wheezing_stack')
-    expect(stack).toBeDefined()
-  })
-
-  it('tier 1 - wheezing_stack tick effect increases defense and spDefense by 8', () => {
-    cast(caster, state)
-    const stack = caster.statusEffects.find(e => e.id === 'wheezing_stack')
-    expect(stack?.tickEffect).toBeDefined()
-
-    const defenseBefore = caster.defense
-    const spDefBefore = caster.spDefense
-    stack!.tickEffect!(caster, state)
-
-    expect(caster.defense).toBe(defenseBefore + 8)
-    expect(caster.spDefense).toBe(spDefBefore + 8)
-  })
-
-  it('tier 2 - wheezing_stack tick effect increases defense by 12', () => {
-    const t2 = makeUnit('wheezing', 'player', 2)
-    t2.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t2], [e])
-    t2.currentMana = t2.maxMana
-    triggerAbility(t2, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
-
-    const stack = t2.statusEffects.find(fx => fx.id === 'wheezing_stack')
-    const defBefore = t2.defense
-    stack!.tickEffect!(t2, s)
-    expect(t2.defense).toBe(defBefore + 12)
-  })
-
-  it('tier 3 - wheezing_stack tick effect increases defense by 20', () => {
-    const t3 = makeUnit('wheezing', 'player', 3)
-    t3.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t3], [e])
-    t3.currentMana = t3.maxMana
-    triggerAbility(t3, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
-
-    const stack = t3.statusEffects.find(fx => fx.id === 'wheezing_stack')
-    const defBefore = t3.defense
-    stack!.tickEffect!(t3, s)
-    expect(t3.defense).toBe(defBefore + 20)
-  })
-
-  it('invalidates computed stats after tick effect fires', () => {
-    cast(caster, state)
-    const stack = caster.statusEffects.find(e => e.id === 'wheezing_stack')
-    caster._computedStats = { maxHp: 100, attack: 10, special: 10, defense: 10, spDefense: 10, attackSpeed: 1, critChance: 0.1, critDamage: 1.4, range: 1, moveSpeed: 1.5, omnivamp: 0 }
-    stack!.tickEffect!(caster, state)
-    expect(caster._computedStats).toBeNull()
+    tickFx(state, 5 * TICK_RATE + 1)
+    expect(caster.statusEffects.some(e => e.stackId === 'wheezing_gas_active')).toBe(false)
   })
 })

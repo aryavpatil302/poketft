@@ -4,6 +4,8 @@ import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
 import { hexDistance } from '../hexGrid'
+import { addShield } from '../systems/shield'
+import { computeStats } from '../unitFactory'
 
 function findNearestEnemy(unit: Unit, state: CombatState): Unit | null {
   let best: Unit | null = null
@@ -46,8 +48,7 @@ export const MorgremAbility: AbilityHandler = {
       maxValue: shieldAmount,
       durationTicks: 3 * TICK_RATE,
     }
-    unit.shields.push(shield)
-    state.events.push({ type: 'shield', unitId: unit.id, amount: shieldAmount })
+    addShield(unit, shield, state)
 
     // Aura: drains mana from enemies in 1-hex radius every 0.5s for 3s
     let totalDrained = 0
@@ -75,7 +76,6 @@ export const MorgremAbility: AbilityHandler = {
           return (t && t.currentHp > 0 && t.team !== u.team) ? t : findNearestEnemy(u, st)
         })()
 
-        const finalDamage = baseDamage + totalDrained
         let slapElapsed = 0
         let damageFired = false
         const capturedTarget = strikeTarget
@@ -93,6 +93,8 @@ export const MorgremAbility: AbilityHandler = {
             if (!damageFired && slapElapsed >= 10) {
               damageFired = true
               if (capturedTarget && capturedTarget.currentHp > 0) {
+                const spMult     = (u2._computedStats ?? computeStats(u2)).special / 100
+                const finalDamage = Math.round(baseDamage * spMult) + totalDrained
                 applyDamage(u2, capturedTarget, {
                   baseAmount: finalDamage,
                   damageType: 'magic',

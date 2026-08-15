@@ -1,10 +1,12 @@
 import type { Projectile, DamagePayload, HealPayload, CombatState, Unit } from './types'
 import { applyDamage } from './systems/damage'
+import { applyHeal } from './systems/heal'
 import { gainManaOnDamageTaken } from './systems/mana'
 
 export function createProjectile(opts: {
   sourceId: string
-  targetId: string
+  targetId?: string
+  targetPos?: { x: number; y: number }
   startPos: { x: number; y: number }
   speed: number
   damagePayload?: DamagePayload
@@ -20,6 +22,7 @@ export function createProjectile(opts: {
     id: `proj_${Math.random().toString(36).slice(2, 9)}`,
     sourceId: opts.sourceId,
     targetId: opts.targetId,
+    targetPos: opts.targetPos,
     startPos: { ...opts.startPos },
     currentPos: { ...opts.startPos },
     speed: opts.speed,
@@ -39,13 +42,29 @@ export function tickProjectiles(state: CombatState): void {
   const toRemove: string[] = []
 
   for (const [projId, proj] of state.projectiles) {
-    const target = state.units.get(proj.targetId)
+    const source = state.units.get(proj.sourceId)
+
+    // ── Fixed-position mode (no unit target) ──────────────────────────────
+    if (proj.targetPos) {
+      if (proj.onTick) proj.onTick(proj, source, state)
+      const dx = proj.targetPos.x - proj.currentPos.x
+      const dy = proj.targetPos.y - proj.currentPos.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist <= proj.speed + proj.hitRadius) {
+        toRemove.push(projId)
+      } else {
+        proj.currentPos = { x: proj.currentPos.x + (dx / dist) * proj.speed,
+                            y: proj.currentPos.y + (dy / dist) * proj.speed }
+      }
+      continue
+    }
+
+    // ── Unit-tracking mode ────────────────────────────────────────────────
+    const target = proj.targetId ? state.units.get(proj.targetId) : undefined
     if (!target || target.state === 'dead') {
       toRemove.push(projId)
       continue
     }
-
-    const source = state.units.get(proj.sourceId)
 
     // Per-tick callback (e.g. line-damage as projectile passes through units)
     if (proj.onTick) proj.onTick(proj, source, state)
@@ -66,14 +85,7 @@ export function tickProjectiles(state: CombatState): void {
       }
 
       if (proj.healPayload) {
-        const healAmount = Math.round(proj.healPayload.amount)
-        target.currentHp = Math.min(target.maxHp, target.currentHp + healAmount)
-        state.events.push({
-          type: 'heal',
-          targetId: target.id,
-          amount: healAmount,
-          sourceId: proj.sourceId,
-        })
+        applyHeal(target, Math.round(proj.healPayload.amount), proj.sourceId, state)
       }
 
       // Fire on-hit callback (used for status effects, etc.)

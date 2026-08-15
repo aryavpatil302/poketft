@@ -16,12 +16,12 @@ export const ArmarougeAbility: AbilityHandler = {
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const damageValues   = [200, 300, 500]     as const
+    const damageValues   = [250, 375, 625]     as const
     const atkBonusPerHit = [7,   10,  15]      as const
     const atkSpdBonuses  = [0.35, 0.50, 0.75]  as const
     const aoeFractions   = [0.15, 0.25, 0.33]  as const
 
-    const dmg         = damageValues[tier - 1]
+    const dmg         = Math.round(computeStats(unit).attack * (damageValues[tier - 1] / 100))
     const atkBonus    = atkBonusPerHit[tier - 1]
     const atkSpdBonus = atkSpdBonuses[tier - 1]
     const aoeFraction = aoeFractions[tier - 1]

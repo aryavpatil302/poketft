@@ -2,15 +2,18 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks = 20): void {
+function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
-  for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
+  tickAbilityCast(caster, state)
+}
+
+function gravelerShield(unit: Unit) {
+  return unit.shields.find(s => s.sourceAbility === 'graveler_iron_defense')
 }
 
 describe('Graveler - Iron Defense', () => {
@@ -26,93 +29,80 @@ describe('Graveler - Iron Defense', () => {
     state = createCombatState([caster], [enemy])
   })
 
-  it('transitions to casting state and fires cast event on trigger', () => {
-    caster.currentMana = caster.maxMana
-    triggerAbility(caster, state)
-    expect(caster.state).toBe('casting')
-    expect(state.events.some(e => e.type === 'cast')).toBe(true)
-  })
-
-  it('applies a shield at full HP equal to the base value (tier 1 = 150)', () => {
+  it('applies a shield of base + 10% max HP at tier 1', () => {
     cast(caster, state)
-    expect(caster.shields).toHaveLength(1)
-    // At full HP, missingHp = 0, so shieldAmount = round(150 * (1 + 0.20 * 0)) = 150
-    expect(caster.shields[0].value).toBe(150)
+    const shield = gravelerShield(caster)
+    expect(shield).toBeDefined()
+    expect(shield!.value).toBe(200 + Math.round(caster.maxHp * 0.10))
   })
 
-  it('tier 2 shield at full HP equals 225', () => {
+  it('tier 2 shield is 350 + 20% max HP', () => {
     const t2 = makeUnit('graveler', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
-    const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 3, row: 2 }
-    const s2 = createCombatState([t2], [e2])
-    cast(t2, s2)
-    expect(t2.shields[0].value).toBe(225)
+    const e = makeUnit('dummy', 'enemy', 1)
+    e.hexPos = { col: 3, row: 2 }
+    const s = createCombatState([t2], [e])
+    cast(t2, s)
+    const shield = gravelerShield(t2)
+    expect(shield).toBeDefined()
+    expect(shield!.value).toBe(350 + Math.round(t2.maxHp * 0.20))
   })
 
-  it('tier 3 shield at full HP equals 350', () => {
+  it('tier 3 shield is 500 + 30% max HP', () => {
     const t3 = makeUnit('graveler', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
-    const e3 = makeUnit('dummy', 'enemy', 1)
-    e3.hexPos = { col: 3, row: 2 }
-    const s3 = createCombatState([t3], [e3])
-    cast(t3, s3)
-    expect(t3.shields[0].value).toBe(350)
+    const e = makeUnit('dummy', 'enemy', 1)
+    e.hexPos = { col: 3, row: 2 }
+    const s = createCombatState([t3], [e])
+    cast(t3, s)
+    const shield = gravelerShield(t3)
+    expect(shield).toBeDefined()
+    expect(shield!.value).toBe(500 + Math.round(t3.maxHp * 0.30))
   })
 
-  it('shield scales larger when caster is at 50% HP', () => {
-    // Damage caster to 50% HP first
-    caster.currentHp = Math.floor(caster.maxHp * 0.5)
+  it('shield has no expiry timer (lasts until broken)', () => {
     cast(caster, state)
-    // missingHp = maxHp * 0.5, so shieldAmount = round(150 * (1 + 0.20 * 0.5)) = round(150 * 1.10) = 165
-    const missingRatio = 0.5
-    const expected = Math.round(150 * (1 + 0.20 * missingRatio))
-    expect(caster.shields[0].value).toBe(expected)
+    expect(gravelerShield(caster)!.durationTicks).toBe(-1)
   })
 
-  it('onExpire permanently increases caster armor by tier 1 value (15)', () => {
+  it('does not stack a second shield on re-cast', () => {
     cast(caster, state)
-    const defenseBefore = caster.defense
-    const shield = caster.shields[0]
-    expect(shield.onExpire).toBeDefined()
+    cast(caster, state)
+    const shields = caster.shields.filter(s => s.sourceAbility === 'graveler_iron_defense')
+    expect(shields).toHaveLength(1)
+  })
+
+  it('onExpire permanently increases caster armor by 10 at tier 1', () => {
+    cast(caster, state)
+    const defBefore = caster.defense
+    const shield = gravelerShield(caster)!
     shield.onExpire!(caster, shield)
-    expect(caster.defense).toBe(defenseBefore + 15)
+    expect(caster.defense).toBe(defBefore + 10)
   })
 
-  it('onExpire grants 25 armor at tier 2', () => {
+  it('onExpire grants 20 armor at tier 2', () => {
     const t2 = makeUnit('graveler', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
-    const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 3, row: 2 }
-    const s2 = createCombatState([t2], [e2])
-    cast(t2, s2)
+    const e = makeUnit('dummy', 'enemy', 1)
+    e.hexPos = { col: 3, row: 2 }
+    const s = createCombatState([t2], [e])
+    cast(t2, s)
     const defBefore = t2.defense
-    const shield = t2.shields[0]
+    const shield = gravelerShield(t2)!
     shield.onExpire!(t2, shield)
-    expect(t2.defense).toBe(defBefore + 25)
+    expect(t2.defense).toBe(defBefore + 20)
   })
 
-  it('onExpire grants 40 armor at tier 3', () => {
+  it('onExpire grants 50 armor at tier 3', () => {
     const t3 = makeUnit('graveler', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
-    const e3 = makeUnit('dummy', 'enemy', 1)
-    e3.hexPos = { col: 3, row: 2 }
-    const s3 = createCombatState([t3], [e3])
-    cast(t3, s3)
+    const e = makeUnit('dummy', 'enemy', 1)
+    e.hexPos = { col: 3, row: 2 }
+    const s = createCombatState([t3], [e])
+    cast(t3, s)
     const defBefore = t3.defense
-    const shield = t3.shields[0]
+    const shield = gravelerShield(t3)!
     shield.onExpire!(t3, shield)
-    expect(t3.defense).toBe(defBefore + 40)
-  })
-
-  it('emits a shield event after cast', () => {
-    cast(caster, state)
-    const shieldEvt = state.events.find(e => e.type === 'shield')
-    expect(shieldEvt).toBeDefined()
-  })
-
-  it('shield has no duration timer (durationTicks = -1)', () => {
-    cast(caster, state)
-    expect(caster.shields[0].durationTicks).toBe(-1)
+    expect(t3.defense).toBe(defBefore + 50)
   })
 })

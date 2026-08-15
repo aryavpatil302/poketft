@@ -1,9 +1,10 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
 import { applyDamage } from '../systems/damage'
-import { getNeighbors, isValidHex, hexId, hexDistance } from '../hexGrid'
+import { getNeighbors, isValidHex, hexId, hexDistance, hexEquals } from '../hexGrid'
 import { startLeap } from '../systems/movement'
 import { addStatusEffect } from '../systems/statusEffect'
+import { computeStats } from '../unitFactory'
 
 const STRIKE_ANIM_TICKS = 16
 const DAMAGE_TICK        = 8   // fires at progress=0.5 → 180° into the spin
@@ -13,8 +14,8 @@ export const BarraskewdaAbility: AbilityHandler = {
   castTimeTicks: 1,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const baseDamages = [200, 320, 550] as const
-    const base = baseDamages[tier - 1]
+    const basePcts = [570, 860, 1285] as const
+    const base = Math.round(computeStats(unit).attack * (basePcts[tier - 1] / 100))
 
     // Find lowest-HP enemy within 2 hexes
     let target: Unit | null = null
@@ -27,8 +28,8 @@ export const BarraskewdaAbility: AbilityHandler = {
     if (!target && unit.targetId) target = state.units.get(unit.targetId) ?? null
     if (!target || target.state === 'dead') return
 
-    // Reduce own mana cost on successive casts (floor 20)
-    unit.maxMana = Math.max(20, unit.maxMana - 10)
+    // Reduce own mana cost on successive casts (floor 30)
+    unit.maxMana = Math.max(30, unit.maxMana - 10)
     unit.currentMana = Math.min(unit.currentMana, unit.maxMana)
 
     const capturedTarget = target
@@ -65,16 +66,28 @@ export const BarraskewdaAbility: AbilityHandler = {
       })
     }
 
-    // Dash to adjacent hex; on landing deal damage at 180° of the strike spin
-    const candidates = getNeighbors(capturedTarget.hexPos).filter(h => {
+    // Dash to adjacent hex; prefer a new hex, fall back to current if nothing else free
+    const allAdjacentFree = getNeighbors(capturedTarget.hexPos).filter(h => {
       if (!isValidHex(h)) return false
       const occ = state.hexOccupancy.get(hexId(h))
       return !occ || occ === unit.id
     })
+    const newHexCandidates = allAdjacentFree.filter(h => !hexEquals(h, unit.hexPos))
+    const candidates = newHexCandidates.length > 0 ? newHexCandidates : allAdjacentFree
 
     if (candidates.length > 0) {
       startLeap(unit, candidates[0], state, 5.0, onLand)
       unit.state = 'leaping'
+      // Break enemy targeting so they don't instantly re-engage at the new position
+      for (const other of state.units.values()) {
+        if (other.team === unit.team || other.state === 'dead') continue
+        if (other.targetId === unit.id) {
+          other.targetId = null
+          other.isInWindup = false
+          other.attackWindupTimer = 0
+          other.state = 'idle'
+        }
+      }
     } else {
       onLand(unit, state)
     }

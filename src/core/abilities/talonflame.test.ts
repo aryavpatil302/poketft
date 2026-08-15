@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { makeUnit } from '../unitFactory'
+import { makeUnit, computeStats } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
 import { tickLeapPixel } from '../systems/movement'
@@ -9,6 +9,11 @@ import type { Unit, CombatState } from '../types'
 import '../systems/ability'
 
 const CAST_TICKS = 15
+
+// Brave Bird damage = attack × dmgPct — mirrors talonflame.ts onCast dmgPcts.
+const DMG_PCT = [3.5, 5.65, 7.15] as const
+const braveBirdBase = (u: Unit, tier: 1 | 2 | 3) =>
+  Math.round(computeStats(u).attack * DMG_PCT[tier - 1])
 
 function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
@@ -75,7 +80,7 @@ describe('Talonflame - Brave Bird', () => {
     expect(dmgEvent).toBeDefined()
   })
 
-  it('tier 1 — base damage is 200 (no defense, no crit, equal HP)', () => {
+  it('tier 1 — base damage scales off attack (no defense, no crit, equal HP)', () => {
     enemy.maxHp = 10000
     enemy.currentHp = 10000
     enemy.defense = 0
@@ -89,10 +94,10 @@ describe('Talonflame - Brave Bird', () => {
 
     const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
     expect(dmgEvent).toBeDefined()
-    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(200)
+    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(braveBirdBase(caster, 1))
   })
 
-  it('tier 2 — base damage is 325', () => {
+  it('tier 2 — base damage scales off attack', () => {
     const t2 = makeUnit('talonflame', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     t2.critChance = 0
@@ -109,10 +114,10 @@ describe('Talonflame - Brave Bird', () => {
 
     const dmgEvent = s.events.find(ev => ev.type === 'damage' && ev.targetId === e.id)
     expect(dmgEvent).toBeDefined()
-    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(325)
+    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(braveBirdBase(t2, 2))
   })
 
-  it('tier 3 — base damage is 500', () => {
+  it('tier 3 — base damage scales off attack', () => {
     const t3 = makeUnit('talonflame', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     t3.critChance = 0
@@ -129,7 +134,7 @@ describe('Talonflame - Brave Bird', () => {
 
     const dmgEvent = s.events.find(ev => ev.type === 'damage' && ev.targetId === e.id)
     expect(dmgEvent).toBeDefined()
-    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(500)
+    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(braveBirdBase(t3, 3))
   })
 
   it('+60% damage vs targets with higher max HP', () => {
@@ -144,7 +149,7 @@ describe('Talonflame - Brave Bird', () => {
 
     const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
     expect(dmgEvent).toBeDefined()
-    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(Math.round(200 * 1.6))
+    if (dmgEvent?.type === 'damage') expect(dmgEvent.amount).toBe(Math.round(braveBirdBase(caster, 1) * 1.6))
   })
 
   it('does nothing when no enemies are present', () => {
@@ -176,7 +181,7 @@ describe('Talonflame - Brave Bird', () => {
     expect(dmgEvents.some(e => e.targetId === strongEnemy.id)).toBe(true)
   })
 
-  it('recast damage is 75% of original (200 × 0.75 = 150, no HP bonus)', () => {
+  it('recast damage is 75% of original (no HP bonus)', () => {
     const weakEnemy = makeUnit('dummy', 'enemy', 1)
     weakEnemy.maxHp = 1
     weakEnemy.currentHp = 1
@@ -200,7 +205,8 @@ describe('Talonflame - Brave Bird', () => {
 
     const bounceDmg = state.events.find(e => e.type === 'damage' && e.targetId === strongEnemy.id)
     expect(bounceDmg).toBeDefined()
-    if (bounceDmg?.type === 'damage') expect(bounceDmg.amount).toBe(Math.round(200 * 0.75))
+    // Recast deals 75% of the original base (which is round(attack × 350%)).
+    if (bounceDmg?.type === 'damage') expect(bounceDmg.amount).toBe(Math.round(braveBirdBase(caster, 1) * 0.75))
   })
 
   it('chain stops before damage falls below 30 (prevents infinite loop)', () => {

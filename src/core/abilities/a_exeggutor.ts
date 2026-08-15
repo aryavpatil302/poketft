@@ -5,10 +5,12 @@ import { createProjectile } from '../projectile'
 import { findNearestEnemies } from '../systems/targeting'
 import { getSpellBuff, incrementSpellBuff } from '../systems/spellBuff'
 import { hexDistance } from '../hexGrid'
+import { combatRng } from '../rng'
 
 export const AExeggutorAbility: AbilityHandler = {
   abilityId: 'a_exeggutor_egg_bomb',
-  // castTimeTicks=35: cock-back (30 ticks) + brief pause (5 ticks), egg launches at snap start
+  // castTimeTicks=35: cock-back (30 ticks) then forward swing — the egg launches partway
+  // into the swing (see the 'cock_toss' animation) so it releases as the arm comes through
   castTimeTicks: 35,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
@@ -34,21 +36,22 @@ export const AExeggutorAbility: AbilityHandler = {
       speed: 6,
       arcHeight: 120,
       launchDist,
-      damagePayload: { baseAmount, damageType: 'magic', canCrit: false },
+      damagePayload: { baseAmount, damageType: 'magic', canCrit: false, abilityScalingStat: 'special' },
       onHit: (source: Unit | undefined, hitTarget: Unit, st: CombatState) => {
         if (!source) return
 
-        // Bonus true damage only if the target survived the main hit
+        // Bonus true damage: always (10 + spellBuff)% of base — fires if target survived
         if (hitTarget.state !== 'dead') {
-          const bonusTrueDmg = Math.round(spellBuff * 0.05 * baseAmount)
-          if (bonusTrueDmg > 0) {
-            applyDamage(source, hitTarget, {
-              baseAmount: bonusTrueDmg,
-              damageType: 'true',
-              canCrit: false,
-              abilityId: 'a_exeggutor_egg_bomb',
-            }, st)
-          }
+          const bonusTrueDmg = Math.round((0.10 + spellBuff * 0.01) * baseAmount)
+          applyDamage(source, hitTarget, {
+            baseAmount:        bonusTrueDmg,
+            damageType:        'true',
+            canCrit:           false,
+            abilityScalingStat: 'special',
+            abilityId:         'a_exeggutor_egg_bomb',
+            // Beachy contributes the (spellBuff)% beyond the base 10% of this bonus.
+            beachyFrac:        (spellBuff * 0.01) / (0.10 + spellBuff * 0.01),
+          }, st)
         }
 
         // Bounce always fires, even if the first hit killed the target
@@ -59,7 +62,7 @@ export const AExeggutorAbility: AbilityHandler = {
           hexDistance(hitTarget.hexPos, u.hexPos) <= 2
         )
         if (bounceTargets.length === 0) return
-        const bounceTgt = bounceTargets[Math.floor(Math.random() * bounceTargets.length)]
+        const bounceTgt = bounceTargets[Math.floor(combatRng() * bounceTargets.length)]
         const bdx = bounceTgt.visualPos.x - hitTarget.visualPos.x
         const bdy = bounceTgt.visualPos.y - hitTarget.visualPos.y
         const bounceDist = Math.sqrt(bdx * bdx + bdy * bdy)
@@ -70,7 +73,7 @@ export const AExeggutorAbility: AbilityHandler = {
           speed: 6,
           arcHeight: 80,
           launchDist: bounceDist,
-          damagePayload: { baseAmount: Math.round(baseAmount * 0.5), damageType: 'magic', canCrit: false },
+          damagePayload: { baseAmount: Math.round(baseAmount * 0.5), damageType: 'magic', canCrit: false, abilityScalingStat: 'special' },
           abilityId: 'a_exeggutor_egg_bounce',
         })
         st.projectiles.set(bounceProj.id, bounceProj)

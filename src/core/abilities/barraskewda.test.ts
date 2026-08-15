@@ -2,16 +2,42 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { TICK_RATE } from '../constants'
+import { tickLeapPixel } from '../systems/movement'
+import { tickStatusEffects } from '../systems/statusEffect'
 import type { Unit, CombatState } from '../types'
 
 // Import to ensure abilities are registered
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks: number): void {
+const STRIKE_TICKS = 16  // strike animation length; damage fires at tick 8
+
+function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
-  for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
+  tickAbilityCast(caster, state)  // castTimeTicks is 1
+}
+
+// Mirrors combatEngine tickLeapMovement — advances the leap until landing.
+function advanceLeaps(unit: Unit, state: CombatState, maxTicks = 3000): void {
+  for (let t = 0; t < maxTicks; t++) {
+    if (unit.state !== 'leaping') break
+    const arrived = tickLeapPixel(unit, state)
+    if (arrived && !(unit as any)._leap) unit.state = 'idle'
+  }
+}
+
+function tickFx(state: CombatState, n: number): void {
+  for (let i = 0; i < n; i++) {
+    state.tick++
+    tickStatusEffects(state.units, state)
+  }
+}
+
+// Full cast → dash → strike animation until the damage tick fires
+function castAndStrike(caster: Unit, state: CombatState): void {
+  cast(caster, state)
+  advanceLeaps(caster, state)
+  tickFx(state, STRIKE_TICKS)
 }
 
 describe('Barraskewda - Fishous Rend', () => {
@@ -27,57 +53,87 @@ describe('Barraskewda - Fishous Rend', () => {
     state = createCombatState([caster], [enemy])
   })
 
-  it('enters casting state with 15-tick timer', () => {
+  it('enters casting state with 1-tick timer', () => {
     caster.currentMana = caster.maxMana
     triggerAbility(caster, state)
     expect(caster.state).toBe('casting')
-    expect(caster.abilityCastTimer).toBe(15)
+    expect(caster.abilityCastTimer).toBe(1)
   })
 
-  it('deals physical damage to the target (enemy HP decreases)', () => {
-    const hpBefore = enemy.currentHp
-    cast(caster, state, 15)
-    expect(enemy.currentHp).toBeLessThan(hpBefore)
-  })
-
-  it('reduces target maxMana by 10 on first cast', () => {
-    const manaBefore = enemy.maxMana
-    cast(caster, state, 15)
-    expect(enemy.maxMana).toBe(manaBefore - 10)
-  })
-
-  it('leaps to adjacent hex (state becomes leaping)', () => {
-    cast(caster, state, 15)
+  it('dashes to a hex adjacent to the target', () => {
+    cast(caster, state)
     expect(caster.state).toBe('leaping')
   })
 
-  it('reduces maxMana again on second cast (cumulative)', () => {
-    const manaBefore = enemy.maxMana
-    cast(caster, state, 15)
-    cast(caster, state, 15)
-    expect(enemy.maxMana).toBe(manaBefore - 20)
+  it('deals physical damage to the target after the strike animation', () => {
+    const hpBefore = enemy.currentHp
+    castAndStrike(caster, state)
+    expect(enemy.currentHp).toBeLessThan(hpBefore)
+    const dmgEvent = state.events.find(
+      e => e.type === 'damage' && e.targetId === enemy.id && (e as any).damageType === 'physical'
+    )
+    expect(dmgEvent).toBeDefined()
   })
 
-  it('does not reduce maxMana below 30 (floor)', () => {
-    enemy.maxMana = 35
-    cast(caster, state, 15)
-    expect(enemy.maxMana).toBe(30)
-    // Second cast must not push below floor
-    cast(caster, state, 15)
-    expect(enemy.maxMana).toBe(30)
+  it('deals 1.5x damage to targets below half HP', () => {
+    // Full-HP run
+    const fullState = createCombatState([caster], [enemy])
+    caster.critChance = 0
+    caster._computedStats = null
+    castAndStrike(caster, fullState)
+    const fullDmg = fullState.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
+
+    // Low-HP run
+    const c2 = makeUnit('barraskewda', 'player', 1)
+    c2.hexPos = { col: 3, row: 5 }
+    c2.critChance = 0
+    c2._computedStats = null
+    const e2 = makeUnit('dummy', 'enemy', 1)
+    e2.hexPos = { col: 3, row: 4 }
+    e2.currentHp = Math.floor(e2.maxHp * 0.4)
+    const s2 = createCombatState([c2], [e2])
+    castAndStrike(c2, s2)
+    const lowDmg = s2.events.find(e => e.type === 'damage' && e.targetId === e2.id)
+
+    expect(fullDmg).toBeDefined()
+    expect(lowDmg).toBeDefined()
+    if (fullDmg?.type === 'damage' && lowDmg?.type === 'damage') {
+      expect(lowDmg.amount).toBeGreaterThan(fullDmg.amount)
+    }
   })
 
-  it('clamps currentMana to new maxMana after reduction', () => {
-    enemy.maxMana = 50
-    enemy.currentMana = 50
-    cast(caster, state, 15)
-    // maxMana becomes 40; currentMana should be clamped
-    expect(enemy.currentMana).toBeLessThanOrEqual(enemy.maxMana)
+  it('reduces own maxMana by 10 on first cast', () => {
+    const before = caster.maxMana
+    cast(caster, state)
+    expect(caster.maxMana).toBe(before - 10)
   })
 
-  it('resets caster mana to 0 and applies mana lock', () => {
-    cast(caster, state, 15)
-    expect(caster.currentMana).toBe(0)
-    expect(caster.manaLockTimer).toBe(TICK_RATE)
+  it('reduces own maxMana again on second cast (cumulative)', () => {
+    const before = caster.maxMana
+    cast(caster, state)
+    advanceLeaps(caster, state)
+    cast(caster, state)
+    expect(caster.maxMana).toBe(before - 20)
+  })
+
+  it('does not reduce own maxMana below 30 (floor)', () => {
+    caster.maxMana = 35
+    cast(caster, state)
+    expect(caster.maxMana).toBe(30)
+    advanceLeaps(caster, state)
+    cast(caster, state)
+    expect(caster.maxMana).toBe(30)
+  })
+
+  it('does nothing when no enemies are in range and no targetId', () => {
+    enemy.hexPos = { col: 0, row: 0 }
+    state = createCombatState([caster], [enemy])
+    caster.targetId = null
+    const manaBefore = caster.maxMana
+    cast(caster, state)
+    advanceLeaps(caster, state)
+    tickFx(state, STRIKE_TICKS)
+    expect(state.events.some(e => e.type === 'damage')).toBe(false)
+    expect(caster.maxMana).toBe(manaBefore)
   })
 })

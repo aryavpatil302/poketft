@@ -9,6 +9,8 @@ import { removeStatusEffectByStack } from './statusEffect'
 export interface AbilityHandler {
   abilityId: string
   castTimeTicks: number   // animation ticks before effect fires (typically 20–30)
+  onCombatStart?(unit: Unit, state: CombatState): void  // called once per unit when combat begins
+  onCastStart?(unit: Unit, state: CombatState, tier: number): void  // fires when the channel BEGINS (e.g. heal-over-channel)
   onCast(unit: Unit, state: CombatState, tier: number): void
 }
 
@@ -42,6 +44,7 @@ export function triggerAbility(unit: Unit, state: CombatState): void {
     }, state)
     state.events.push({ type: 'vfx', effectId: 'wandering_spirit_consume', unitId: unit.id })
     applyManaLock(unit)
+    unit.currentMana = Math.round(unit.maxMana * 0.5)
     return
   }
 
@@ -61,6 +64,8 @@ export function triggerAbility(unit: Unit, state: CombatState): void {
   unit.abilityCastTimer = handler.castTimeTicks
   unit.isInWindup = false
   unit.attackWindupTimer = 0
+
+  handler.onCastStart?.(unit, state, unit.tier)
 
   // Cancel any in-flight auto-attack projectiles so they don't arrive alongside the spell
   for (const [id, proj] of state.projectiles) {
@@ -83,6 +88,9 @@ export function tickAbilityCast(unit: Unit, state: CombatState): void {
   unit.isInWindup      = false
   unit.attackWindupTimer = 0
 
+  // Pre-ability passive handlers (e.g. temporary stat boosts for the cast)
+  for (const h of unit.passiveCastHandlers) h.onCast(unit, state)
+
   // Fire the ability
   const unitDef_abilityId = getUnitAbilityId(unit)
   if (unitDef_abilityId) {
@@ -91,6 +99,9 @@ export function tickAbilityCast(unit: Unit, state: CombatState): void {
       handler.onCast(unit, state, unit.tier)
     }
   }
+
+  // Post-ability passive handlers (cleanup after the ability fires)
+  for (const h of unit.passiveCastHandlers) h.afterCast?.(unit, state)
 
   // If the ability set attackTimer = 0 to request an immediate follow-up attack,
   // start the windup on this same tick so there's no visible gap after the cast.
@@ -104,8 +115,24 @@ export function tickAbilityCast(unit: Unit, state: CombatState): void {
   }
 
   applyManaLock(unit)
+  // Post-cast mana refund (Spell Tag item). Applied AFTER the mana lock zeroes mana,
+  // so the unit starts its next fill with a head start rather than being wiped to 0.
+  if (unit.manaRefundOnCast) {
+    unit.currentMana = Math.min(unit.maxMana, unit.currentMana + unit.manaRefundOnCast)
+  }
   // Only reset to idle if onCast didn't set a special state (e.g. 'leaping', 'attacking')
   if (unit.state === 'casting') unit.state = 'idle'
+}
+
+// ─── Combat-start initialization ─────────────────────────────────────────────
+
+export function initAbilityPassives(state: CombatState): void {
+  for (const unit of state.units.values()) {
+    const abilityId = getUnitAbilityId(unit)
+    if (!abilityId) continue
+    const handler = ABILITY_REGISTRY.get(abilityId)
+    handler?.onCombatStart?.(unit, state)
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -161,7 +188,6 @@ import { KinglerAbility }     from '../abilities/kingler'
 import { KlawfAbility }       from '../abilities/klawf'
 import { DrednawAbility }     from '../abilities/drednaw'
 import { BarraskewdaAbility } from '../abilities/barraskewda'
-import { GrapploctAbility }   from '../abilities/grapploct'
 import { WailordAbility }     from '../abilities/wailord'
 import { BlastoiseAbility }   from '../abilities/blastoise'
 import { TapuFiniAbility }    from '../abilities/tapufini'
@@ -182,6 +208,16 @@ import { XatuAbility }        from '../abilities/xatu'
 import { FezandiptiAbility }  from '../abilities/fezandipiti'
 import { SpiritombAbility }   from '../abilities/spiritomb'
 import { RunerigusAbility }   from '../abilities/runerigus'
+
+// Rogue
+import { SalamenceAbility }   from '../abilities/salamence'
+
+// Zen / Crashout
+import { DarmanitanAbility }  from '../abilities/darmanitan'
+
+// Soul Bonded
+import { LatiosAbility }      from '../abilities/latios'
+import { LatiasAbility }      from '../abilities/latias'
 
 // Ascender
 import { ARaichuAbility }     from '../abilities/a_raichu'
@@ -237,7 +273,6 @@ registerAbility(KinglerAbility)
 registerAbility(KlawfAbility)
 registerAbility(DrednawAbility)
 registerAbility(BarraskewdaAbility)
-registerAbility(GrapploctAbility)
 registerAbility(WailordAbility)
 registerAbility(BlastoiseAbility)
 registerAbility(TapuFiniAbility)
@@ -254,6 +289,10 @@ registerAbility(XatuAbility)
 registerAbility(FezandiptiAbility)
 registerAbility(SpiritombAbility)
 registerAbility(RunerigusAbility)
+registerAbility(SalamenceAbility)
+registerAbility(DarmanitanAbility)
+registerAbility(LatiosAbility)
+registerAbility(LatiasAbility)
 registerAbility(ARaichuAbility)
 registerAbility(AExeggutorAbility)
 registerAbility(AMaRowakAbility)

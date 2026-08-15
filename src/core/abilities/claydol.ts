@@ -4,6 +4,7 @@ import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
 import { findNearestEnemies } from '../systems/targeting'
+import { computeStats } from '../unitFactory'
 
 const CHANNEL_TICKS = Math.round(1.5 * TICK_RATE)  // 90 ticks = 1.5 seconds
 
@@ -33,7 +34,8 @@ export const ClaydolAbility: AbilityHandler = {
         onExpire:     (u, st) => {
           if (u.state === 'ascended') u.state = 'idle'
           if (u.state === 'dead') return
-          const totalDmg = flatDmg + Math.round(u.maxHp * pctDmg)
+          const spMult   = (casterRef._computedStats ?? computeStats(casterRef)).special / 100
+          const totalDmg = Math.round(flatDmg * spMult) + Math.round(u.maxHp * pctDmg)
           applyDamage(casterRef, u, { baseAmount: totalDmg, damageType: 'magic', canCrit: false, abilityId: 'claydol_gravity' }, st)
           st.events.push({ type: 'vfx', effectId: 'claydol_gravity_slam', unitId: u.id })
         },

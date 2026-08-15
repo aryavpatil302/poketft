@@ -1,0 +1,40 @@
+{
+  "label": "bird test",
+  "units": [
+    {
+      "id": "pidgeotto",
+      "tier": 3,
+      "col": 1,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "wailord",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "ribombee",
+      "tier": 2,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "vigoroth",
+      "tier": 1,
+      "col": 4,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "tangela",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    }
+  ]
+}

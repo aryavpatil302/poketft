@@ -65,6 +65,33 @@ describe("Tapu Fini - Nature's Madness", () => {
     expect(whirlpooled).toHaveLength(1)
   })
 
+  it('prioritizes the attack target for the whirlpool', () => {
+    const e2 = makeUnit('dummy', 'enemy', 1)
+    e2.hexPos = { col: 4, row: 2 }
+    state = createCombatState([caster], [enemy, e2])
+    // Point Fini's targetId at e2
+    caster.targetId = e2.id
+    cast(caster, state)
+    expect(e2.whirlpooled).toBe(true)
+    expect(enemy.whirlpooled).toBe(false)
+  })
+
+  it('deals 33% more damage when target is at 0 def and 0 spDef', () => {
+    cast(caster, state)
+    const fx = enemy.statusEffects.find(e => e.id === 'whirlpool_damage')
+    expect(fx).toBeDefined()
+    // Force both defenses to 0
+    enemy.defense   = 0
+    enemy.spDefense = 0
+    enemy.currentHp = 99999
+    state.events = []
+    // Manually tick the effect
+    fx!.tickEffect!(enemy, state)
+    const dmgEvent = state.events.find(e => e.type === 'damage')
+    // tier 1 base = 100; 33% bonus → 133; actual final may differ due to defense calc
+    expect((dmgEvent as any)?.amount).toBeGreaterThan(100)
+  })
+
   it('tier 3 — whirlpools every enemy simultaneously', () => {
     const t3 = makeUnit('tapu_fini', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }

@@ -2,6 +2,7 @@ import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
+import { applyHeal } from '../systems/heal'
 import { addStatusEffect } from '../systems/statusEffect'
 import { hexesInRange, hexId } from '../hexGrid'
 
@@ -79,9 +80,7 @@ export const WheezingAbility: AbilityHandler = {
         }
 
         if (hitCount > 0) {
-          const healAmt = healPerHit * hitCount
-          wheezing.currentHp = Math.min(wheezing.maxHp, wheezing.currentHp + healAmt)
-          st.events.push({ type: 'heal', targetId: wheezingId, amount: healAmt, sourceId: wheezingId })
+          applyHeal(wheezing, healPerHit * hitCount, wheezingId, st)
         }
       },
     })

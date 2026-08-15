@@ -5,18 +5,21 @@ import { computeStats } from './unitFactory'
 import { tickStatusEffects, tickShields } from './systems/statusEffect'
 import { tickManaLock, isReadyToCast } from './systems/mana'
 import { tickTargeting } from './systems/targeting'
-import { tickMovement, tickLeapPixel, recalculatePath } from './systems/movement'
+import { tickMovement, tickLeapPixel, recalculatePath, reconcileHexOccupancy, cancelInFlightMovement } from './systems/movement'
 import { tickAttack, isInRange, startAttacking } from './systems/attack'
-import { triggerAbility, tickAbilityCast } from './systems/ability'
+import { triggerAbility, tickAbilityCast, initAbilityPassives } from './systems/ability'
 import { tickProjectiles } from './projectile'
 import { tickMarks } from './systems/marks'
 import { tickPersistentAoEZones } from './systems/persistentAoE'
+import { initTraitEffects } from './systems/traitEffects'
+import { initItemPassives } from '../data/items'
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
 export function createCombatState(
   playerUnits: Unit[],
   enemyUnits: Unit[],
+  stage?: number,
 ): CombatState {
   const units = new Map<string, Unit>()
   const hexOccupancy = new Map<string, string>()
@@ -28,17 +31,25 @@ export function createCombatState(
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
   }
 
-  return {
+  const state: CombatState = {
     tick: 0,
     phase: 'combat',
     units,
     projectiles: new Map(),
     events: [],
     hexOccupancy,
-    terrain: { electric: false, psychic: false, grassy: false, misty: false },
+    terrain: { electric: false, psychic: false, grassy: false, misty: false, sunny: false },
+    tailwind: { player: false, enemy: false },
+    earthquakeCounts: new Map(),
     spellBuffCounters: new Map(),
     persistentAoEZones: [],
+    stage,
   }
+
+  initAbilityPassives(state)
+  initItemPassives(state)
+  initTraitEffects(state)
+  return state
 }
 
 // ─── Win / loss check ─────────────────────────────────────────────────────────
@@ -70,8 +81,19 @@ function tickLeapMovement(unit: Unit, state: CombatState): void {
 
 // ─── Per-unit state machine ───────────────────────────────────────────────────
 
-function tickUnit(unit: Unit, state: CombatState): void {
-  if (unit.state === 'dead' || unit.state === 'stunned' || unit.state === 'knockedUp' || unit.state === 'ascended') return
+// The single per-unit state machine, shared by the headless sim (runCombat) and
+// the live game (main.ts tickCombat) so the two can never drift again.
+export function tickUnit(unit: Unit, state: CombatState): void {
+  if (unit.state === 'dead') return
+  // CC hard-stop: stunned/knocked-up/ascended units do nothing at all — no move,
+  // no attack, no cast. (Casting is gated here too, unlike the old live loop.)
+  // Drop any in-progress attack windup so it can't resume or fire the instant CC
+  // ends — CC interrupts the swing; the unit re-winds from scratch afterward.
+  if (unit.state === 'stunned' || unit.state === 'knockedUp' || unit.state === 'ascended') {
+    unit.isInWindup = false
+    unit.attackWindupTimer = 0
+    return
+  }
   if (unit.isDummy) return   // target dummies: just stand and absorb damage
 
   // Rebuild computed stats for this tick
@@ -90,6 +112,9 @@ function tickUnit(unit: Unit, state: CombatState): void {
   }
 
   if (isReadyToCast(unit)) {
+    // Casting out of a slide/dash must clear the in-flight hex bookkeeping first,
+    // or the reserved destination hex leaks as a permanent phantom blocker.
+    if (unit.state === 'moving' || unit._leap) cancelInFlightMovement(unit, state)
     triggerAbility(unit, state)
     return
   }
@@ -101,11 +126,21 @@ function tickUnit(unit: Unit, state: CombatState): void {
 
   const inRange = isInRange(unit, state)
 
+  // "rooted" holds the unit in place; "attackSuppressed" also blocks attacking.
+  // Tapu Lele's channel does both; the generic `rooted` id is a real hook too.
+  // A-Raichu is rooted in place (no move, no auto) until every Surge Surfer bolt has
+  // been expelled — each pending bolt is an 'a_raichu_queued_bolt' effect that clears
+  // as it fires, so he unlocks the moment the last one goes out.
+  const raichuFiringBolts = unit.statusEffects.some(fx => fx.id === 'a_raichu_queued_bolt')
+  const rooted = raichuFiringBolts
+    || unit.statusEffects.some(fx => fx.id === 'rooted' || fx.stackId === 'tapulele_channel')
+  const attackSuppressed = rooted || unit.statusEffects.some(fx => fx.stackId === 'tapulele_post_channel')
+
   switch (unit.state) {
     case 'idle': {
-      if (inRange) {
+      if (inRange && !attackSuppressed) {
         startAttacking(unit)
-      } else {
+      } else if (!inRange && !rooted) {
         unit.state = 'moving'
         recalculatePath(unit, state)
       }
@@ -113,9 +148,12 @@ function tickUnit(unit: Unit, state: CombatState): void {
     }
 
     case 'moving': {
-      if (inRange) {
-        unit.state = 'idle'  // will transition to attacking next tick
-        unit.path = []
+      if (inRange || rooted) {
+        // Commit/clear the in-flight slide cleanly (resets moveProgress + frees
+        // the reserved destination) rather than a bare state flip, which would
+        // leak the reservation and leave stale moveProgress that stacks the next slide.
+        cancelInFlightMovement(unit, state)
+        unit.state = 'idle'
         break
       }
 
@@ -141,10 +179,38 @@ function tickUnit(unit: Unit, state: CombatState): void {
     }
 
     case 'attacking': {
+      if (attackSuppressed) {
+        unit.state = 'idle'
+        unit.isInWindup = false
+        unit.attackWindupTimer = 0
+        break
+      }
       tickAttack(unit, state)
       break
     }
   }
+}
+
+// One full combat tick, shared by runCombat and the live loop. Advances tick,
+// clears/repopulates events, ticks every subsystem + per-unit state machine, and
+// reconciles hex occupancy. Callers own the terminal win/loss (+ overtime) check.
+export function advanceCombatTick(state: CombatState): void {
+  state.tick++
+  state.events = []
+
+  tickStatusEffects(state.units, state)   // 1. status effects
+  tickMarks(state.units, state)           // 1b. mark detonations
+  tickShields(state.units)                // 2. shields
+  tickPersistentAoEZones(state)           // 2b. persistent AoE zones
+
+  for (const unit of state.units.values()) {   // 3. mana lock + per-unit step
+    if (unit.state === 'dead') continue
+    tickManaLock(unit)
+    tickUnit(unit, state)
+  }
+
+  tickProjectiles(state)                   // 4. projectiles
+  reconcileHexOccupancy(state)             // 4b. repair any occupancy overlap this tick
 }
 
 // ─── Main runCombat loop ──────────────────────────────────────────────────────
@@ -162,30 +228,7 @@ export function runCombat(state: CombatState, opts: RunCombatOptions = {}): Comb
   const verbose = opts.verbose ?? false
 
   while (state.tick < maxTicks) {
-    state.tick++
-    state.events = []
-
-    // 1. Status effect tick
-    tickStatusEffects(state.units, state)
-
-    // 1b. Mark detonation tick
-    tickMarks(state.units, state)
-
-    // 2. Shield tick
-    tickShields(state.units)
-
-    // 2b. Persistent AoE zones
-    tickPersistentAoEZones(state)
-
-    // 3. Mana lock tick + per-unit processing
-    for (const unit of state.units.values()) {
-      if (unit.state === 'dead') continue
-      tickManaLock(unit)
-      tickUnit(unit, state)
-    }
-
-    // 4. Projectile tick
-    tickProjectiles(state)
+    advanceCombatTick(state)
 
     // 5. Per-tick callback — must run BEFORE win check so the killing-blow death event
     //    is not skipped when combat ends on the same tick.

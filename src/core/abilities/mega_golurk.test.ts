@@ -73,7 +73,7 @@ describe('Mega Golurk - Phantom Force', () => {
   })
 
   it('pushes shadow_punch_empowered modifier with knockUp=true and correct bonus damage', () => {
-    const dmgs = [300, 400, 550] as const
+    const dmgs = [303, 602, 1240] as const  // attack% scaling: [275,365,500]% of attack
     for (const tier of [1, 2, 3] as const) {
       const c = makeUnit('mega_golurk', 'player', tier)
       c.hexPos = { col: 3, row: 5 }

@@ -1,0 +1,47 @@
+{
+  "label": "sneasler",
+  "units": [
+    {
+      "id": "sneasler",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 2,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 3,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 4,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 1,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Static Frame Extractor</title>
+<style>
+  body { background: #222; display: flex; flex-direction: column; align-items: center;
+         gap: 16px; padding: 30px; font-family: sans-serif; color: #eee; }
+  canvas { border: 1px solid #444; image-rendering: pixelated; }
+  button { padding: 10px 24px; background: #2a6; color: white; border: none;
+           cursor: pointer; border-radius: 6px; font-size: 14px; }
+  input  { padding: 8px; background: #333; color: #eee; border: 1px solid #555;
+           border-radius: 4px; width: 420px; font-size: 13px; }
+  #status { font-size: 13px; color: #aaa; }
+</style>
+</head>
+<body>
+<h3 style="margin:0">Static Frame Extractor</h3>
+<label style="font-size:13px;color:#aaa">Sprite path (relative to site root):</label>
+<input id="path" value="/visuals/sprites/river/belliboilt-sprite.webp" />
+<canvas id="c"></canvas>
+<div id="status">Enter path above then click Load</div>
+<button onclick="load()">Load &amp; Preview</button>
+<button onclick="save()" id="saveBtn" disabled>Download Static WebP</button>
+
+<script>
+const canvas = document.getElementById('c')
+const ctx    = canvas.getContext('2d')
+
+function load() {
+  const src = document.getElementById('path').value.trim()
+  const img = new Image()
+  img.onload = () => {
+    canvas.width  = img.naturalWidth
+    canvas.height = img.naturalHeight
+    // Draw immediately on load — captures the first frame before animation advances
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0)
+    document.getElementById('status').textContent =
+      `Loaded ${img.naturalWidth}×${img.naturalHeight} — first frame shown above`
+    document.getElementById('saveBtn').disabled = false
+  }
+  img.onerror = () => {
+    document.getElementById('status').textContent = '❌ Could not load — make sure the dev server is running and the path is correct'
+  }
+  img.src = src
+}
+
+function save() {
+  const src      = document.getElementById('path').value.trim()
+  const filename = src.split('/').pop().replace(/\.[^.]+$/, '') + '-sprite.webp'
+  canvas.toBlob(blob => {
+    const a  = document.createElement('a')
+    a.href   = URL.createObjectURL(blob)
+    a.download = filename
+    a.click()
+    document.getElementById('status').textContent = `Downloaded ${filename}`
+  }, 'image/webp', 0.95)
+}
+
+// Auto-load on page open
+window.addEventListener('load', load)
+</script>
+</body>
+</html>

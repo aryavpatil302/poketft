@@ -61,7 +61,7 @@ export class TeamBuilder {
 
   private searchQuery = ''
   private collapsedTraits: Set<string> = new Set(
-    ALL_UNITS.map(def => def.traits[0] ?? 'other')
+    ALL_UNITS.map(def => def.types[0] ?? 'other')
   )
 
   private render(): void {
@@ -71,9 +71,9 @@ export class TeamBuilder {
     const groups = new Map<string, typeof ALL_UNITS>()
     for (const def of ALL_UNITS) {
       const name = def.name.toLowerCase()
-      const traits = def.traits.join(' ').toLowerCase()
+      const traits = def.types.join(' ').toLowerCase()
       if (query && !name.includes(query) && !traits.includes(query)) continue
-      const primaryTrait = def.traits[0] ?? 'other'
+      const primaryTrait = def.types[0] ?? 'other'
       if (!groups.has(primaryTrait)) groups.set(primaryTrait, [])
       groups.get(primaryTrait)!.push(def)
     }

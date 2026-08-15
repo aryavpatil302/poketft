@@ -2,15 +2,25 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { TICK_RATE } from '../constants'
+import { tickStatusEffects } from '../systems/statusEffect'
 import type { Unit, CombatState } from '../types'
 
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks = 20): void {
+const CAST_TICKS  = 32
+const SLIDE_TICKS = 25
+
+function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
-  for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
+  for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+function tickFx(state: CombatState, n: number): void {
+  for (let i = 0; i < n; i++) {
+    state.tick++
+    tickStatusEffects(state.units, state)
+  }
 }
 
 describe('Druddigon - Dragon Tail', () => {
@@ -32,7 +42,14 @@ describe('Druddigon - Dragon Tail', () => {
     expect(state.events.some(e => e.type === 'cast')).toBe(true)
   })
 
-  it('deals physical damage to nearest enemy (tier 1)', () => {
+  it('enters casting state with 32-tick timer', () => {
+    caster.currentMana = caster.maxMana
+    triggerAbility(caster, state)
+    expect(caster.state).toBe('casting')
+    expect(caster.abilityCastTimer).toBe(CAST_TICKS)
+  })
+
+  it('deals physical damage to nearest enemy (tier 1, non-killing blow)', () => {
     const hpBefore = enemy.currentHp
     cast(caster, state)
     expect(enemy.currentHp).toBeLessThan(hpBefore)
@@ -41,6 +58,8 @@ describe('Druddigon - Dragon Tail', () => {
   it('deals more damage at tier 2', () => {
     const t1 = makeUnit('druddigon', 'player', 1)
     t1.hexPos = { col: 3, row: 5 }
+    t1.critChance = 0
+    t1._computedStats = null
     const e1 = makeUnit('dummy', 'enemy', 1)
     e1.hexPos = { col: 3, row: 2 }
     const s1 = createCombatState([t1], [e1])
@@ -49,6 +68,8 @@ describe('Druddigon - Dragon Tail', () => {
 
     const t2 = makeUnit('druddigon', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
+    t2.critChance = 0
+    t2._computedStats = null
     const e2 = makeUnit('dummy', 'enemy', 1)
     e2.hexPos = { col: 3, row: 2 }
     const s2 = createCombatState([t2], [e2])
@@ -61,6 +82,8 @@ describe('Druddigon - Dragon Tail', () => {
   it('deals more damage at tier 3 than tier 2', () => {
     const t2 = makeUnit('druddigon', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
+    t2.critChance = 0
+    t2._computedStats = null
     const e2 = makeUnit('dummy', 'enemy', 1)
     e2.hexPos = { col: 3, row: 2 }
     const s2 = createCombatState([t2], [e2])
@@ -69,6 +92,8 @@ describe('Druddigon - Dragon Tail', () => {
 
     const t3 = makeUnit('druddigon', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
+    t3.critChance = 0
+    t3._computedStats = null
     const e3 = makeUnit('dummy', 'enemy', 1)
     e3.hexPos = { col: 3, row: 2 }
     const s3 = createCombatState([t3], [e3])
@@ -78,43 +103,27 @@ describe('Druddigon - Dragon Tail', () => {
     expect(dmgT3).toBeGreaterThan(dmgT2)
   })
 
-  it('does NOT apply knockUp when target HP >= caster HP', () => {
-    // Enemy at full HP (1500), caster currentHp is also high
-    // Ensure caster HP is lower or equal to enemy to avoid knockUp
-    caster.currentHp = 100  // caster at very low HP
-    // but enemy at full HP (1500 >> 100), so target.currentHp > caster.currentHp
-    // No wait: we need target.currentHp < caster.currentHp for knockUp
-    // So: target HP high = no knockUp
-    caster.currentHp = 100
-    enemy.currentHp = 1500  // target HP (1500) > caster HP (100) => no knockUp
+  it('non-killing blow does NOT start the knockback slide', () => {
+    // Enemy at full HP — damage won't kill
     cast(caster, state)
-    const hasKnockUp = enemy.statusEffects.some(e => e.id === 'knockUp')
-    expect(hasKnockUp).toBe(false)
+    expect(enemy.statusEffects.some(e => e.id === 'druddigon_knockback')).toBe(false)
+    expect(enemy.statusEffects.some(e => e.id === 'stun')).toBe(false)
   })
 
-  it('applies knockUp when target HP < caster HP', () => {
-    // To get knockUp: target.currentHp must be < caster.currentHp after damage
-    // Set caster at max HP and damage the enemy first
-    caster.currentHp = caster.maxHp  // caster full HP
-    enemy.currentHp = 50             // enemy at very low HP (50 < caster HP)
+  it('killing blow stuns the target and starts the knockback slide', () => {
+    enemy.currentHp = 50  // will die to the blow
     cast(caster, state)
-    // If enemy survived, check knockUp. If not, just check it was attempted
-    if (enemy.state !== 'dead') {
-      const hasKnockUp = enemy.statusEffects.some(e => e.id === 'knockUp')
-      expect(hasKnockUp).toBe(true)
-    }
+    expect(enemy.statusEffects.some(e => e.id === 'stun')).toBe(true)
+    expect(enemy.statusEffects.some(e => e.id === 'druddigon_knockback')).toBe(true)
+    // Invulnerable during the slide so intermediate ticks can't kill early
+    expect(enemy.incomingDamageMult).toBe(0)
   })
 
-  it('knockUp duration is 0.5 seconds at all tiers', () => {
-    caster.currentHp = caster.maxHp
+  it('killing blow kills the target after the slide completes', () => {
     enemy.currentHp = 50
     cast(caster, state)
-    if (enemy.state !== 'dead') {
-      const ku = enemy.statusEffects.find(e => e.id === 'knockUp')
-      if (ku) {
-        expect(ku.durationTicks).toBe(Math.round(0.5 * TICK_RATE))
-      }
-    }
+    tickFx(state, SLIDE_TICKS)
+    expect(enemy.state).toBe('dead')
   })
 
   it('emits damage event after cast', () => {

@@ -1,6 +1,9 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit, Shield } from '../types'
 import { TICK_RATE } from '../constants'
+import { addShield } from '../systems/shield'
+import { applyHeal } from '../systems/heal'
+import { computeStats } from '../unitFactory'
 
 export const TangelaAbility: AbilityHandler = {
   abilityId: 'tangela_leaf_guard',
@@ -8,7 +11,8 @@ export const TangelaAbility: AbilityHandler = {
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
     const shieldValues = [400, 525, 685] as const
-    const shieldAmount = shieldValues[tier - 1]
+    const spMult       = (unit._computedStats ?? computeStats(unit)).special / 100
+    const shieldAmount = Math.round(shieldValues[tier - 1] * spMult)
     const durationTicks = 4 * TICK_RATE  // 4 seconds
 
     const shield: Shield = {
@@ -20,19 +24,11 @@ export const TangelaAbility: AbilityHandler = {
       effectiveMaxHp: unit.currentHp + shieldAmount,
       onExpire: (u: Unit, s: Shield) => {
         if (s.value > 0) {
-          const healAmount = Math.floor(s.value * 0.5)
-          u.currentHp = Math.min(u.maxHp, u.currentHp + healAmount)
-          state.events.push({
-            type: 'heal',
-            targetId: u.id,
-            amount: healAmount,
-            sourceId: u.id,
-          })
+          applyHeal(u, Math.floor(s.value * 0.5), u.id, state)
         }
       },
     }
 
-    unit.shields.push(shield)
-    state.events.push({ type: 'shield', unitId: unit.id, amount: shieldAmount })
+    addShield(unit, shield, state)
   },
 }

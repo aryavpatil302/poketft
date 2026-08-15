@@ -21,7 +21,7 @@ export const AMaRowakAbility: AbilityHandler = {
       remainingCharges: 1,
       swingDir,
       onHit: (src: Unit, tgt: Unit, st: CombatState) => {
-        applyDamage(src, tgt, { baseAmount: dmg1, damageType: 'magic' as const, canCrit: false, abilityId: 'a_marowak_shadow_bone' }, st)
+        applyDamage(src, tgt, { baseAmount: dmg1, damageType: 'magic' as const, canCrit: false, abilityScalingStat: 'special', abilityId: 'a_marowak_shadow_bone' }, st)
       },
     })
 
@@ -31,13 +31,17 @@ export const AMaRowakAbility: AbilityHandler = {
       onHit: (src: Unit, tgt: Unit, st: CombatState) => {
         let totalDamage = 0
 
-        // BFS through connected enemies: primary target, then any enemy touching a hit enemy, etc.
+        // BFS through connected enemies: primary target, then any enemy touching a hit
+        // enemy, etc. — capped at MAX_CHAINED additional enemies beyond the primary
+        // target (nearest first, since BFS resolves the adjacent ring before deeper ones).
+        const MAX_CHAINED = 3
         const hitSet = new Set<string>([tgt.id])
         const queue: Unit[] = [tgt]
         const hitUnits: Unit[] = [tgt]
-        while (queue.length > 0) {
+        while (queue.length > 0 && hitUnits.length - 1 < MAX_CHAINED) {
           const current = queue.shift()!
           for (const hex of hexesInRange(current.hexPos, 1)) {
+            if (hitUnits.length - 1 >= MAX_CHAINED) break
             const uid = st.hexOccupancy.get(hexId(hex))
             if (!uid || hitSet.has(uid)) continue
             const adjacent = st.units.get(uid)
@@ -49,7 +53,7 @@ export const AMaRowakAbility: AbilityHandler = {
         }
 
         for (const enemy of hitUnits) {
-          const r = applyDamage(src, enemy, { baseAmount: dmg3, damageType: 'magic' as const, canCrit: false, abilityId: 'a_marowak_shadow_bone' }, st)
+          const r = applyDamage(src, enemy, { baseAmount: dmg3, damageType: 'magic' as const, canCrit: false, abilityScalingStat: 'special', abilityId: 'a_marowak_shadow_bone' }, st)
           totalDamage += r.finalDamage
         }
 

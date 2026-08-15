@@ -1,0 +1,54 @@
+{
+  "label": "snow",
+  "units": [
+    {
+      "id": "abomasnow",
+      "tier": 2,
+      "col": 5,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 5,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 6,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 5,
+      "row": 1,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 6,
+      "row": 1,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 4,
+      "row": 1,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

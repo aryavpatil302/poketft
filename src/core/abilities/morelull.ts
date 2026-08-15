@@ -45,6 +45,7 @@ export const MorelullAbility: AbilityHandler = {
 
     const damage  = baseDamages[tier - 1]
     const healPct = healPcts[tier - 1]
+    const spMult  = (unit._computedStats ?? computeStats(unit)).special / 100
 
     const attackTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
     const enemy = (attackTarget && attackTarget.state !== 'dead' && attackTarget.team !== unit.team)
@@ -72,10 +73,11 @@ export const MorelullAbility: AbilityHandler = {
         speed: 10,
         abilityId: 'morelull_strength_sap',
         damagePayload: {
-          baseAmount: damage,
-          damageType: 'magic',
-          canCrit: false,
-          abilityId: 'morelull_strength_sap',
+          baseAmount:        damage,
+          damageType:        'magic',
+          canCrit:           false,
+          abilityScalingStat: 'special',
+          abilityId:         'morelull_strength_sap',
         },
         onHit: (_src, tgt, st) => {
           // 33% attack reduction for 3 seconds (flat of their current attack)
@@ -91,8 +93,8 @@ export const MorelullAbility: AbilityHandler = {
             })
           }
 
-          // Heal amount = healPct × target's attack (before applying the reduction)
-          const healAmount = Math.round(atkBefore * healPct)
+          // Heal amount = healPct × target's attack (before applying the reduction), scaled by Morelull's spell power
+          const healAmount = Math.round(atkBefore * healPct * spMult)
           if (healAmount <= 0) return
 
           // Second projectile: from enemy → nearest ally to that enemy

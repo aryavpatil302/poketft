@@ -1,0 +1,40 @@
+{
+  "label": "rayquaza test",
+  "units": [
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 0,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 0,
+      "row": 1,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 1,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy",
+      "tier": 3,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "rayquaza",
+      "tier": 1,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    }
+  ]
+}

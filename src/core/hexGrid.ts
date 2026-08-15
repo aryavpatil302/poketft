@@ -187,6 +187,7 @@ export function findPath(
   occupancy: Map<HexId, string>,
   movingUnitId: string,
   stopAtRange = 0,
+  softCost?: Map<HexId, number>,
 ): PathResult {
   // If already within range, no movement needed
   if (hexDistance(start, goal) <= stopAtRange) {
@@ -196,17 +197,22 @@ export function findPath(
   const startId = hexId(start)
   const goalId = hexId(goal)
 
-  // Hexes blocked to movement (occupied by OTHER units, excluding goal hex which
-  // is the target — units can approach adjacent to it)
+  // `softCost` maps a hexId to an extra step cost for hexes that are occupied but
+  // still traversable at a penalty: MOVING units (they'll usually vacate) and
+  // stationary ALLIES (squeeze through only when boxed in). A hex occupied by
+  // another unit and NOT in softCost is a hard block. Actual collisions are still
+  // prevented at slide-claim time (tickMovement reroutes if the hex is genuinely
+  // occupied when the unit tries to enter it).
   function isBlocked(h: OffsetCoord): boolean {
     const id = hexId(h)
     if (id === startId) return false  // own hex
     if (id === goalId && stopAtRange === 0) return false  // can enter goal if range 0
     const occupant = occupancy.get(id)
-    return occupant !== undefined && occupant !== movingUnitId
+    if (occupant === undefined || occupant === movingUnitId) return false
+    return !(softCost?.has(id) ?? false)  // soft-passable occupied hexes aren't hard blocks
   }
 
-  // Priority queue (min-heap via sorted array — board is tiny, 28 hexes max)
+  // Priority queue (min-heap via sorted array — board is tiny, 56 hexes)
   type Node = { hex: OffsetCoord; g: number; f: number; parent: HexId | null }
   const open: Node[] = []
   const closed = new Set<HexId>()
@@ -240,7 +246,8 @@ export function findPath(
       if (closed.has(nId)) continue
       if (isBlocked(neighbor)) continue
 
-      const g = current.g + 1
+      // Neighbor passed isBlocked, so if it's occupied it's soft-passable — add its penalty.
+      const g = current.g + 1 + (softCost?.get(nId) ?? 0)
       const h = hexDistance(neighbor, goal)
       const existing = nodeMap.get(nId)
 

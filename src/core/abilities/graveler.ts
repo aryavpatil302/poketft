@@ -1,5 +1,7 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit, Shield } from '../types'
+import { addShield } from '../systems/shield'
+import { computeStats } from '../unitFactory'
 
 export const GravelerAbility: AbilityHandler = {
   abilityId: 'graveler_iron_defense',
@@ -13,7 +15,8 @@ export const GravelerAbility: AbilityHandler = {
     const hpPcts     = [0.10, 0.20, 0.30] as const
     const defBonuses = [10,   20,   50  ] as const
 
-    const shieldAmount = Math.round(baseValues[tier - 1] + unit.maxHp * hpPcts[tier - 1])
+    const spMult       = (unit._computedStats ?? computeStats(unit)).special / 100
+    const shieldAmount = Math.round(baseValues[tier - 1] * spMult) + Math.round(unit.maxHp * hpPcts[tier - 1])
     const defBonus     = defBonuses[tier - 1]
 
     const shield: Shield = {
@@ -29,7 +32,6 @@ export const GravelerAbility: AbilityHandler = {
       },
     }
 
-    unit.shields.push(shield)
-    state.events.push({ type: 'shield', unitId: unit.id, amount: shieldAmount })
+    addShield(unit, shield, state)
   },
 }

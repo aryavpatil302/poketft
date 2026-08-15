@@ -1,6 +1,7 @@
 import type { PersistentAoEZone, CombatState } from '../types'
 import { hexesInRange, hexId } from '../hexGrid'
 import { applyDamage } from './damage'
+import { applyHeal } from './heal'
 import { addStatusEffect } from './statusEffect'
 import { computeStats } from '../unitFactory'
 
@@ -40,6 +41,7 @@ export function tickPersistentAoEZones(state: CombatState): void {
       if (zone.targetTeam !== 'both' && target.team !== zone.targetTeam) continue
 
       let finalDamage = 0
+      const wasAlive = target.state !== 'dead'
       if (source) {
         const result = applyDamage(source, target, {
           baseAmount: zone.damagePerInterval,
@@ -54,11 +56,11 @@ export function tickPersistentAoEZones(state: CombatState): void {
         finalDamage = zone.damagePerInterval
       }
 
+      if (wasAlive && target.state === 'dead' && zone.onKill) zone.onKill(zone, state)
+
       // Heal source for a fraction of damage dealt
       if (zone.healPct && zone.healPct > 0 && source && source.state !== 'dead' && finalDamage > 0) {
-        const healAmt = Math.round(finalDamage * zone.healPct)
-        source.currentHp = Math.min(source.maxHp, source.currentHp + healAmt)
-        state.events.push({ type: 'heal', targetId: source.id, amount: healAmt, sourceId: source.id })
+        applyHeal(source, Math.round(finalDamage * zone.healPct), source.id, state)
       }
 
       if (zone.armorReduction && zone.armorReduction > 0) {

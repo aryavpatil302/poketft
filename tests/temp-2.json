@@ -1,0 +1,26 @@
+{
+  "label": "temp 2",
+  "units": [
+    {
+      "id": "morgrem",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "morelull",
+      "tier": 1,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "dummy_melee",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

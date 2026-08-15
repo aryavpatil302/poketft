@@ -1,0 +1,26 @@
+{
+  "label": "g test",
+  "units": [
+    {
+      "id": "tangela",
+      "tier": 3,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "ribombee",
+      "tier": 2,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "venusaur",
+      "tier": 1,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    }
+  ]
+}

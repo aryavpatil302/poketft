@@ -1,0 +1,117 @@
+{
+  "label": "jg vs vol",
+  "units": [
+    {
+      "id": "tangela",
+      "tier": 3,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "ribombee",
+      "tier": 3,
+      "col": 6,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "venusaur",
+      "tier": 3,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "vikavolt",
+      "tier": 2,
+      "col": 2,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "toucannon",
+      "tier": 2,
+      "col": 5,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "tropius",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "tapu_bulu",
+      "tier": 1,
+      "col": 5,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "vigoroth",
+      "tier": 2,
+      "col": 5,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "graveler",
+      "tier": 3,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "typhlosion",
+      "tier": 3,
+      "col": 0,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "torkoal",
+      "tier": 3,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "gible",
+      "tier": 2,
+      "col": 2,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "armarouge",
+      "tier": 2,
+      "col": 1,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "a_marowak",
+      "tier": 2,
+      "col": 5,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "wheezing",
+      "tier": 2,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "charizard",
+      "tier": 1,
+      "col": 2,
+      "row": 0,
+      "team": "enemy"
+    }
+  ]
+}

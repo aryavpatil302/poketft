@@ -3,6 +3,7 @@ import type { CombatState, Unit } from '../types'
 import { hexDistance } from '../hexGrid'
 import { addStatusEffect } from '../systems/statusEffect'
 import { createProjectile } from '../projectile'
+import { computeStats } from '../unitFactory'
 
 // Find the ally with the lowest current HP (excluding self); returns null if none
 function findLowestHealthAlly(unit: Unit, state: CombatState): Unit | null {
@@ -44,8 +45,9 @@ export const RibombeeAbility: AbilityHandler = {
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
     const healValues   = [100, 175, 300] as const
-    const damageValues = [100, 175, 300] as const
-    const heal   = healValues[tier - 1]
+    const damageValues = [200, 275, 400] as const
+    const spMult = (unit._computedStats ?? computeStats(unit)).special / 100
+    const heal   = Math.round(healValues[tier - 1] * spMult)
     const damage = damageValues[tier - 1]
 
     // ── Healing puff → lowest health ally ─────────────────────────────────
@@ -74,11 +76,10 @@ export const RibombeeAbility: AbilityHandler = {
         startPos: { ...unit.visualPos },
         speed: 13,
         damagePayload: {
-          baseAmount: damage,
-          damageType: 'magic',
-          canCrit: false,
-          scalingStat: 'special',
-          scalingRatio: 0,
+          baseAmount:        damage,
+          damageType:        'magic',
+          canCrit:           false,
+          abilityScalingStat: 'special',
         },
         onHit: (_source, target, _state) => {
           // Reduce attack speed by 30% for 1 second (60 ticks)

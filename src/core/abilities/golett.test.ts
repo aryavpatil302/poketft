@@ -73,7 +73,7 @@ describe('Golett - Shadow Punch', () => {
   })
 
   it('pushes shadow_punch_empowered attack modifier with 1 charge and correct bonus damage', () => {
-    const dmgs = [200, 250, 350] as const
+    const dmgs = [200, 375, 791] as const  // attack% scaling: [400,500,700]% of attack
     for (const tier of [1, 2, 3] as const) {
       const c = makeUnit('golett', 'player', tier)
       c.hexPos = { col: 3, row: 5 }

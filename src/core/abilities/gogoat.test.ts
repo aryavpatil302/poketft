@@ -62,12 +62,11 @@ describe('Gogoat - Grass Pelt', () => {
     expect(caster.currentHp).toBeGreaterThan(hpBefore)
   })
 
-  it('triggering modifier onHit also heals nearest ally', () => {
+  it('triggering modifier onHit adds the lunge animation status', () => {
     cast(caster, state, 20)
-    const allyHpBefore = ally.currentHp
     const mod = caster.attackModifiers[0]
     if (mod.onHit) mod.onHit(caster, enemy, state)
-    expect(ally.currentHp).toBeGreaterThan(allyHpBefore)
+    expect(caster.statusEffects.some(e => e.stackId === 'gogoat_lunge')).toBe(true)
   })
 
   it('all 3 modifier onHit callbacks heal the caster each time', () => {
@@ -81,8 +80,8 @@ describe('Gogoat - Grass Pelt', () => {
     }
   })
 
-  it('bonus damage is 75 at tier 2 and 125 at tier 3', () => {
-    for (const [tier, expectedDmg] of [[2, 75], [3, 125]] as const) {
+  it('bonus damage is 80 at tier 2 and 120 at tier 3', () => {
+    for (const [tier, expectedDmg] of [[2, 80], [3, 120]] as const) {
       const g = makeUnit('gogoat', 'player', tier as 1 | 2 | 3)
       g.hexPos = { col: 3, row: 5 }
       const e = makeUnit('dummy', 'enemy', 1)

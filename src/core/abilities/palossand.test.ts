@@ -6,12 +6,14 @@ import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 import '../systems/ability'
 
-const CAST_TICKS = 25  // palossand castTimeTicks = 25
-
+// Guard against re-firing when cast completes
 function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
-  for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+  for (let i = 0; i < 50; i++) {
+    if (caster.state !== 'casting') break
+    tickAbilityCast(caster, state)
+  }
 }
 
 describe('Palossand - Scorching Sands', () => {
@@ -37,7 +39,7 @@ describe('Palossand - Scorching Sands', () => {
     caster.currentMana = caster.maxMana
     triggerAbility(caster, state)
     expect(caster.state).toBe('casting')
-    expect(caster.abilityCastTimer).toBe(25)
+    expect(caster.abilityCastTimer).toBe(8)
   })
 
   it('emits a cast event', () => {
@@ -51,10 +53,10 @@ describe('Palossand - Scorching Sands', () => {
     expect(caster.currentMana).toBe(0)
   })
 
-  it('tier 1 - deals magic damage to 2 nearest enemies', () => {
+  it('tier 1 - deals magic damage to 3 nearest enemies', () => {
     cast(caster, state)
     const damaged = [e1, e2, e3].filter(e => e.currentHp < e.maxHp)
-    expect(damaged).toHaveLength(2)
+    expect(damaged).toHaveLength(3)
   })
 
   it('tier 2 - deals magic damage to 3 nearest enemies', () => {
@@ -72,7 +74,6 @@ describe('Palossand - Scorching Sands', () => {
     const s = createCombatState([t3], [e1, e2, e3])
     cast(t3, s)
     const damaged = [e1, e2, e3].filter(e => e.currentHp < e.maxHp)
-    // 3 enemies available, tier 3 targets 4 → all 3 get hit
     expect(damaged).toHaveLength(3)
   })
 
@@ -98,11 +99,11 @@ describe('Palossand - Scorching Sands', () => {
     }
   })
 
-  it('burn has magnitude 25 (burnPerSec)', () => {
+  it('burn magnitude equals 1% of target maxHp per second (0 spell buff)', () => {
     cast(caster, state)
     const burn = e1.statusEffects.find(fx => fx.id === 'burn')
     if (burn) {
-      expect(burn.magnitude).toBe(25)
+      expect(burn.magnitude).toBe(Math.round(e1.maxHp * 0.01))
     }
   })
 
@@ -114,30 +115,34 @@ describe('Palossand - Scorching Sands', () => {
     }
   })
 
-  it('increments spell buff counter (beachy trait)', () => {
-    caster.traits = ['beachy']
-    const before = state.spellBuffCounters.get(caster.id) ?? 0
-    cast(caster, state)
-    const after = state.spellBuffCounters.get(caster.id) ?? 0
+  it('increments spell buff counter for beachy allies on cast', () => {
+    // Need 2 beachy species for the threshold to activate
+    const beachyAlly = makeUnit('kingler', 'player', 1)
+    beachyAlly.hexPos = { col: 5, row: 5 }
+    const s = createCombatState([caster, beachyAlly], [e1, e2, e3])
+    const before = s.spellBuffCounters.get(caster.id) ?? 0
+    cast(caster, s)
+    const after = s.spellBuffCounters.get(caster.id) ?? 0
     expect(after).toBeGreaterThan(before)
   })
 
-  it('tier 1 base damage is 115 after mitigation (150 raw)', () => {
+  it('tier 1 base damage is 58 after mitigation (75 raw, 30 spDefense)', () => {
     cast(caster, state)
     const dmgEvent = state.events.find(e => e.type === 'damage')
     if (dmgEvent?.type === 'damage') {
-      // 150 raw * 100/130 (dummy spDefense=30) = 115
-      expect(dmgEvent.amount).toBe(115)
+      // 75 raw * 100 / (100 + 30) ≈ 58
+      expect(dmgEvent.amount).toBe(Math.round(75 * 100 / (100 + e1.spDefense)))
     }
   })
 
-  it('spell buff increases damage', () => {
+  it('burn magnitude scales with spell buff stacks', () => {
+    // Pre-seed 10 spell buff stacks on caster
     state.spellBuffCounters.set(caster.id, 10)
     cast(caster, state)
-    const dmgEvent = state.events.find(e => e.type === 'damage')
-    if (dmgEvent?.type === 'damage') {
-      // 150 * 1.2 = 180 raw, * 100/130 = 138
-      expect(dmgEvent.amount).toBeGreaterThan(115)
+    const burn = e1.statusEffects.find(fx => fx.id === 'burn')
+    if (burn) {
+      // burnPct = 0.01 + 10 * 0.01 = 0.11 → 11% of maxHp per second
+      expect(burn.magnitude).toBe(Math.max(1, Math.round(e1.maxHp * 0.11)))
     }
   })
 })

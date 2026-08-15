@@ -177,6 +177,23 @@ describe('A-Marowak – Shadow Bone', () => {
     expect(chain2.currentHp).toBeLessThan(10000)
   })
 
+  it('chains to at most 3 other enemies beyond the primary target', () => {
+    // A straight line of 4 connected enemies beyond the primary — only the
+    // nearest 3 (chain1-3) should be hit; chain4 is one hop too far.
+    const chain1 = makeUnit('dummy', 'enemy', 1); chain1.hexPos = { col: 4, row: 3 }; chain1.maxHp = 10000; chain1.currentHp = 10000
+    const chain2 = makeUnit('dummy', 'enemy', 1); chain2.hexPos = { col: 5, row: 3 }; chain2.maxHp = 10000; chain2.currentHp = 10000
+    const chain3 = makeUnit('dummy', 'enemy', 1); chain3.hexPos = { col: 6, row: 3 }; chain3.maxHp = 10000; chain3.currentHp = 10000
+    const chain4 = makeUnit('dummy', 'enemy', 1); chain4.hexPos = { col: 7, row: 3 }; chain4.maxHp = 10000; chain4.currentHp = 10000
+    state = createCombatState([caster], [enemy, chain1, chain2, chain3, chain4])
+    cast(caster, state)
+    for (const u of [chain1, chain2, chain3, chain4]) { u.spDefense = 0; u._computedStats = null }
+    caster.attackModifiers[2].onHit!(caster, enemy, state)
+    expect(chain1.currentHp).toBeLessThan(10000)
+    expect(chain2.currentHp).toBeLessThan(10000)
+    expect(chain3.currentHp).toBeLessThan(10000)
+    expect(chain4.currentHp).toBe(10000)   // 4th chained enemy is beyond the cap — untouched
+  })
+
   it('does not chain to isolated enemies not touching any hit enemy', () => {
     const isolated = makeUnit('dummy', 'enemy', 1)
     isolated.hexPos = { col: 0, row: 0 }  // far away, no connection

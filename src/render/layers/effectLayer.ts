@@ -1,7 +1,7 @@
 import type { CombatState, CombatEvent } from '../../core/types'
 import type { Projectile } from '../../core/types'
 import { hexToPixel } from '../../core/hexGrid'
-import { HEX_SIZE, BOARD_PERSP_Y } from '../../core/constants'
+import { HEX_SIZE, BOARD_PERSP_Y, TICK_RATE, OVERLAY_HEADROOM } from '../../core/constants'
 
 const leafImg = new Image()
 leafImg.src = '/visuals/ability_icons/tangela_leaf.webp'
@@ -30,6 +30,62 @@ nightSlashImg.src = '/visuals/ability_icons/night_slash.webp'
 
 const shadowPunchImg = new Image()
 shadowPunchImg.src = '/visuals/ability_icons/shadow_punch.webp'
+
+const direclawImg = new Image()
+direclawImg.src = '/visuals/ability_icons/dire_claw.webp'
+
+const ancientPowerSingleImg = new Image()
+ancientPowerSingleImg.src = '/visuals/ability_icons/ancient_power_single.webp'
+
+const icyWindImg = new Image()
+icyWindImg.src = '/visuals/ability_icons/icy_wind.webp'
+
+// Per-unit auto-attack sprites, drawn with the sprite's tip pointed at the target.
+// Each unit looks for /visuals/auto_attacks/<definitionId>_auto.png (e.g. vikavolt →
+// vikavolt_auto.png). Images are created lazily and cached; a missing file never
+// reports naturalWidth>0, so units without art fall back to the default dot. Drop a
+// new "<pokemonName>_auto.png" into that folder and the unit uses it automatically.
+const AUTO_SPRITE_HEIGHT = 22   // default render height in px; width scales to preserve aspect
+// Per-unit render-height overrides for autos that shouldn't use the default size.
+const AUTO_SPRITE_HEIGHT_OVERRIDES: Record<string, number> = {
+  vikavolt:   AUTO_SPRITE_HEIGHT * 2,     // double size
+  toucannon:  AUTO_SPRITE_HEIGHT * 1.3,   // +30%
+  typhlosion: AUTO_SPRITE_HEIGHT * 2,     // double size
+  armarouge:  AUTO_SPRITE_HEIGHT * 2,     // double size
+  charizard:  AUTO_SPRITE_HEIGHT * 2,     // double size
+  a_raichu:    AUTO_SPRITE_HEIGHT * 1.5,   // +50%
+  a_exeggutor: AUTO_SPRITE_HEIGHT * 2,     // double size
+  blastoise:   AUTO_SPRITE_HEIGHT * 1.5,     // double size
+  tapu_fini: AUTO_SPRITE_HEIGHT * 3,
+  noivern: AUTO_SPRITE_HEIGHT * 3,
+  zubat: AUTO_SPRITE_HEIGHT * 1.5,
+  morelull: AUTO_SPRITE_HEIGHT * 2,
+  oranguru: AUTO_SPRITE_HEIGHT * 2,
+  celebi: AUTO_SPRITE_HEIGHT * 1.5,
+  tapu_lele: AUTO_SPRITE_HEIGHT * 3,
+  unown: AUTO_SPRITE_HEIGHT * 1.8,
+  claydol: AUTO_SPRITE_HEIGHT * 2,
+  runerigus: AUTO_SPRITE_HEIGHT * 2.5,
+  latios: AUTO_SPRITE_HEIGHT * 2, 
+  froslass: AUTO_SPRITE_HEIGHT * 1.5, 
+  abomasnow: AUTO_SPRITE_HEIGHT * 3,
+  creep_g_slowbro: AUTO_SPRITE_HEIGHT * 3,
+  sableye: AUTO_SPRITE_HEIGHT * 2
+}
+
+const autoSpriteCache = new Map<string, HTMLImageElement>()
+function getAutoSprite(definitionId: string): HTMLImageElement {
+  let img = autoSpriteCache.get(definitionId)
+  if (!img) {
+    img = new Image()
+    img.src = `/visuals/auto_attacks/${definitionId}_auto.png`
+    autoSpriteCache.set(definitionId, img)
+  }
+  return img
+}
+
+const avalancheImg = new Image()
+avalancheImg.src = '/visuals/ability_icons/avalanche.webp'
 
 // Looping WebM video for Tangela's cast animation (created after makeLoopingVideo is defined below)
 let tangelaCastVideo: HTMLVideoElement
@@ -73,8 +129,17 @@ leechSeedOg.src = '/visuals/ability_icons/leech_seed_og.webp'
 const beakBlastImg = new Image()
 beakBlastImg.src = '/visuals/ability_icons/beak_blast_orange.webp'
 
+// Latios/Latias orb tints applied to pollen_puff_yellow.webp
+const LATIOS_BLUE_FILTER = 'hue-rotate(170deg) saturate(2) brightness(1.1)'
+const LATIOS_BLUE_GLOW   = '#4FA8FF'
+const LATIAS_RED_FILTER  = 'hue-rotate(-55deg) saturate(2.4) brightness(1.05)'
+const LATIAS_RED_GLOW    = '#FF5A6E'
+
 const surgeSurferImg = new Image()
 surgeSurferImg.src = '/visuals/ability_icons/Surge_Surfer.webp'
+
+const surgeSurferBlueImg = new Image()
+surgeSurferBlueImg.src = '/visuals/ability_icons/Surge_Surfer_blue.webp'
 const eggBombVideo    = makeLoopingVideo('/visuals/ability_icons/egg_bomb.webm')
 const eruptionVideo   = makeLoopingVideo('/visuals/ability_icons/eruption.webm')
 const whiteSmokeVideo = makeLoopingVideo('/visuals/ability_icons/white_smoke.webm')
@@ -257,6 +322,38 @@ interface BelliboltDischargeEffect {
   video: HTMLVideoElement
 }
 
+interface TapuKokoChainEffect {
+  kind: 'tapukoko_chain'
+  unitId: string
+  x: number   // fallback if unit is gone
+  y: number
+  fromX: number  // struck unit's position — the bolt arcs from here to (x, y)
+  fromY: number
+  tick: number
+  maxTick: number
+  empowered: boolean       // cast-empowered chains render blue instead of yellow
+}
+
+interface LatiosChargeEffect {
+  kind: 'latios_charge'
+  unitId: string
+  tick: number
+  maxTick: number    // matches the ability's channel ticks — orb grows over the channel
+  filter: string     // blue tint for Latios, red for Latias
+  glow: string
+}
+
+interface LusterPurgeBurstEffect {
+  kind: 'luster_purge_burst'
+  x: number
+  y: number
+  tick: number
+  maxTick: number
+  maxSize: number    // covers the ability's blast radius
+  filter: string
+  glow: string
+}
+
 interface QuagsireShieldPopEffect {
   kind: 'quagsire_shield_pop'
   x: number
@@ -337,7 +434,72 @@ interface ShadowPunchGhostEffect {
   firedAt?: number    // tick when the fly event arrived
 }
 
-type VfxEffect = DischargeRowEffect | BeakBlastEffect | CastGlowEffect | LeafShieldEffect | TornadoEffect | SandShakeEffect | WhirlpoolEffect | WhiteSmokeEffect | CannonExplosionEffect | SmogPuffEffect | BlastBurnMarkEffect | BlastBurnDetonateEffect | BoomburstBurstEffect | DragonSlamEffect | BelliboltDischargeEffect | QuagsireShieldPopEffect | PsystrikeEffect | CelebiFsMarkEffect | UnownElectricRingEffect | AbsolNightSlashEffect | ShadowBoneFireEffect | DestinyMarkEffect | WanderingSpiritArmEffect | ShadowPunchGhostEffect
+interface ShadowPunchStrikeEffect {
+  kind: 'shadow_punch_strike'
+  x: number
+  y: number
+  dirX: number
+  dirY: number
+  speed: number   // px/tick
+  angle: number   // radians — image facing direction (toward target)
+  tick: number
+  maxTick: number
+}
+
+interface DireClawEffect {
+  kind: 'dire_claw'
+  hexPositions: { x: number; y: number }[]
+  angle: number   // radians — forward direction (Sneasler → target)
+  tick: number
+  maxTick: number
+}
+
+interface AncientPowerCastEffect {
+  kind: 'ancient_power_cast'
+  unitId: string         // follows Aerodactyl's live position
+  tick: number
+  maxTick: number
+  video: HTMLVideoElement
+}
+
+interface AvalancheFallEffect {
+  kind: 'avalanche_fall'
+  unitId: string
+  x: number    // snapshot fallback if unit is dead
+  y: number
+  tick: number
+  maxTick: number
+  hoverTicks: number
+}
+
+interface BlizzardEffect {
+  kind: 'blizzard'
+  x: number
+  y: number
+  zoneId: string
+  tick: number
+  maxTick: number
+  video: HTMLVideoElement
+}
+
+interface BlizzardUnitEffect {
+  kind: 'blizzard_unit'
+  targetId: string
+  zoneId: string
+  tick: number
+  maxTick: number
+  video: HTMLVideoElement
+}
+
+interface ThickFatEffect {
+  kind: 'thick_fat'
+  unitId: string
+  tick: number
+  maxTick: number
+  video: HTMLVideoElement
+}
+
+type VfxEffect = DischargeRowEffect | BeakBlastEffect | CastGlowEffect | LeafShieldEffect | TornadoEffect | SandShakeEffect | WhirlpoolEffect | WhiteSmokeEffect | CannonExplosionEffect | SmogPuffEffect | BlastBurnMarkEffect | BlastBurnDetonateEffect | BoomburstBurstEffect | DragonSlamEffect | BelliboltDischargeEffect | TapuKokoChainEffect | LatiosChargeEffect | LusterPurgeBurstEffect | QuagsireShieldPopEffect | PsystrikeEffect | CelebiFsMarkEffect | UnownElectricRingEffect | AbsolNightSlashEffect | ShadowBoneFireEffect | DestinyMarkEffect | WanderingSpiritArmEffect | ShadowPunchGhostEffect | ShadowPunchStrikeEffect | DireClawEffect | AncientPowerCastEffect | AvalancheFallEffect | BlizzardEffect | BlizzardUnitEffect | ThickFatEffect
 
 interface DrainProjectile {
   currentPos: { x: number; y: number }
@@ -347,7 +509,7 @@ interface DrainProjectile {
 
 export interface CastAnimation {
   unitId: string
-  type: 'shake' | 'hop' | 'dart' | 'hold_hop' | 'flap' | 'bigShake' | 'cock_toss' | 'sway' | 'squash_launch' | 'hammer_swing' | 'spin' | 'unown_spin' | 'absol_slash' | 'claydol_gravity' | 'slam_land' | 'rune_charge_lunge' | 'ws_consume_shake'
+  type: 'shake' | 'hop' | 'dart' | 'hop_dart' | 'dart_rumble' | 'hold_hop' | 'flap' | 'bigShake' | 'cock_toss' | 'sway' | 'squash_launch' | 'hammer_swing' | 'spin' | 'unown_spin' | 'absol_slash' | 'claydol_gravity' | 'slam_land' | 'rune_charge_lunge' | 'ws_consume_shake' | 'dire_claw_swipe' | 'excadrill_land' | 'whirlpool_swirl' | 'apex_hop'
   targetAngle?: number  // radians — used by unown_spin
   startAngle?: number   // radians — used by absol_slash (blade start direction)
   remaining: number
@@ -365,6 +527,8 @@ const UNIT_RADIUS = HEX_SIZE * 0.80  // mirrors unitLayer SPRITE_HALF for cast g
 export class EffectLayer {
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
+  private groundCanvas: HTMLCanvasElement | null = null
+  private groundCtx: CanvasRenderingContext2D | null = null
   private floaters: FloatingNumber[] = []
   private vfxEffects: VfxEffect[]    = []
   private animTick = 0
@@ -372,9 +536,13 @@ export class EffectLayer {
   private castAnimations: CastAnimation[] = []
   private drainProjectiles: DrainProjectile[] = []
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, groundCanvas?: HTMLCanvasElement) {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d')!
+    if (groundCanvas) {
+      this.groundCanvas = groundCanvas
+      this.groundCtx = groundCanvas.getContext('2d')!
+    }
   }
 
   // Called each combat tick — spawns effects from events
@@ -569,12 +737,28 @@ export class EffectLayer {
 
       // ── Cast effects ────────────────────────────────────────────────────────
       if (ev.type === 'cast') {
+        if (ev.abilityId === 'latios_luster_purge') {
+          this.vfxEffects.push({ kind: 'latios_charge', unitId: ev.unitId, tick: 0, maxTick: 45,
+            filter: LATIOS_BLUE_FILTER, glow: LATIOS_BLUE_GLOW })
+        }
+        if (ev.abilityId === 'latias_mist_ball') {
+          this.vfxEffects.push({ kind: 'latios_charge', unitId: ev.unitId, tick: 0, maxTick: 75,
+            filter: LATIAS_RED_FILTER, glow: LATIAS_RED_GLOW })
+        }
         if (ev.abilityId === 'tangela_leaf_guard') {
           this.vfxEffects.push({ kind: 'leaf_shield', unitId: ev.unitId, tick: 0, maxTick: 360 })
           this.castAnimations.push({ unitId: ev.unitId, type: 'shake', remaining: 14, total: 14 })
         }
-        if (ev.abilityId === 'venusaur_leech_seed') {
+        if (ev.abilityId === 'venusaur_leech_seed' || ev.abilityId === 'gogoat_grass_pelt') {
           this.castAnimations.push({ unitId: ev.unitId, type: 'hop', remaining: 20, total: 20 })
+        }
+        if (ev.abilityId === 'tapufini_natures_madness') {
+          // Sweep in a wide oval to stir up the whirlpool (spirals out then back in)
+          this.castAnimations.push({ unitId: ev.unitId, type: 'whirlpool_swirl', remaining: 26, total: 26 })
+        }
+        if (ev.abilityId === 'zubat_poison_sting') {
+          // Jump; apex lands on the launch tick (apexAt = castTimeTicks=15), then descends
+          this.castAnimations.push({ unitId: ev.unitId, type: 'apex_hop', remaining: 28, total: 28, apexAt: 15 })
         }
         if (ev.abilityId === 'ribombee_pollen_puff') {
           const caster = units?.get(ev.unitId)
@@ -586,7 +770,20 @@ export class EffectLayer {
             const d  = Math.sqrt(dx * dx + dy * dy)
             if (d > 0) { dirX = dx / d; dirY = dy / d }
           }
-          // total=28: 20 frames lunge out (apex = cast time), 8 frames snap back
+          // Small hop early, then lunge out peaking at the launch (apex = cast time),
+          // then snap back. total=32: hop (0–14) → lunge (peaks 20) → snap back (20–32).
+          this.castAnimations.push({ unitId: ev.unitId, type: 'hop_dart', remaining: 32, total: 32, apexAt: 20, dirX, dirY })
+        }
+        if (ev.abilityId === 'froslass_icy_wind') {
+          const caster = units?.get(ev.unitId)
+          const target = caster?.targetId ? units?.get(caster.targetId) : undefined
+          let dirX = 0, dirY = -1
+          if (caster && target) {
+            const dx = target.visualPos.x - caster.visualPos.x
+            const dy = target.visualPos.y - caster.visualPos.y
+            const d  = Math.sqrt(dx * dx + dy * dy)
+            if (d > 0) { dirX = dx / d; dirY = dy / d }
+          }
           this.castAnimations.push({ unitId: ev.unitId, type: 'dart', remaining: 28, total: 28, apexAt: 20, dirX, dirY })
         }
         if (ev.abilityId === 'toucannon_beak_blast') {
@@ -594,8 +791,9 @@ export class EffectLayer {
           this.castAnimations.push({ unitId: ev.unitId, type: 'hold_hop', remaining: 38, total: 38, apexAt: 20 })
         }
         if (ev.abilityId === 'tropius_leaf_tornado') {
-          // 2 rapid up-down flaps during cast (total matches castTimeTicks + a little tail)
-          this.castAnimations.push({ unitId: ev.unitId, type: 'flap', remaining: 26, total: 26 })
+          // Big high jump that peaks right as the tornado launches (apex = castTimeTicks=20),
+          // then lands over the tail.
+          this.castAnimations.push({ unitId: ev.unitId, type: 'flap', remaining: 34, total: 34, apexAt: 20 })
         }
         if (ev.abilityId === 'tapubulu_natures_madness') {
           // Big impactful shake to emphasize the size growth on transformation
@@ -604,6 +802,44 @@ export class EffectLayer {
         if (ev.abilityId === 'palossand_scorching_sands') {
           // Palossand shakes as it erupts the ground
           this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 25, total: 25 })
+        }
+        if (ev.abilityId === 'klawf_anger_shell') {
+          this.castAnimations.push({ unitId: ev.unitId, type: 'shake', remaining: 14, total: 14 })
+        }
+        if (ev.abilityId === 'a_marowak_shadow_bone') {
+          // Heavy rumble as he winds up the bone club — sells the weight before the swings land
+          this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 16, total: 16 })
+        }
+        if (ev.abilityId === 'snorunt_ice_body') {
+          this.castAnimations.push({ unitId: ev.unitId, type: 'shake', remaining: 18, total: 18 })
+        }
+        if (ev.abilityId === 'sneasler_dire_claw') {
+          const caster = units?.get(ev.unitId)
+          const target = caster?.targetId ? units?.get(caster.targetId) : undefined
+          let dirX = 0, dirY = -1
+          if (caster && target) {
+            const dx = target.visualPos.x - caster.visualPos.x
+            const dy = target.visualPos.y - caster.visualPos.y
+            const len = Math.hypot(dx, dy)
+            if (len > 0) { dirX = dx / len; dirY = dy / len }
+          }
+          // total=35: 8 pull-left, 12 arc up-right (apex=20 = when swipe fires), 15 return
+          this.castAnimations.push({ unitId: ev.unitId, type: 'dire_claw_swipe', remaining: 35, total: 35, apexAt: 20, dirX, dirY })
+        }
+        if (ev.abilityId === 'h_avalugg_mountain_gale') {
+          this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 36, total: 36 })
+        }
+        if (ev.abilityId === 'abomasnow_blizzard') {
+          this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 36, total: 36 })
+        }
+        if (ev.abilityId === 'aerodactyl_ancient_power') {
+          this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 30, total: 30 })
+          // Only create the overlay once — guard against a second cast event firing
+          if (!this.vfxEffects.some(e => e.kind === 'ancient_power_cast' && (e as AncientPowerCastEffect).unitId === ev.unitId)) {
+            const v = spawnOneShot('/visuals/ability_icons/ancient_power.webm')
+            v.loop = true  // loop forever until Aerodactyl dies
+            this.vfxEffects.push({ kind: 'ancient_power_cast', unitId: ev.unitId, video: v, tick: 0, maxTick: 999999 })
+          }
         }
         if (ev.abilityId === 'stonjourner_power_spot') {
           // Lunge away from the nearest ally (toward whom the rock will travel from)
@@ -628,7 +864,8 @@ export class EffectLayer {
           this.castAnimations.push({ unitId: ev.unitId, type: 'dart', remaining: 18, total: 18, apexAt: 10, dirX, dirY })
         }
         if (ev.abilityId === 'a_exeggutor_egg_bomb') {
-          // 30 ticks cock-back, 5 tick pause, 10 tick snap — egg launches at snap start
+          // 30 ticks cock-back, then a forward swing (30→45) — the egg launches partway
+          // through the swing so it releases as the arm comes forward, not while cocked back.
           this.castAnimations.push({ unitId: ev.unitId, type: 'cock_toss', remaining: 45, total: 45, apexAt: 30 })
         }
         if (ev.abilityId === 'armarouge_armor_cannon') {
@@ -691,9 +928,14 @@ export class EffectLayer {
             const d  = Math.sqrt(dx * dx + dy * dy)
             if (d > 0) { dirX = dx / d; dirY = dy / d }
           }
-          // Sharp fast lunge: quick snap forward (apex at 8), fast return
-          this.castAnimations.push({ unitId: ev.unitId, type: 'dart', remaining: 18, total: 18, apexAt: 8, dirX, dirY })
+          // Sharp fast lunge with an electric rumble: quick snap forward (apex at 8), fast return
+          this.castAnimations.push({ unitId: ev.unitId, type: 'dart_rumble', remaining: 18, total: 18, apexAt: 8, dirX, dirY })
         }
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'gible_bite_lunge') {
+        // Quick snap forward into the target at the bite (apex at 7), fast return —
+        // separate from the leap that closed the distance to get here.
+        this.castAnimations.push({ unitId: ev.unitId, type: 'dart', remaining: 22, total: 22, apexAt: 7, dirX: ev.dirX, dirY: ev.dirY })
       }
       if (ev.type === 'vfx' && ev.effectId === 'marowak_hammer_swing') {
         this.castAnimations.push({ unitId: ev.unitId, type: 'hammer_swing', remaining: 26, total: 26, dirX: ev.dirX, dirY: ev.dirY, swingDir: ev.swingDir })
@@ -783,7 +1025,7 @@ export class EffectLayer {
         this.castAnimations.push({ unitId: ev.unitId, type: 'ws_consume_shake', remaining: RUMBLE_TICKS, total: RUMBLE_TICKS })
       }
       if (ev.type === 'vfx' && ev.effectId === 'absol_night_slash') {
-        const SLASH_TICKS = 18
+        const SLASH_TICKS = 13   // faster full-rotation spin
         this.castAnimations.push({ unitId: ev.unitId, type: 'absol_slash', remaining: SLASH_TICKS, total: SLASH_TICKS, startAngle: ev.startAngle })
         this.vfxEffects.push({ kind: 'absol_night_slash', unitId: ev.unitId, startAngle: ev.startAngle, tick: 0, maxTick: SLASH_TICKS })
       }
@@ -814,6 +1056,43 @@ export class EffectLayer {
           video: spawnOneShot('/visuals/ability_icons/Electrophoresis.webm'),
         })
       }
+      if (ev.type === 'vfx' && ev.effectId === 'luster_purge_burst') {
+        this.vfxEffects.push({
+          kind: 'luster_purge_burst',
+          x: ev.x,
+          y: ev.y,
+          tick: 0,
+          maxTick: 28,
+          maxSize: HEX_SIZE * 8.0,   // 3-hex blast
+          filter: LATIOS_BLUE_FILTER,
+          glow: LATIOS_BLUE_GLOW,
+        })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'mist_ball_burst') {
+        this.vfxEffects.push({
+          kind: 'luster_purge_burst',
+          x: ev.x,
+          y: ev.y,
+          tick: 0,
+          maxTick: 28,
+          maxSize: HEX_SIZE * 5.6,   // 2-hex blast
+          filter: LATIAS_RED_FILTER,
+          glow: LATIAS_RED_GLOW,
+        })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'tapukoko_chain') {
+        this.vfxEffects.push({
+          kind: 'tapukoko_chain',
+          unitId: ev.unitId,
+          x: ev.x,
+          y: ev.y,
+          fromX: ev.fromX,
+          fromY: ev.fromY,
+          tick: 0,
+          maxTick: 20,
+          empowered: ev.empowered,
+        })
+      }
       if (ev.type === 'vfx' && ev.effectId === 'shadow_punch_appear') {
         this.vfxEffects.push({
           kind: 'shadow_punch_ghost',
@@ -834,12 +1113,100 @@ export class EffectLayer {
           }
         }
       }
+      if (ev.type === 'vfx' && ev.effectId === 'shadow_punch_strike') {
+        const srcPos = _unitPositions.get(ev.sourceId)
+        const tgtPos = _unitPositions.get(ev.targetId)
+        if (srcPos) {
+          const STRIKE_TICKS = 18
+          let totalDist = HEX_SIZE * 2.0
+          if (tgtPos) {
+            const dx = tgtPos.x - srcPos.x
+            const dy = tgtPos.y - srcPos.y
+            totalDist = Math.sqrt(dx * dx + dy * dy) + HEX_SIZE * 0.8
+          }
+          this.vfxEffects.push({
+            kind: 'shadow_punch_strike',
+            x: srcPos.x,
+            y: srcPos.y,
+            dirX: ev.dirX,
+            dirY: ev.dirY,
+            speed: totalDist / STRIKE_TICKS,
+            angle: Math.atan2(ev.dirY, ev.dirX),
+            tick: 0,
+            maxTick: STRIKE_TICKS,
+          })
+        }
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'sneasler_dire_claw') {
+        this.vfxEffects.push({
+          kind:         'dire_claw',
+          hexPositions: ev.hexPositions,
+          angle:        ev.angle,
+          tick:         0,
+          maxTick:      28,
+        })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'h_avalugg_avalanche') {
+        for (const pos of ev.positions) {
+          this.vfxEffects.push({
+            kind:       'avalanche_fall',
+            unitId:     pos.unitId,
+            x:          pos.x,
+            y:          pos.y,
+            tick:       0,
+            maxTick:    ev.hoverTicks + 18,
+            hoverTicks: ev.hoverTicks,
+          })
+        }
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'h_avalugg_impact') {
+        this.castAnimations.push({ unitId: ev.unitId, type: 'slam_land', remaining: 28, total: 28 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'excadrill_land') {
+        this.castAnimations.push({ unitId: ev.unitId, type: 'excadrill_land', remaining: 20, total: 20 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'mamoswine_thick_fat_start') {
+        // Replace any existing thick_fat effect for this unit (recast)
+        this.vfxEffects = this.vfxEffects.filter(e => {
+          if (e.kind === 'thick_fat' && (e as ThickFatEffect).unitId === ev.unitId) {
+            e.video.pause(); e.video.remove(); return false
+          }
+          return true
+        })
+        const v = spawnOneShot('/visuals/ability_icons/thick_fat.webm')
+        v.loop = true
+        this.vfxEffects.push({ kind: 'thick_fat', unitId: ev.unitId, tick: 0, maxTick: 5 * TICK_RATE, video: v })
+        this.castAnimations.push({ unitId: ev.unitId, type: 'bigShake', remaining: 28, total: 28 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'mamoswine_thick_fat_end') {
+        this.castAnimations.push({ unitId: ev.unitId, type: 'shake', remaining: 18, total: 18 })
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'abomasnow_blizzard_start') {
+        // Big burst blizzard — short-lived, just for the cast animation
+        if (!this.vfxEffects.some(e => e.kind === 'blizzard' && (e as BlizzardEffect).zoneId === ev.zoneId)) {
+          const v = spawnOneShot('/visuals/ability_icons/blizzard.webm')
+          this.vfxEffects.push({ kind: 'blizzard', x: ev.x, y: ev.y, zoneId: ev.zoneId, tick: 0, maxTick: 35, video: v })
+        }
+      }
+      if (ev.type === 'vfx' && ev.effectId === 'abomasnow_blizzard_unit') {
+        // Mini blizzard that follows the affected unit for the blizzard duration
+        const v = spawnOneShot('/visuals/ability_icons/blizzard.webm')
+        v.loop = true
+        this.vfxEffects.push({ kind: 'blizzard_unit', targetId: ev.targetId, zoneId: ev.zoneId, tick: 0, maxTick: 4 * TICK_RATE, video: v })
+      }
     }
   }
 
   /** Returns active cast animations for unitLayer to apply as sprite nudges. */
   getCastAnimations(): CastAnimation[] {
     return this.castAnimations
+  }
+
+  /** Cuts off all in-flight cast animations (shake/spin/rumble/dart/etc.) —
+   * used at combat end so the victory-bob hop isn't fighting a leftover
+   * ability animation on units that survived mid-cast. */
+  clearCastAnimations(): void {
+    this.castAnimations = []
   }
 
   /** Returns unit IDs currently in the heal-flash window, with alpha 0–1. */
@@ -853,7 +1220,29 @@ export class EffectLayer {
 
   draw(state: CombatState): void {
     const ctx = this.ctx
+    // Reset to identity for a full clear, then shift all drawing down by the
+    // headroom. The effect canvas carries the same top headroom as the unit
+    // canvas (grown upward, drawing shifted down by the same amount) so
+    // above-head VFX like Celebi / Spiritomb marks on a top-row unit aren't
+    // clipped. The ground canvas is separate and stays un-shifted.
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    ctx.translate(0, OVERLAY_HEADROOM)
+
+    // Draw ground-level VFX (under units) on the ground canvas
+    if (this.groundCtx && this.groundCanvas) {
+      const gctx = this.groundCtx
+      gctx.clearRect(0, 0, this.groundCanvas.width, this.groundCanvas.height)
+      gctx.save()
+      gctx.scale(1, BOARD_PERSP_Y)  // match unitLayer perspective
+      for (const effect of this.vfxEffects) {
+        if (effect.kind === 'blizzard')        this.drawBlizzard(gctx, effect, state)
+        if (effect.kind === 'blizzard_unit')   this.drawBlizzardUnit(gctx, effect as BlizzardUnitEffect, state)
+        if (effect.kind === 'thick_fat')  this.drawThickFat(gctx, effect, state)
+      }
+      gctx.restore()
+    }
+
     this.animTick++
 
     ctx.save()
@@ -920,7 +1309,7 @@ export class EffectLayer {
     for (const effect of this.vfxEffects) {
       effect.tick++
       if (effect.tick > effect.maxTick) {
-        if (effect.kind === 'beak_blast' || effect.kind === 'tornado' || effect.kind === 'sand_shake' || effect.kind === 'whirlpool' || effect.kind === 'white_smoke' || effect.kind === 'blast_burn_mark' || effect.kind === 'blast_burn_detonate' || effect.kind === 'boomburst_burst' || effect.kind === 'bellibolt_discharge' || effect.kind === 'tapulele_psystrike' || effect.kind === 'celebi_fs_mark' || effect.kind === 'destiny_mark' || effect.kind === 'wandering_spirit_arm') {
+        if (effect.kind === 'beak_blast' || effect.kind === 'tornado' || effect.kind === 'sand_shake' || effect.kind === 'whirlpool' || effect.kind === 'white_smoke' || effect.kind === 'blast_burn_mark' || effect.kind === 'blast_burn_detonate' || effect.kind === 'boomburst_burst' || effect.kind === 'bellibolt_discharge' || effect.kind === 'tapulele_psystrike' || effect.kind === 'celebi_fs_mark' || effect.kind === 'destiny_mark' || effect.kind === 'wandering_spirit_arm' || effect.kind === 'ancient_power_cast' || effect.kind === 'blizzard' || effect.kind === 'blizzard_unit' || effect.kind === 'thick_fat') {
           effect.video.pause()
           effect.video.remove()
         }
@@ -944,6 +1333,9 @@ export class EffectLayer {
         case 'boomburst_burst':     this.drawBoomburstBurst(ctx, effect); break
         case 'dragon_slam':             this.drawDragonSlam(ctx, effect);               break
         case 'bellibolt_discharge':     this.drawBelliboltDischarge(ctx, effect, state); break
+        case 'tapukoko_chain':          this.drawTapuKokoChain(ctx, effect, state);      break
+        case 'latios_charge':           this.drawLatiosCharge(ctx, effect, state);       break
+        case 'luster_purge_burst':      this.drawLusterPurgeBurst(ctx, effect);          break
         case 'quagsire_shield_pop':         this.drawQuagsireShieldPop(ctx, effect);              break
         case 'tapulele_psystrike':          this.drawPsystrike(ctx, effect, state);               break
         case 'celebi_fs_mark':              this.drawCelebiFsMark(ctx, effect, state);             break
@@ -953,6 +1345,13 @@ export class EffectLayer {
         case 'destiny_mark':                this.drawDestinyMark(ctx, effect, state);               break
         case 'wandering_spirit_arm':         this.drawWanderingSpiritArm(ctx, effect, state);         break
         case 'shadow_punch_ghost':           this.drawShadowPunchGhost(ctx, effect, state);           break
+        case 'shadow_punch_strike':          this.drawShadowPunchStrike(ctx, effect);                  break
+        case 'dire_claw':                    this.drawDireClaw(ctx, effect);                           break
+        case 'ancient_power_cast':           this.drawAncientPowerCast(ctx, effect, state);            break
+        case 'avalanche_fall':               this.drawAvalancheFall(ctx, effect, state);               break
+        case 'blizzard':                     break  // drawn on ground canvas in draw() preamble
+        case 'blizzard_unit':                break  // drawn on ground canvas in draw() preamble
+        case 'thick_fat':                    break  // drawn on ground canvas in draw() preamble
       }
       aliveVfx.push(effect)
     }
@@ -1350,6 +1749,9 @@ export class EffectLayer {
   private drawProjectile(ctx: CanvasRenderingContext2D, proj: Projectile, state?: CombatState): void {
     if (proj.abilityId === 'tropius_leaf_tornado') return  // tornado visual handled by TornadoEffect
 
+    // Resolved once: fixed-position projectiles have no targetId
+    const projTarget = proj.targetId ? state?.units.get(proj.targetId) : undefined
+
     if (proj.abilityId === 'unown_hidden_power_ice' || proj.abilityId === 'unown_hidden_power_fire' || proj.abilityId === 'unown_hidden_power_electric') {
       const img = proj.abilityId === 'unown_hidden_power_ice'      ? hpIceImg
                 : proj.abilityId === 'unown_hidden_power_fire'     ? hpFireImg
@@ -1357,7 +1759,7 @@ export class EffectLayer {
       const size = 44
       if (img.complete && img.naturalWidth > 0) {
         // Spin the icon as it travels
-        const target = state?.units.get(proj.targetId)
+        const target = projTarget
         const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
         const ty = target?.visualPos.y ?? proj.currentPos.y
         const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
@@ -1370,8 +1772,52 @@ export class EffectLayer {
       }
     }
 
+    if (proj.abilityId === 'tapukoko_chain_carrier') return  // invisible companion — chain fires on landing
+
+    if ((proj.abilityId === 'latios_luster_purge_orb' || proj.abilityId === 'latias_mist_ball_orb')
+        && pollenPuffYellow.complete && pollenPuffYellow.naturalWidth > 0) {
+      // Fully-charged orb arcing toward the enemy cluster — blue for Latios, red for Latias
+      const isLatias = proj.abilityId === 'latias_mist_ball_orb'
+      const dx = proj.currentPos.x - proj.startPos.x
+      const dy = proj.currentPos.y - proj.startPos.y
+      const travelled = Math.sqrt(dx * dx + dy * dy)
+      const t = proj.launchDist && proj.launchDist > 0 ? Math.min(1, travelled / proj.launchDist) : 0
+      const arcOffset = (proj.arcHeight ?? 0) * Math.sin(Math.PI * t)
+      const size = 64
+      const pulse = 1 + Math.sin(performance.now() * 0.02) * 0.06
+      ctx.save()
+      ctx.filter = isLatias ? LATIAS_RED_FILTER : LATIOS_BLUE_FILTER
+      ctx.shadowColor = isLatias ? LATIAS_RED_GLOW : LATIOS_BLUE_GLOW
+      ctx.shadowBlur  = 24
+      ctx.drawImage(pollenPuffYellow,
+        proj.currentPos.x - (size * pulse) / 2,
+        proj.currentPos.y - arcOffset - (size * pulse) / 2,
+        size * pulse, size * pulse)
+      ctx.restore()
+      return
+    }
+
+    if (proj.abilityId === 'tapukoko_bolt' || proj.abilityId === 'tapukoko_bolt_big'
+        || proj.abilityId === 'tapukoko_bolt_surge') {
+      // Cast-empowered bolt is the blue variant; every 3rd passive auto is big yellow
+      const isSurge = proj.abilityId === 'tapukoko_bolt_surge'
+      const img = isSurge ? surgeSurferBlueImg : surgeSurferImg
+      if (!img.complete || img.naturalWidth === 0) return
+      const target = projTarget
+      const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
+      const ty = target?.visualPos.y ?? proj.currentPos.y
+      const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
+      const size = proj.abilityId === 'tapukoko_bolt' ? 26 : 46  // mini bolts; 3rd/empowered are big
+      ctx.save()
+      ctx.translate(proj.currentPos.x, proj.currentPos.y)
+      ctx.rotate(angle - Math.PI * 0.25)   // bolt image points top-right; offset to aim tip at target
+      ctx.drawImage(img, -size / 2, -size / 2, size, size)
+      ctx.restore()
+      return
+    }
+
     if (proj.abilityId === 'a_raichu_surge_surfer' && surgeSurferImg.complete && surgeSurferImg.naturalWidth > 0) {
-      const target = state?.units.get(proj.targetId)
+      const target = projTarget
       const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
       const ty = target?.visualPos.y ?? proj.currentPos.y
       const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
@@ -1385,7 +1831,7 @@ export class EffectLayer {
     }
 
     if (proj.abilityId === 'toucannon_beak_blast' && beakBlastImg.complete && beakBlastImg.naturalWidth > 0) {
-      const target = state?.units.get(proj.targetId)
+      const target = projTarget
       const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
       const ty = target?.visualPos.y ?? proj.currentPos.y
       const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
@@ -1428,7 +1874,7 @@ export class EffectLayer {
     }
 
     if (proj.abilityId === 'zubat_poison_sting' && poisonStingImg.complete && poisonStingImg.naturalWidth > 0) {
-      const target = state?.units.get(proj.targetId)
+      const target = projTarget
       const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
       const ty = target?.visualPos.y ?? proj.currentPos.y
       const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
@@ -1444,7 +1890,7 @@ export class EffectLayer {
 
     if ((proj.abilityId === 'oranguru_stored_power' || proj.abilityId === 'oranguru_stored_power_emp')
         && storedPowerImg.complete && storedPowerImg.naturalWidth > 0) {
-      const target = state?.units.get(proj.targetId)
+      const target = projTarget
       const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
       const ty = target?.visualPos.y ?? proj.currentPos.y
       const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
@@ -1460,7 +1906,7 @@ export class EffectLayer {
 
     if ((proj.abilityId === 'morelull_strength_sap' || proj.abilityId === 'morelull_strength_sap_heal')
         && strengthSapImg.complete && strengthSapImg.naturalWidth > 0) {
-      const target = state?.units.get(proj.targetId)
+      const target = projTarget
       const tx = target?.visualPos.x ?? (proj.currentPos.x + 1)
       const ty = target?.visualPos.y ?? proj.currentPos.y
       const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
@@ -1476,7 +1922,7 @@ export class EffectLayer {
     }
 
     if ((proj.abilityId === 'blast_burn_fireball' || proj.abilityId === 'blast_burn_powerful_fireball' || proj.abilityId === 'blast_burn_execute_fireball') && fireballImg.complete && fireballImg.naturalWidth > 0) {
-      const target = state?.units.get(proj.targetId)
+      const target = projTarget
       const tx = target?.visualPos.x ?? proj.currentPos.x
       const ty = target?.visualPos.y ?? proj.currentPos.y
       const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
@@ -1499,7 +1945,7 @@ export class EffectLayer {
       (proj.abilityId === 'auto_attack' &&
         state?.units.get(proj.sourceId)?.statusEffects.some(fx => fx.id === 'blastoise_mode'))
     if (isHydro && hydrocannonImg.complete && hydrocannonImg.naturalWidth > 0) {
-      const target = state?.units.get(proj.targetId)
+      const target = projTarget
       const tx = target?.visualPos.x ?? proj.currentPos.x
       const ty = target?.visualPos.y ?? proj.currentPos.y
       const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
@@ -1534,7 +1980,7 @@ export class EffectLayer {
       const arcOffset = (proj.arcHeight ?? 0) * Math.sin(Math.PI * t)
       const visualX = proj.currentPos.x
       const visualY = proj.currentPos.y - arcOffset
-      const target = state?.units.get(proj.targetId)
+      const target = projTarget
       const tx = target?.visualPos.x ?? proj.currentPos.x
       const ty = target?.visualPos.y ?? proj.currentPos.y
       const angle = Math.atan2(ty - visualY, tx - visualX)
@@ -1559,7 +2005,7 @@ export class EffectLayer {
     const isCannonBeam = proj.abilityId === 'armarouge_armor_cannon'
     const isCannonAuto = proj.abilityId === 'armarouge_cannon_auto'
     if ((isCannonBeam || isCannonAuto) && armorCannonImg.complete && armorCannonImg.naturalWidth > 0) {
-      const target = state?.units.get(proj.targetId)
+      const target = projTarget
       const tx = target?.visualPos.x ?? proj.currentPos.x
       const ty = target?.visualPos.y ?? proj.currentPos.y
       const angle = Math.atan2(ty - proj.currentPos.y, tx - proj.currentPos.x)
@@ -1578,6 +2024,45 @@ export class EffectLayer {
       return
     }
 
+    // Ancient Power: spinning rock auto-attack (from buffed Aerodactyl) — full size.
+    // Plain auto-attack projectiles have proj.abilityId === undefined; the 'auto_attack'
+    // tag lives inside damagePayload.abilityId, so we check there instead.
+    const isAncientPowerAuto = !proj.abilityId
+      && proj.damagePayload?.abilityId === 'auto_attack'
+      && state?.units.get(proj.sourceId)?.statusEffects.some(fx => fx.stackId === 'aerodactyl_ancient_power_applied')
+    if (isAncientPowerAuto && ancientPowerSingleImg.complete && ancientPowerSingleImg.naturalWidth > 0) {
+      const size = 36
+      ctx.save()
+      ctx.translate(proj.currentPos.x, proj.currentPos.y)
+      ctx.rotate(this.animTick * 0.22)  // fast spin
+      ctx.drawImage(ancientPowerSingleImg, -size / 2, -size / 2, size, size)
+      ctx.restore()
+      return
+    }
+
+    // Ancient Power: bounced rock (passive — smaller, from target to farthest enemy)
+    if (proj.abilityId === 'aerodactyl_ancient_power_rock'
+        && ancientPowerSingleImg.complete && ancientPowerSingleImg.naturalWidth > 0) {
+      const size = 30
+      ctx.save()
+      ctx.translate(proj.currentPos.x, proj.currentPos.y)
+      ctx.rotate(this.animTick * 0.28)  // slightly faster spin for the smaller rock
+      ctx.drawImage(ancientPowerSingleImg, -size / 2, -size / 2, size, size)
+      ctx.restore()
+      return
+    }
+
+    // Frosslass Icy Wind: spinning snowflake travels in a line
+    if (proj.abilityId === 'froslass_icy_wind' && icyWindImg.complete && icyWindImg.naturalWidth > 0) {
+      const size = 38
+      ctx.save()
+      ctx.translate(proj.currentPos.x, proj.currentPos.y)
+      ctx.rotate(this.animTick * 0.18)
+      ctx.drawImage(icyWindImg, -size / 2, -size / 2, size, size)
+      ctx.restore()
+      return
+    }
+
     if (proj.abilityId === 'venusaur_leech_seed' && leechSeedVideo.readyState >= 2) {
       // Arc: compute t from how far the seed has travelled
       const dx = proj.currentPos.x - proj.startPos.x
@@ -1590,6 +2075,31 @@ export class EffectLayer {
         proj.currentPos.x - size / 2,
         proj.currentPos.y - size / 2 - arcOffset,
         size, size)
+      return
+    }
+
+    // Per-unit auto-attack sprite (<definitionId>_auto.png), drawn with its tip pointed
+    // at the target. Plain autos carry no proj.abilityId; the 'auto_attack' tag lives in
+    // damagePayload. Units without an art file fall through to the default dot below.
+    const autoSource = (!proj.abilityId && proj.damagePayload?.abilityId === 'auto_attack')
+      ? state?.units.get(proj.sourceId) : undefined
+    const autoImg = autoSource ? getAutoSprite(autoSource.definitionId) : undefined
+    if (autoImg && autoImg.complete && autoImg.naturalWidth > 0) {
+      // Heading toward the tracked target (fall back to travel direction)
+      const tgt = proj.targetId ? state?.units.get(proj.targetId) : undefined
+      let dirX = proj.currentPos.x - proj.startPos.x
+      let dirY = proj.currentPos.y - proj.startPos.y
+      if (tgt) { dirX = tgt.visualPos.x - proj.currentPos.x; dirY = tgt.visualPos.y - proj.currentPos.y }
+      const len = Math.hypot(dirX, dirY) || 1
+      dirX /= len; dirY /= len
+      const angle = Math.atan2(dirX, -dirY)  // rotate the sprite's tip (image-up) toward the heading
+      const H = AUTO_SPRITE_HEIGHT_OVERRIDES[autoSource!.definitionId] ?? AUTO_SPRITE_HEIGHT
+      const W = H * (autoImg.naturalWidth / autoImg.naturalHeight)
+      ctx.save()
+      ctx.translate(proj.currentPos.x, proj.currentPos.y)
+      ctx.rotate(angle)
+      ctx.drawImage(autoImg, -W / 2, -H / 2, W, H)
+      ctx.restore()
       return
     }
 
@@ -1701,6 +2211,86 @@ export class EffectLayer {
     ctx.restore()
   }
 
+  // Jagged bolt arcing out of the struck unit toward each chained target —
+  // yellow for the passive chain, blue for the cast-empowered chain.
+  private drawLightningArc(ctx: CanvasRenderingContext2D, fromX: number, fromY: number, toX: number, toY: number, alpha: number, empowered: boolean): void {
+    const dx = toX - fromX, dy = toY - fromY
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    if (dist < 4) return
+    const segments = Math.max(3, Math.round(dist / 20))
+    const nx = -dy / dist, ny = dx / dist  // perpendicular unit vector for jitter
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.strokeStyle = empowered ? '#8FD6FF' : '#FFEA6E'
+    ctx.shadowColor = empowered ? '#3B9EFF' : '#F5D94E'
+    ctx.shadowBlur  = empowered ? 14 : 8
+    ctx.lineWidth   = empowered ? 4.5 : 2.5
+    ctx.lineJoin    = 'round'
+    ctx.lineCap     = 'round'
+    ctx.beginPath()
+    ctx.moveTo(fromX, fromY)
+    for (let i = 1; i < segments; i++) {
+      const p = i / segments
+      const jitter = (Math.sin(i * 12.9898) * 43758.5453 % 1 - 0.5) * (empowered ? 16 : 10)
+      ctx.lineTo(fromX + dx * p + nx * jitter, fromY + dy * p + ny * jitter)
+    }
+    ctx.lineTo(toX, toY)
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  private drawTapuKokoChain(ctx: CanvasRenderingContext2D, effect: TapuKokoChainEffect, state: CombatState): void {
+    // Struck unit itself has no arc — it's the source the lightning radiates
+    // from, not a jump target
+    const isJump = effect.fromX !== effect.x || effect.fromY !== effect.y
+    if (!isJump) return
+
+    const unit = state.units.get(effect.unitId)
+    const cx = unit ? unit.visualPos.x : effect.x
+    const cy = unit ? unit.visualPos.y : effect.y
+    const t = effect.tick / effect.maxTick
+    const alpha = Math.max(0, 1 - t)
+    this.drawLightningArc(ctx, effect.fromX, effect.fromY, cx, cy, alpha, effect.empowered)
+  }
+
+  // Latios/Latias channel: tinted orb charging above the head, growing over the channel
+  private drawLatiosCharge(ctx: CanvasRenderingContext2D, effect: LatiosChargeEffect, state: CombatState): void {
+    if (!pollenPuffYellow.complete || pollenPuffYellow.naturalWidth === 0) return
+    const unit = state.units.get(effect.unitId)
+    // Orb dies with the channel — if no longer casting (interrupted/dead), drop it
+    if (!unit || unit.state !== 'casting') { effect.tick = effect.maxTick + 1; return }
+
+    const t    = Math.min(1, effect.tick / effect.maxTick)
+    const size = 14 + (64 - 14) * t   // grows until very large by the end of the channel
+    const cx   = unit.visualPos.x
+    const cy   = unit.visualPos.y - HEX_SIZE * 1.15 - size * 0.3
+
+    ctx.save()
+    ctx.filter = effect.filter
+    ctx.shadowColor = effect.glow
+    ctx.shadowBlur  = 10 + 20 * t
+    ctx.drawImage(pollenPuffYellow, cx - size / 2, cy - size / 2, size, size)
+    ctx.restore()
+  }
+
+  // Luster Purge / Mist Ball burst: orb detonates and expands over the blast radius
+  private drawLusterPurgeBurst(ctx: CanvasRenderingContext2D, effect: LusterPurgeBurstEffect): void {
+    if (!pollenPuffYellow.complete || pollenPuffYellow.naturalWidth === 0) return
+    const t = effect.tick / effect.maxTick
+    const minSize = HEX_SIZE * 1.6
+    const size  = minSize + (effect.maxSize - minSize) * Math.sqrt(t)  // fast initial expansion
+    const alpha = Math.max(0, 1 - t)
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.filter = effect.filter
+    ctx.shadowColor = effect.glow
+    ctx.shadowBlur  = 26
+    ctx.drawImage(pollenPuffYellow, effect.x - size / 2, effect.y - size / 2, size, size)
+    ctx.restore()
+  }
+
   private drawUnownElectricRing(ctx: CanvasRenderingContext2D, effect: UnownElectricRingEffect): void {
     if (!hpElectricImg.complete || !hpElectricImg.naturalWidth) return
     const t      = effect.tick / effect.maxTick
@@ -1723,6 +2313,93 @@ export class EffectLayer {
     ctx.save()
     ctx.globalAlpha = alpha
     ctx.drawImage(effect.video, effect.x - size / 2, effect.y - size / 2, size, size)
+    ctx.restore()
+  }
+
+  private drawBlizzard(ctx: CanvasRenderingContext2D, effect: BlizzardEffect, _state: CombatState): void {
+    if (effect.video.readyState < 2) return
+
+    // Cover the full 1-hex radius; caller has already applied ctx.scale(1, BOARD_PERSP_Y)
+    const SIZE  = HEX_SIZE * 6.0
+    const fade  = effect.tick > effect.maxTick - 10 ? (effect.maxTick - effect.tick) / 10 : 1
+    const alpha = Math.min(effect.tick / 10, 1) * fade
+
+    ctx.save()
+    ctx.globalAlpha = Math.max(0, alpha)
+    ctx.translate(effect.x, effect.y)
+    ctx.drawImage(effect.video, -SIZE / 2, -SIZE / 2, SIZE, SIZE)
+    ctx.restore()
+  }
+
+  private drawBlizzardUnit(ctx: CanvasRenderingContext2D, effect: BlizzardUnitEffect, state: CombatState): void {
+    const unit = state.units.get(effect.targetId)
+    if (!unit || unit.state === 'dead') { effect.tick = effect.maxTick + 1; return }
+    // Expire when the blizzard_chill status is gone (unit left range or effect was cleared)
+    if (!unit.statusEffects.some(fx => fx.stackId?.includes(effect.zoneId) && fx.id === 'blizzard_chill')) {
+      effect.tick = effect.maxTick + 1; return
+    }
+    if (effect.video.readyState < 2) return
+
+    const SIZE  = HEX_SIZE * 2.6
+    const alpha = Math.min(effect.tick / 12, 0.82)
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.translate(unit.visualPos.x, unit.visualPos.y)
+    ctx.drawImage(effect.video, -SIZE / 2, -SIZE / 2, SIZE, SIZE)
+    ctx.restore()
+  }
+
+  private drawThickFat(ctx: CanvasRenderingContext2D, effect: ThickFatEffect, state: CombatState): void {
+    const unit = state.units.get(effect.unitId)
+    if (!unit || unit.state === 'dead') { effect.tick = effect.maxTick + 1; return }
+    // Expire early if the status effect has already been removed (e.g. combat ended)
+    if (!unit.statusEffects.some(fx => fx.stackId === 'thick_fat')) { effect.tick = effect.maxTick + 1; return }
+    if (effect.video.readyState < 2) return
+
+    const SIZE  = HEX_SIZE * 2.975  // 3.5 * 0.85
+    const alpha = effect.tick < 8 ? effect.tick / 8 : 1
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.translate(unit.visualPos.x, unit.visualPos.y)
+    ctx.drawImage(effect.video, -SIZE / 2, -SIZE / 2, SIZE, SIZE)
+    ctx.restore()
+  }
+
+  private drawAvalancheFall(ctx: CanvasRenderingContext2D, effect: AvalancheFallEffect, state: CombatState): void {
+    if (!avalancheImg.complete || !avalancheImg.naturalWidth) return
+    const unit = state.units.get(effect.unitId)
+    const cx = unit ? unit.visualPos.x : effect.x
+    const cy = unit ? unit.visualPos.y : effect.y
+    const HOVER_Y = -85   // px above unit center (above health bar)
+    const SIZE    = HEX_SIZE * 1.4
+
+    let drawY: number, alpha = 1, sx = 1, sy = 1
+
+    if (effect.tick < effect.hoverTicks) {
+      const t      = effect.tick / effect.hoverTicks
+      const appear = Math.min(1, effect.tick / 8)
+      const bob    = Math.sin(t * Math.PI * 4) * 3
+      drawY = cy + HOVER_Y + bob
+      alpha = appear
+    } else {
+      const FALL   = effect.maxTick - effect.hoverTicks
+      const ft     = (effect.tick - effect.hoverTicks) / FALL
+      const ease   = ft * ft
+      drawY = cy + HOVER_Y * (1 - ease)
+      if (ft > 0.6) {
+        const s = (ft - 0.6) / 0.4
+        sx = 1 + s * 0.4
+        sy = 1 - s * 0.35
+      }
+      alpha = ft > 0.8 ? 1 - (ft - 0.8) / 0.2 : 1
+    }
+
+    ctx.save()
+    ctx.globalAlpha = Math.max(0, alpha)
+    ctx.translate(cx, drawY)
+    ctx.scale(sx, sy)
+    ctx.drawImage(avalancheImg, -SIZE / 2, -SIZE / 2, SIZE, SIZE)
     ctx.restore()
   }
 
@@ -1790,6 +2467,77 @@ export class EffectLayer {
       ctx.drawImage(shadowPunchImg, -W / 2, -H / 2, W, H)
     }
 
+    ctx.restore()
+  }
+
+  private drawShadowPunchStrike(ctx: CanvasRenderingContext2D, effect: ShadowPunchStrikeEffect): void {
+    if (!shadowPunchImg.complete || !shadowPunchImg.naturalWidth) return
+    effect.x += effect.dirX * effect.speed
+    effect.y += effect.dirY * effect.speed
+    const t     = effect.tick / effect.maxTick
+    const alpha = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1
+    const W = HEX_SIZE * 1.3
+    const H = HEX_SIZE * 0.9
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.translate(effect.x, effect.y)
+    ctx.rotate(effect.angle)
+    ctx.drawImage(shadowPunchImg, -W / 2, -H / 2, W, H)
+    ctx.restore()
+  }
+
+  private drawDireClaw(ctx: CanvasRenderingContext2D, effect: DireClawEffect): void {
+    if (!direclawImg.complete || !direclawImg.naturalWidth) return
+
+    // Center on the middle hex position
+    const cx = effect.hexPositions.reduce((s, p) => s + p.x, 0) / effect.hexPositions.length
+    const cy = effect.hexPositions.reduce((s, p) => s + p.y, 0) / effect.hexPositions.length
+
+    // Quick fade-in (5 ticks), hold, fade-out over last 10 ticks
+    let alpha: number
+    if (effect.tick < 5) {
+      alpha = effect.tick / 5
+    } else if (effect.tick < effect.maxTick - 10) {
+      alpha = 1
+    } else {
+      alpha = (effect.maxTick - effect.tick) / 10
+    }
+
+    // Span the 3-hex row perpendicular to the attack direction
+    const W = HEX_SIZE * 3.0
+    const H = HEX_SIZE * 2.2
+
+    ctx.save()
+    ctx.globalAlpha = Math.max(0, alpha)
+    ctx.translate(cx, cy)
+    // Undo the outer BOARD_PERSP_Y scale before rotating so the angle isn't distorted
+    // by the Y-squish, then re-apply it for the image itself.
+    ctx.scale(1, 1 / BOARD_PERSP_Y)
+    ctx.rotate(effect.angle - Math.PI / 2)  // flipped: outer curve faces away from Sneasler
+    ctx.scale(1, BOARD_PERSP_Y)
+    ctx.drawImage(direclawImg, -W / 2, -H / 2, W, H)
+    ctx.restore()
+  }
+
+  private drawAncientPowerCast(ctx: CanvasRenderingContext2D, effect: AncientPowerCastEffect, state: CombatState): void {
+    const unit = state.units.get(effect.unitId)
+    if (!unit || unit.state === 'dead') {
+      // Expire immediately so the video gets paused and removed
+      effect.tick = effect.maxTick + 1
+      return
+    }
+    if (effect.video.readyState < 2) return
+
+    // Brief fade-in on cast; stays at full opacity for the rest of combat
+    const alpha = effect.tick < 8 ? effect.tick / 8 : 1
+
+    const size = HEX_SIZE * 3.8
+    const { x, y } = unit.visualPos
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.translate(x, y)
+    ctx.scale(1, BOARD_PERSP_Y)
+    ctx.drawImage(effect.video, -size / 2, -size / 2, size, size)
     ctx.restore()
   }
 }

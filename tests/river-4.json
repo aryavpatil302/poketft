@@ -1,0 +1,61 @@
+{
+  "label": "river 4",
+  "units": [
+    {
+      "id": "drednaw",
+      "tier": 2,
+      "col": 1,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "bellibolt",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "quagsire",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "barraskewda",
+      "tier": 2,
+      "col": 4,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "wheezing",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "vikavolt",
+      "tier": 2,
+      "col": 3,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "weavile",
+      "tier": 2,
+      "col": 0,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "talonflame",
+      "tier": 2,
+      "col": 6,
+      "row": 5,
+      "team": "player"
+    }
+  ]
+}

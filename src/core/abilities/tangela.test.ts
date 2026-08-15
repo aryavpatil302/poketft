@@ -29,14 +29,14 @@ describe('Tangela - Leaf Guard', () => {
   it('triggers ability when mana is full', () => {
     triggerAbility(tangela, state)
     expect(tangela.state).toBe('casting')
-    expect(tangela.abilityCastTimer).toBe(20)  // TangelaAbility.castTimeTicks
+    expect(tangela.abilityCastTimer).toBe(1)  // TangelaAbility.castTimeTicks
     expect(state.events.some(e => e.type === 'cast')).toBe(true)
   })
 
   it('resets mana to 0 and applies mana lock after cast animation completes', () => {
     triggerAbility(tangela, state)
     // Advance through cast animation
-    for (let i = 0; i < 20; i++) tickAbilityCast(tangela, state)
+    for (let i = 0; i < 20 && tangela.state === 'casting'; i++) tickAbilityCast(tangela, state)
     expect(tangela.currentMana).toBe(0)
     expect(tangela.manaLockTimer).toBe(TICK_RATE)
     expect(tangela.state).toBe('idle')
@@ -44,7 +44,7 @@ describe('Tangela - Leaf Guard', () => {
 
   it('applies shield on cast (tier 1 = 400)', () => {
     triggerAbility(tangela, state)
-    for (let i = 0; i < 20; i++) tickAbilityCast(tangela, state)
+    for (let i = 0; i < 20 && tangela.state === 'casting'; i++) tickAbilityCast(tangela, state)
     expect(tangela.shields).toHaveLength(1)
     expect(tangela.shields[0].value).toBe(400)
     expect(tangela.shields[0].maxValue).toBe(400)
@@ -56,7 +56,7 @@ describe('Tangela - Leaf Guard', () => {
     const s2 = makeTestState(t2, makeUnit('vigoroth', 'enemy', 1))
     t2.currentMana = t2.maxMana
     triggerAbility(t2, s2)
-    for (let i = 0; i < 20; i++) tickAbilityCast(t2, s2)
+    for (let i = 0; i < 20 && t2.state === 'casting'; i++) tickAbilityCast(t2, s2)
     expect(t2.shields[0].value).toBe(525)
   })
 
@@ -65,13 +65,13 @@ describe('Tangela - Leaf Guard', () => {
     const s3 = makeTestState(t3, makeUnit('vigoroth', 'enemy', 1))
     t3.currentMana = t3.maxMana
     triggerAbility(t3, s3)
-    for (let i = 0; i < 20; i++) tickAbilityCast(t3, s3)
+    for (let i = 0; i < 20 && t3.state === 'casting'; i++) tickAbilityCast(t3, s3)
     expect(t3.shields[0].value).toBe(685)
   })
 
   it('emits a shield event with correct amount', () => {
     triggerAbility(tangela, state)
-    for (let i = 0; i < 20; i++) tickAbilityCast(tangela, state)
+    for (let i = 0; i < 20 && tangela.state === 'casting'; i++) tickAbilityCast(tangela, state)
     const shieldEvt = state.events.find(e => e.type === 'shield')
     expect(shieldEvt).toBeDefined()
     if (shieldEvt?.type === 'shield') {
@@ -81,7 +81,7 @@ describe('Tangela - Leaf Guard', () => {
 
   it('heals for 50% of remaining shield value when shield expires', () => {
     triggerAbility(tangela, state)
-    for (let i = 0; i < 20; i++) tickAbilityCast(tangela, state)
+    for (let i = 0; i < 20 && tangela.state === 'casting'; i++) tickAbilityCast(tangela, state)
 
     const shield = tangela.shields[0]
     // Partially damage the shield
@@ -98,7 +98,7 @@ describe('Tangela - Leaf Guard', () => {
 
   it('does not heal if shield was fully depleted on expire', () => {
     triggerAbility(tangela, state)
-    for (let i = 0; i < 20; i++) tickAbilityCast(tangela, state)
+    for (let i = 0; i < 20 && tangela.state === 'casting'; i++) tickAbilityCast(tangela, state)
 
     const shield = tangela.shields[0]
     shield.value = 0  // fully broken

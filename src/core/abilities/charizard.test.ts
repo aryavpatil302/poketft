@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickProjectiles } from '../projectile'
+import { hasMark } from '../systems/marks'
 import type { Unit, CombatState } from '../types'
 
-// Import to ensure abilities are registered
 import '../systems/ability'
 
 const CAST_TICKS = 20
@@ -16,17 +17,36 @@ function cast(caster: Unit, state: CombatState): void {
   for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
 }
 
+function resolveProjectiles(state: CombatState, maxTicks = 300): void {
+  for (let i = 0; i < maxTicks && state.projectiles.size > 0; i++) {
+    tickProjectiles(state)
+  }
+}
+
+// Enemies are placed within charizard's range (4)
+function setup(tier: 1 | 2 | 3, enemyCount: number) {
+  const caster = makeUnit('charizard', 'player', tier)
+  caster.hexPos = { col: 3, row: 5 }
+  const enemies: Unit[] = []
+  for (let i = 0; i < enemyCount; i++) {
+    const e = makeUnit('dummy', 'enemy', 1)
+    e.hexPos = { col: 1 + i, row: 3 }
+    enemies.push(e)
+  }
+  const state = createCombatState([caster], enemies)
+  return { caster, enemies, state }
+}
+
 describe('Charizard - Blast Burn', () => {
   let caster: Unit
   let enemy: Unit
   let state: CombatState
 
   beforeEach(() => {
-    caster = makeUnit('charizard', 'player', 1)
-    caster.hexPos = { col: 3, row: 5 }
-    enemy = makeUnit('dummy', 'enemy', 1)
-    enemy.hexPos = { col: 3, row: 2 }
-    state = createCombatState([caster], [enemy])
+    ({ caster, enemies: [enemy], state } = (() => {
+      const r = setup(1, 1)
+      return { caster: r.caster, enemies: r.enemies, state: r.state }
+    })())
   })
 
   it('enters casting state when ability is triggered', () => {
@@ -42,159 +62,110 @@ describe('Charizard - Blast Burn', () => {
     expect(state.events.some(e => e.type === 'cast')).toBe(true)
   })
 
-  it('first cast - does not deal damage immediately', () => {
+  it('first cast fires fireballs that damage and mark enemies in range', () => {
+    const hpBefore = enemy.currentHp
     cast(caster, state)
-    // First cast should only apply marks, not damage
-    expect(state.events.some(e => e.type === 'damage')).toBe(false)
+    resolveProjectiles(state)
+    expect(enemy.currentHp).toBeLessThan(hpBefore)
+    expect(hasMark(enemy, MARK_ID)).toBe(true)
   })
 
-  it('tier 1 - first cast marks 2 enemies', () => {
-    const e1 = makeUnit('dummy', 'enemy', 1)
-    e1.hexPos = { col: 3, row: 2 }
-    const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 4, row: 2 }
-    const e3 = makeUnit('dummy', 'enemy', 1)
-    e3.hexPos = { col: 5, row: 2 }
-    state = createCombatState([caster], [e1, e2, e3])
-
-    cast(caster, state)
-
-    const markedCount = [e1, e2, e3].filter(e => e.marks.some(m => m.id === MARK_ID)).length
-    expect(markedCount).toBe(2)
+  it('tier 1 - first cast marks up to 3 enemies in range', () => {
+    const { enemies, state: s, caster: c } = setup(1, 4)
+    cast(c, s)
+    resolveProjectiles(s)
+    const marked = enemies.filter(e => hasMark(e, MARK_ID))
+    expect(marked).toHaveLength(3)
   })
 
-  it('tier 2 - first cast marks 3 enemies', () => {
-    const t2 = makeUnit('charizard', 'player', 2)
-    t2.hexPos = { col: 3, row: 5 }
-    const e1 = makeUnit('dummy', 'enemy', 1)
-    e1.hexPos = { col: 3, row: 2 }
-    const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 4, row: 2 }
-    const e3 = makeUnit('dummy', 'enemy', 1)
-    e3.hexPos = { col: 5, row: 2 }
-    const s = createCombatState([t2], [e1, e2, e3])
-
-    t2.currentMana = t2.maxMana
-    triggerAbility(t2, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t2, s)
-
-    const markedCount = [e1, e2, e3].filter(e => e.marks.some(m => m.id === MARK_ID)).length
-    expect(markedCount).toBe(3)
+  it('tier 2 - first cast marks up to 4 enemies in range', () => {
+    const { enemies, state: s, caster: c } = setup(2, 5)
+    cast(c, s)
+    resolveProjectiles(s)
+    const marked = enemies.filter(e => hasMark(e, MARK_ID))
+    expect(marked).toHaveLength(4)
   })
 
-  it('tier 3 - first cast marks 4 enemies', () => {
-    const t3 = makeUnit('charizard', 'player', 3)
-    t3.hexPos = { col: 3, row: 5 }
-    const enemies = Array.from({ length: 4 }, (_, i) => {
-      const e = makeUnit('dummy', 'enemy', 1)
-      e.hexPos = { col: i + 1, row: 2 }
-      return e
-    })
-    const s = createCombatState([t3], enemies)
-
-    t3.currentMana = t3.maxMana
-    triggerAbility(t3, s)
-    for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(t3, s)
-
-    const markedCount = enemies.filter(e => e.marks.some(m => m.id === MARK_ID)).length
-    expect(markedCount).toBe(4)
-  })
-
-  it('second cast - deals execute (true) damage to the highest-HP marked enemy', () => {
-    const e1 = makeUnit('dummy', 'enemy', 1)
-    e1.hexPos = { col: 3, row: 2 }
-    const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 4, row: 2 }
-    state = createCombatState([caster], [e1, e2])
-
-    // First cast: mark both enemies
+  it('tier 1 - fireball deals 300 physical damage (375% attack, before mitigation)', () => {
+    enemy.defense = 0
+    enemy._computedStats = null
+    caster.critChance = 0
+    caster._computedStats = null
     cast(caster, state)
-
-    // Confirm both marked
-    expect(e1.marks.some(m => m.id === MARK_ID)).toBe(true)
-    expect(e2.marks.some(m => m.id === MARK_ID)).toBe(true)
-
-    // Adjust HP so e1 has more
-    e1.currentHp = e1.maxHp
-    e2.currentHp = Math.floor(e2.maxHp * 0.5)
-
-    state.events = []
-
-    // Second cast: execute
-    cast(caster, state)
-
-    const damageEvents = state.events.filter(e => e.type === 'damage')
-    expect(damageEvents.length).toBeGreaterThan(0)
-
-    // Primary target (e1 - highest HP) should take true damage
-    const trueDmgEvent = damageEvents.find(
-      e => e.type === 'damage' && (e as any).damageType === 'true' && e.targetId === e1.id
-    )
-    expect(trueDmgEvent).toBeDefined()
-  })
-
-  it('second cast - deals magic AoE damage to non-primary marked enemies', () => {
-    const e1 = makeUnit('dummy', 'enemy', 1)
-    e1.hexPos = { col: 3, row: 2 }
-    const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 4, row: 2 }
-    state = createCombatState([caster], [e1, e2])
-
-    cast(caster, state)
-    e1.currentHp = e1.maxHp
-    e2.currentHp = Math.floor(e2.maxHp * 0.5)
-    state.events = []
-    cast(caster, state)
-
-    const magicDmgOnE2 = state.events.find(
-      e => e.type === 'damage' && (e as any).damageType === 'magic' && e.targetId === e2.id
-    )
-    expect(magicDmgOnE2).toBeDefined()
-  })
-
-  it('second cast - removes marks from all enemies', () => {
-    const e1 = makeUnit('dummy', 'enemy', 1)
-    e1.hexPos = { col: 3, row: 2 }
-    const e2 = makeUnit('dummy', 'enemy', 1)
-    e2.hexPos = { col: 4, row: 2 }
-    state = createCombatState([caster], [e1, e2])
-
-    cast(caster, state)
-    cast(caster, state)
-
-    expect(e1.marks.some(m => m.id === MARK_ID)).toBe(false)
-    expect(e2.marks.some(m => m.id === MARK_ID)).toBe(false)
-  })
-
-  it('tier 1 - execute damage is 600', () => {
-    // Give enemy enough HP to survive
-    enemy.maxHp = 10000
-    enemy.currentHp = 10000
-    state = createCombatState([caster], [enemy])
-
-    // First cast: mark
-    cast(caster, state)
-    state.events = []
-
-    // Second cast: execute
-    cast(caster, state)
-
-    const trueDmgEvent = state.events.find(
-      e => e.type === 'damage' && (e as any).damageType === 'true'
-    )
-    expect(trueDmgEvent).toBeDefined()
-    if (trueDmgEvent?.type === 'damage') {
-      expect(trueDmgEvent.amount).toBe(600)
+    resolveProjectiles(state)
+    const dmgEvent = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
+    expect(dmgEvent).toBeDefined()
+    if (dmgEvent?.type === 'damage') {
+      expect(dmgEvent.amount).toBe(300)
     }
   })
 
-  it('third cast after second resets to marking phase', () => {
-    // After second cast (execute), marks should be cleared
-    // So a third cast should start marking again (no damage events)
-    cast(caster, state)  // first: mark
-    cast(caster, state)  // second: execute
-    state.events = []
-    cast(caster, state)  // third: should mark again
-    expect(state.events.some(e => e.type === 'damage')).toBe(false)
+  it('second cast - executes the highest-HP marked enemy with true damage', () => {
+    const { enemies, state: s, caster: c } = setup(1, 2)
+    enemies[0].maxHp = 5000
+    enemies[0].currentHp = 5000
+    cast(c, s)
+    resolveProjectiles(s)
+
+    cast(c, s)
+    resolveProjectiles(s)
+    expect(enemies[0].state).toBe('dead')
+  })
+
+  it('second cast - detonates non-primary marked enemies with physical damage (tier 1 = 500)', () => {
+    const { enemies, state: s, caster: c } = setup(1, 2)
+    enemies[0].maxHp = 50000
+    enemies[0].currentHp = 50000  // survives fireball, highest HP → executed
+    enemies[1].maxHp = 40000
+    enemies[1].currentHp = 40000
+    enemies[1].defense = 0
+    enemies[1]._computedStats = null
+    c.critChance = 0
+    c._computedStats = null
+    cast(c, s)
+    resolveProjectiles(s)
+
+    s.events = []
+    cast(c, s)
+    resolveProjectiles(s)
+    const detonate = s.events.find(
+      e => e.type === 'damage' && e.targetId === enemies[1].id && (e as any).damageType === 'physical'
+    )
+    expect(detonate).toBeDefined()
+    if (detonate?.type === 'damage') {
+      expect(detonate.amount).toBe(500)
+    }
+  })
+
+  it('second cast - removes marks from all hit enemies', () => {
+    const { enemies, state: s, caster: c } = setup(1, 2)
+    enemies[0].maxHp = 50000
+    enemies[0].currentHp = 50000
+    enemies[1].maxHp = 40000
+    enemies[1].currentHp = 40000
+    cast(c, s)
+    resolveProjectiles(s)
+    cast(c, s)
+    resolveProjectiles(s)
+    for (const e of enemies) {
+      expect(hasMark(e, MARK_ID)).toBe(false)
+    }
+  })
+
+  it('third cast after detonation returns to the marking phase', () => {
+    const { enemies, state: s, caster: c } = setup(1, 2)
+    enemies[0].maxHp = 50000
+    enemies[0].currentHp = 50000
+    enemies[1].maxHp = 40000
+    enemies[1].currentHp = 40000
+    cast(c, s)
+    resolveProjectiles(s)
+    cast(c, s)
+    resolveProjectiles(s)
+    // Third cast: marking phase again
+    cast(c, s)
+    resolveProjectiles(s)
+    const marked = enemies.filter(e => e.state !== 'dead' && hasMark(e, MARK_ID))
+    expect(marked.length).toBeGreaterThan(0)
   })
 })

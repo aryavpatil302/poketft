@@ -3,6 +3,7 @@ import type { CombatState, Unit } from '../types'
 import { hexDistance } from '../hexGrid'
 import { addStatusEffect } from '../systems/statusEffect'
 import { createProjectile } from '../projectile'
+import { computeStats } from '../unitFactory'
 
 const MAX_RANGE = 2
 
@@ -40,12 +41,13 @@ export const VenusaurAbility: AbilityHandler = {
         launchDist,
         abilityId: 'venusaur_leech_seed',
         onHit: (_source, tgt, _state) => {
+          const spMult = (unit._computedStats ?? computeStats(unit)).special / 100
           // addStatusEffect refreshes duration automatically via stackId match
           addStatusEffect(tgt, {
             id: 'leech_seed',
             sourceUnitId: unit.id,
             durationTicks: 180,   // 3 seconds
-            magnitude: damage,
+            magnitude: Math.round(damage * spMult),
             stackId: `leech_seed_${tgt.id}`,
           })
         },

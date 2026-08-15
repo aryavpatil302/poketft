@@ -4,6 +4,7 @@ import { TICK_RATE } from '../constants'
 import { addStatusEffect } from '../systems/statusEffect'
 import { createProjectile } from '../projectile'
 import { findNearestEnemies } from '../systems/targeting'
+import { addShield } from '../systems/shield'
 
 const RUMBLE_TICKS   = 15
 const SHIELD_DURATION = 3 * TICK_RATE
@@ -63,12 +64,12 @@ export const SableyeAbility: AbilityHandler = {
             const shield: Shield = {
               id: `sableye_gem_shield_${hitTarget.id}_${hitState.tick}`,
               sourceAbility: 'sableye_power_gem',
+              sourceUnitId: unit.id,   // Sableye shields allies — attribute to the caster
               value: shieldAmt,
               maxValue: shieldAmt,
               durationTicks: SHIELD_DURATION,
             }
-            hitTarget.shields.push(shield)
-            hitState.events.push({ type: 'shield', unitId: hitTarget.id, amount: shieldAmt })
+            addShield(hitTarget, shield, hitState)
           },
           abilityId: 'sableye_power_gem_shield',
         })
@@ -84,9 +85,10 @@ export const SableyeAbility: AbilityHandler = {
           startPos: { ...unit.visualPos },
           speed: 13,
           damagePayload: {
-            baseAmount: damage,
-            damageType: 'magic',
-            canCrit: false,
+            baseAmount:        damage,
+            damageType:        'magic',
+            canCrit:           false,
+            abilityScalingStat: 'special',
           },
           abilityId: 'sableye_power_gem_damage',
         })

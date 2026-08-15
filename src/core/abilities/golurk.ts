@@ -4,21 +4,15 @@ import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
 import { hexesInRange, hexId } from '../hexGrid'
+import { addShield } from '../systems/shield'
+import { computeStats } from '../unitFactory'
 
 export const GolurkAbility: AbilityHandler = {
   abilityId: 'golurk_poltergeist',
   castTimeTicks: 1,
 
-  onCast(unit: Unit, state: CombatState, tier: number): void {
-    const shieldAmounts = [225, 300, 375] as const
-    const empoweredDmgs = [225, 300, 375] as const
-    const followUpDmgs  = [125, 175, 250] as const
-    const shieldAmt     = shieldAmounts[tier - 1]
-    const empoweredDmg  = empoweredDmgs[tier - 1]
-    const followUpDmg   = followUpDmgs[tier - 1]
-    const passivePct    = 0.40
-
-    // Register passive (+40% special as magic on every auto) once per combat
+  onCombatStart(unit: Unit): void {
+    const passivePct = 0.40
     if (!unit.passiveAttackHandlers.some(h => h.id === 'golurk_special_passive')) {
       const handler: PassiveAttackHandler = {
         id: 'golurk_special_passive',
@@ -29,6 +23,15 @@ export const GolurkAbility: AbilityHandler = {
       }
       unit.passiveAttackHandlers.push(handler)
     }
+  },
+
+  onCast(unit: Unit, state: CombatState, tier: number): void {
+    const shieldAmounts = [225, 300, 375] as const
+    const empoweredPcts = [320, 430, 535] as const
+    const followUpDmgs  = [125, 175, 250] as const
+    const shieldAmt     = shieldAmounts[tier - 1]
+    const empoweredDmg  = Math.round(computeStats(unit).attack * (empoweredPcts[tier - 1] / 100))
+    const followUpDmg   = followUpDmgs[tier - 1]
 
     // Grant shield
     const shield: Shield = {
@@ -38,8 +41,7 @@ export const GolurkAbility: AbilityHandler = {
       maxValue: shieldAmt,
       durationTicks: 4 * TICK_RATE,
     }
-    unit.shields.push(shield)
-    state.events.push({ type: 'shield', unitId: unit.id, amount: shieldAmt })
+    addShield(unit, shield, state)
     unit.attackTimer = 0
 
     // Empower next auto: physical + 1-hex AoE + knockup primary + 2s follow-up to AoE
@@ -68,6 +70,7 @@ export const GolurkAbility: AbilityHandler = {
           const dx   = tUnit.visualPos.x - source.visualPos.x
           const dy   = tUnit.visualPos.y - source.visualPos.y
           const dist = Math.sqrt(dx * dx + dy * dy)
+          st.events.push({ type: 'vfx', effectId: 'shadow_punch_strike', sourceId: source.id, targetId: tid, dirX: dist > 0 ? dx / dist : 1, dirY: dist > 0 ? dy / dist : 0 })
           st.events.push({ type: 'vfx', effectId: 'shadow_punch_appear', sourceId: source.id, targetId: tid, dirX: dist > 0 ? dx / dist : 1, dirY: dist > 0 ? dy / dist : 0 })
         }
 
@@ -81,7 +84,7 @@ export const GolurkAbility: AbilityHandler = {
             for (const tid of aoeTargetIds) {
               const fTarget = st2.units.get(tid)
               if (!fTarget || fTarget.state === 'dead') continue
-              applyDamage(src2, fTarget, { baseAmount: followUpDmg, damageType: 'magic', canCrit: false, abilityId: 'golurk_poltergeist' }, st2)
+              applyDamage(src2, fTarget, { baseAmount: followUpDmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'golurk_poltergeist' }, st2)
             }
           },
         })

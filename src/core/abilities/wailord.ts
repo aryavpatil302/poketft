@@ -6,6 +6,7 @@ import { addStatusEffect } from '../systems/statusEffect'
 import { startLeap } from '../systems/movement'
 import { hexDistance } from '../hexGrid'
 import { findNearestEnemies } from '../systems/targeting'
+import { addShield } from '../systems/shield'
 
 // 5 cast + 30 outbound + 25 return ≈ 60 ticks = 1 second
 const CAST_TICKS    = 5
@@ -37,8 +38,7 @@ export const WailordAbility: AbilityHandler = {
       maxValue: shieldAmount,
       durationTicks: 3 * TICK_RATE,
     }
-    unit.shields.push(shield)
-    state.events.push({ type: 'shield', unitId: unit.id, amount: shieldAmount })
+    addShield(unit, shield, state)
 
     // Resolve target
     const target = unit.targetId

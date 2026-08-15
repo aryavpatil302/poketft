@@ -1,0 +1,33 @@
+{
+  "label": "aero",
+  "units": [
+    {
+      "id": "dummy_ranged",
+      "tier": 1,
+      "col": 2,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "dummy_ranged",
+      "tier": 1,
+      "col": 0,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "aerodactyl",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
+import { applyHeal } from '../systems/heal'
 import { addStatusEffect } from '../systems/statusEffect'
 import { hexDistance } from '../hexGrid'
 
@@ -47,7 +48,7 @@ export const FezandiptiAbility: AbilityHandler = {
           elapsed++
           if (elapsed % TICK_RATE === 0) {
             if (u.state !== 'dead') {
-              applyDamage(unit, u, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityId: 'fezandipiti_toxic_chain' }, st)
+              applyDamage(unit, u, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'fezandipiti_toxic_chain' }, st)
             }
             dmg *= 2
           }
@@ -82,10 +83,7 @@ export const FezandiptiAbility: AbilityHandler = {
         const target = Math.round(totalHeal * healTick / DURATION)
         const prev   = Math.round(totalHeal * (healTick - 1) / DURATION)
         const gain   = target - prev
-        if (gain > 0) {
-          u.currentHp = Math.min(u.maxHp, u.currentHp + gain)
-          st.events.push({ type: 'heal', targetId: u.id, amount: gain, sourceId: u.id, abilityId: 'fezandipiti_toxic_chain' })
-        }
+        if (gain > 0) applyHeal(u, gain, u.id, st)
       },
     })
   },

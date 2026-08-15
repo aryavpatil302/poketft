@@ -3,21 +3,15 @@ import type { CombatState, Unit, PassiveAttackHandler, Shield } from '../types'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
 import { addStatusEffect } from '../systems/statusEffect'
+import { addShield } from '../systems/shield'
+import { computeStats } from '../unitFactory'
 
 export const GolettAbility: AbilityHandler = {
   abilityId: 'golett_shadow_punch',
   castTimeTicks: 1,
 
-  onCast(unit: Unit, state: CombatState, tier: number): void {
-    const shieldAmounts = [200, 250, 325] as const
-    const empoweredDmgs = [200, 250, 350] as const
-    const followUpDmgs  = [100, 150, 200] as const
-    const shieldAmt     = shieldAmounts[tier - 1]
-    const empoweredDmg  = empoweredDmgs[tier - 1]
-    const followUpDmg   = followUpDmgs[tier - 1]
-    const passivePct    = 0.30
-
-    // Register passive (+30% special as magic on every auto) once per combat
+  onCombatStart(unit: Unit): void {
+    const passivePct = 0.30
     if (!unit.passiveAttackHandlers.some(h => h.id === 'golett_special_passive')) {
       const handler: PassiveAttackHandler = {
         id: 'golett_special_passive',
@@ -28,6 +22,15 @@ export const GolettAbility: AbilityHandler = {
       }
       unit.passiveAttackHandlers.push(handler)
     }
+  },
+
+  onCast(unit: Unit, state: CombatState, tier: number): void {
+    const shieldAmounts = [200, 250, 325] as const
+    const empoweredPcts = [400, 500, 700] as const
+    const followUpDmgs  = [100, 150, 200] as const
+    const shieldAmt     = shieldAmounts[tier - 1]
+    const empoweredDmg  = Math.round(computeStats(unit).attack * (empoweredPcts[tier - 1] / 100))
+    const followUpDmg   = followUpDmgs[tier - 1]
 
     // Grant shield
     const shield: Shield = {
@@ -37,8 +40,7 @@ export const GolettAbility: AbilityHandler = {
       maxValue: shieldAmt,
       durationTicks: 4 * TICK_RATE,
     }
-    unit.shields.push(shield)
-    state.events.push({ type: 'shield', unitId: unit.id, amount: shieldAmt })
+    addShield(unit, shield, state)
     unit.attackTimer = 0
 
     // Empower next auto with shadow punch physical hit + 2s magic follow-up
@@ -53,6 +55,7 @@ export const GolettAbility: AbilityHandler = {
         const dist = Math.sqrt(dx * dx + dy * dy)
         const dirX = dist > 0 ? dx / dist : 1
         const dirY = dist > 0 ? dy / dist : 0
+        st.events.push({ type: 'vfx', effectId: 'shadow_punch_strike', sourceId: source.id, targetId: target.id, dirX, dirY })
         st.events.push({ type: 'vfx', effectId: 'shadow_punch_appear', sourceId: source.id, targetId: target.id, dirX, dirY })
 
         const capturedTargetId = target.id
@@ -65,7 +68,7 @@ export const GolettAbility: AbilityHandler = {
             st2.events.push({ type: 'vfx', effectId: 'shadow_punch_fly', sourceId: src2.id })
             const fTarget = st2.units.get(capturedTargetId)
             if (!fTarget || fTarget.state === 'dead') return
-            applyDamage(src2, fTarget, { baseAmount: followUpDmg, damageType: 'magic', canCrit: false, abilityId: 'golett_shadow_punch' }, st2)
+            applyDamage(src2, fTarget, { baseAmount: followUpDmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'golett_shadow_punch' }, st2)
           },
         })
       },

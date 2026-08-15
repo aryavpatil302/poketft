@@ -8,7 +8,7 @@ import type { Unit, CombatState } from '../types'
 // Import to ensure abilities are registered
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks: number): void {
+function cast(caster: Unit, state: CombatState, castTicks = 20): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
   for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
@@ -23,7 +23,7 @@ describe('Drednaw - Razor Shell', () => {
     caster = makeUnit('drednaw', 'player', 1)
     caster.hexPos = { col: 3, row: 5 }
     enemy = makeUnit('dummy', 'enemy', 1)
-    enemy.hexPos = { col: 3, row: 2 }
+    enemy.hexPos = { col: 3, row: 4 }  // adjacent — melee empowered autos
     state = createCombatState([caster], [enemy])
   })
 
@@ -35,67 +35,81 @@ describe('Drednaw - Razor Shell', () => {
   })
 
   it('adds a passive attack handler after cast', () => {
-    cast(caster, state, 20)
+    cast(caster, state)
     expect(caster.passiveAttackHandlers).toHaveLength(1)
-    expect(caster.passiveAttackHandlers[0].id).toContain('drednaw_jaw')
+    expect(caster.passiveAttackHandlers[0].id).toContain('drednaw_slash')
+    expect(caster.passiveAttackHandlers[0].suppressBaseAttack).toBe(true)
   })
 
-  it('adds a drednaw_bite status effect lasting 5 seconds', () => {
-    cast(caster, state, 20)
-    const bite = caster.statusEffects.find(e => e.id === 'drednaw_bite')
-    expect(bite).toBeDefined()
-    expect(bite!.durationTicks).toBe(5 * TICK_RATE)
-    expect(bite!.stackId).toBe('drednaw_bite_active')
+  it('adds a razor shell active status effect lasting 5 seconds', () => {
+    cast(caster, state)
+    const active = caster.statusEffects.find(e => e.stackId === 'drednaw_razor_shell_active')
+    expect(active).toBeDefined()
+    expect(active!.durationTicks).toBe(5 * TICK_RATE)
+    expect(active!.suppressManaGain).toBe(true)
   })
 
-  it('handler calls applyDamage to enemies adjacent to target', () => {
-    cast(caster, state, 20)
-
-    // Place a second enemy adjacent to the primary target so splash can hit them
-    const splashEnemy = makeUnit('dummy', 'enemy', 1)
-    splashEnemy.hexPos = { col: 3, row: 1 }  // adjacent to enemy at row 2
-    state.units.set(splashEnemy.id, splashEnemy)
-    state.hexOccupancy.set('3,1', splashEnemy.id)
-
-    const hpBefore = splashEnemy.currentHp
-
-    const handler = caster.passiveAttackHandlers[0]
-    handler.onAttack(caster, enemy, state)
-
-    // splash enemy should have taken 60 damage (tier 1 splash) or less (if defense applies)
-    expect(splashEnemy.currentHp).toBeLessThan(hpBefore)
+  it('grants an attack buff and fixed attack speed for the duration', () => {
+    cast(caster, state)
+    const dmgBuff = caster.statusEffects.find(e => e.stackId === 'drednaw_atk_buff')
+    const spdSet  = caster.statusEffects.find(e => e.stackId === 'drednaw_atkspd_set')
+    expect(dmgBuff).toBeDefined()
+    expect(dmgBuff!.magnitude).toBe(20)  // tier 1
+    expect(spdSet).toBeDefined()
+    expect(spdSet!.magnitude).toBe(1)
   })
 
-  it('handler does NOT hit the primary target twice (already-hit guard)', () => {
-    cast(caster, state, 20)
+  it('handler deals piercing damage to the primary target', () => {
+    cast(caster, state)
     const hpBefore = enemy.currentHp
-
-    // Calling handler once; the primary target is in alreadyHit so should not be splashed
     const handler = caster.passiveAttackHandlers[0]
     handler.onAttack(caster, enemy, state)
-
-    // We can't check exact HP since applyDamage was already called on enemy above,
-    // but a second call should not happen — verify handler doesn't double-count by
-    // checking that the enemy was NOT included in the splash set damage again.
-    // Simplest proxy: hp did not drop by more than two full splash amounts
-    const maxExpectedLoss = 120  // 2 × 60 splash (lenient upper bound)
-    expect(hpBefore - enemy.currentHp).toBeLessThanOrEqual(maxExpectedLoss)
+    expect(enemy.currentHp).toBeLessThan(hpBefore)
   })
 
-  it('handler removes itself when drednaw_bite expires', () => {
-    cast(caster, state, 20)
-    const bite = caster.statusEffects.find(e => e.id === 'drednaw_bite')!
+  it('handler pierces through to the unit directly behind the target', () => {
+    cast(caster, state)
+
+    // caster (3,5) → enemy (3,4): the hex behind the target is (2,3)
+    const behindEnemy = makeUnit('dummy', 'enemy', 1)
+    behindEnemy.hexPos = { col: 2, row: 3 }
+    state.units.set(behindEnemy.id, behindEnemy)
+    state.hexOccupancy.set('2,3', behindEnemy.id)
+
+    const hpBefore = behindEnemy.currentHp
+    const handler = caster.passiveAttackHandlers[0]
+    handler.onAttack(caster, enemy, state)
+    expect(behindEnemy.currentHp).toBeLessThan(hpBefore)
+  })
+
+  it('pierce does not hit allies behind the target', () => {
+    cast(caster, state)
+
+    const allyBehind = makeUnit('drednaw', 'player', 1)
+    allyBehind.hexPos = { col: 2, row: 3 }
+    state.units.set(allyBehind.id, allyBehind)
+    state.hexOccupancy.set('2,3', allyBehind.id)
+
+    const hpBefore = allyBehind.currentHp
+    const handler = caster.passiveAttackHandlers[0]
+    handler.onAttack(caster, enemy, state)
+    expect(allyBehind.currentHp).toBe(hpBefore)
+  })
+
+  it('handler removes itself when the active status expires', () => {
+    cast(caster, state)
+    const active = caster.statusEffects.find(e => e.stackId === 'drednaw_razor_shell_active')!
 
     // Fire onExpire manually
-    if (bite.onExpire) bite.onExpire(caster, state)
+    if (active.onExpire) active.onExpire(caster, state)
 
     expect(caster.passiveAttackHandlers).toHaveLength(0)
   })
 
-  it('handler self-removes if bite status is absent when it fires', () => {
-    cast(caster, state, 20)
+  it('handler self-removes if the active status is absent when it fires', () => {
+    cast(caster, state)
     // Remove the status manually before calling the handler
-    caster.statusEffects = caster.statusEffects.filter(e => e.id !== 'drednaw_bite')
+    caster.statusEffects = caster.statusEffects.filter(e => e.stackId !== 'drednaw_razor_shell_active')
 
     const handler = caster.passiveAttackHandlers[0]
     handler.onAttack(caster, enemy, state)

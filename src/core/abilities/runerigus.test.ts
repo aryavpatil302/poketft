@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickStatusEffects } from '../systems/statusEffect'
 import type { Unit, CombatState } from '../types'
 import '../systems/ability'
 
@@ -46,17 +47,39 @@ describe('Runerigus - Wandering Spirit', () => {
     expect(caster.currentMana).toBe(0)
   })
 
-  it('marks the nearest enemy with a permanent wandering spirit status effect', () => {
+  it('marks a never-casting target (dummy, maxMana 9999) with a time-limited detonate-on-arrival status', () => {
     cast(caster, state)
     const fx = nearEnemy.statusEffects.find(f => f.stackId === 'runerigus_wandering_spirit')
     expect(fx).toBeDefined()
-    expect(fx!.durationTicks).toBe(-1)
+    expect(fx!.durationTicks).toBeGreaterThan(0)   // armed, not permanent — it detonates on its own
     expect(farEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(false)
   })
 
-  it('silences the marked target', () => {
+  it('does not silence a never-casting target (nothing to intercept — it auto-detonates instead)', () => {
     cast(caster, state)
-    expect(nearEnemy.silenced).toBe(true)
+    expect(nearEnemy.silenced).toBe(false)
+  })
+
+  it('auto-detonates on a never-casting target after it arrives, dealing damage without needing a cast', () => {
+    cast(caster, state)
+    nearEnemy.spDefense = 0; nearEnemy._computedStats = null
+    const hpBefore = nearEnemy.currentHp
+    const armTicks = nearEnemy.statusEffects.find(f => f.stackId === 'runerigus_wandering_spirit')!.durationTicks
+    for (let i = 0; i < armTicks; i++) tickStatusEffects(state.units, state)
+    expect(nearEnemy.statusEffects.some(f => f.stackId === 'runerigus_wandering_spirit')).toBe(false)
+    expect(hpBefore - nearEnemy.currentHp).toBeCloseTo(550, -1)
+  })
+
+  it('silences a target that CAN reach full mana normally (real caster, not maxMana-9999-locked)', () => {
+    const realCaster = makeUnit('runerigus', 'player', 1)
+    realCaster.hexPos = { col: 3, row: 5 }
+    const realTarget = makeUnit('oranguru', 'enemy', 1)
+    realTarget.hexPos = { col: 3, row: 4 }
+    const st = createCombatState([realCaster], [realTarget])
+    cast(realCaster, st)
+    expect(realTarget.silenced).toBe(true)
+    const fx = realTarget.statusEffects.find(f => f.stackId === 'runerigus_wandering_spirit')
+    expect(fx!.durationTicks).toBe(-1)   // waits indefinitely for the target to actually reach full mana
   })
 
   it('damage magnitude scales per tier (550/875/7000)', () => {
@@ -121,11 +144,11 @@ describe('Runerigus - Wandering Spirit', () => {
     expect(nearEnemy.silenced).toBe(false)
   })
 
-  it('resets mana and applies mana lock on the marked unit when the mark is consumed', () => {
+  it('sets mana to 50% and applies mana lock on the marked unit when the mark is consumed', () => {
     cast(caster, state)
     nearEnemy.currentMana = nearEnemy.maxMana
     triggerAbility(nearEnemy, state)
-    expect(nearEnemy.currentMana).toBe(0)
+    expect(nearEnemy.currentMana).toBe(Math.round(nearEnemy.maxMana * 0.5))
     expect(nearEnemy.manaLockTimer).toBeGreaterThan(0)
   })
 

@@ -1,0 +1,103 @@
+{
+  "label": "om yest",
+  "units": [
+    {
+      "id": "tropius",
+      "tier": 1,
+      "col": 2,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "vikavolt",
+      "tier": 1,
+      "col": 6,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "torkoal",
+      "tier": 1,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "wheezing",
+      "tier": 1,
+      "col": 0,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "armarouge",
+      "tier": 1,
+      "col": 1,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "wailord",
+      "tier": 1,
+      "col": 5,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "talonflame",
+      "tier": 1,
+      "col": 3,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "pidgeotto",
+      "tier": 1,
+      "col": 4,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "ferrothorn",
+      "tier": 1,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "sableye",
+      "tier": 1,
+      "col": 0,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "charizard",
+      "tier": 2,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "ribombee",
+      "tier": 2,
+      "col": 2,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "venusaur",
+      "tier": 2,
+      "col": 5,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "blastoise",
+      "tier": 2,
+      "col": 5,
+      "row": 7,
+      "team": "player"
+    }
+  ]
+}

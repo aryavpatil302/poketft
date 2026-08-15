@@ -7,6 +7,141 @@
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body { background: #1a1a2e; color: #eee; font-family: monospace; overflow: hidden; }
+      @keyframes sunSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      /* scale/translate as independent CSS properties (not the `transform`
+         shorthand) so the grow pulse and the hop compose instead of the
+         later animation in the list silently overriding the earlier one's
+         `transform` value. */
+      @keyframes shopCardOwnedPulse { 0%, 100% { scale: 1; } 50% { scale: 1.1; } }
+      @keyframes shopCardHop { 0%, 100% { translate: 0 0; } 50% { translate: 0 -10%; } }
+      @keyframes tierPulseSilver {
+        0%, 100% { box-shadow: inset 0 0 0 0 rgba(191,202,211,0), 0 0 0 0 rgba(191,202,211,0); }
+        50% { box-shadow: inset 0 0 16px 4px rgba(191,202,211,0.55), 0 0 10px 2px rgba(191,202,211,0.5); }
+      }
+      @keyframes tierPulseGold {
+        0%, 100% { box-shadow: inset 0 0 0 0 rgba(240,201,92,0), 0 0 0 0 rgba(240,201,92,0); }
+        50% { box-shadow: inset 0 0 16px 4px rgba(240,201,92,0.6), 0 0 10px 2px rgba(240,201,92,0.55); }
+      }
+      /* Shop cards can be owned + near-combine + hovered all at once. Each
+         state claims its own animation slot via a CSS var so they compose
+         into a single `animation` list instead of clobbering each other. */
+      .shop-card {
+        --pulse-anim: none;
+        --tier-anim: none;
+        --hop-anim: none;
+        animation: var(--pulse-anim), var(--tier-anim), var(--hop-anim);
+      }
+      .shop-card-owned { --pulse-anim: shopCardOwnedPulse 0.5s ease-in-out infinite; }
+      .tier-pulse-silver { --tier-anim: tierPulseSilver 1.1s ease-in-out infinite; }
+      .tier-pulse-gold { --tier-anim: tierPulseGold 1.1s ease-in-out infinite; }
+      .shop-card:hover { --hop-anim: shopCardHop 1s ease-in-out infinite; }
+      /* Whole-card background tint, synced with the border glow above */
+      @keyframes tierBgPulse { 0%, 100% { opacity: 0; } 50% { opacity: 0.55; } }
+      .tier-bg-pulse-silver, .tier-bg-pulse-gold { animation: tierBgPulse 1.1s ease-in-out infinite; }
+      .tier-bg-pulse-silver { background: #bfcad3; }
+      .tier-bg-pulse-gold { background: #f0c95c; }
+      @keyframes benchStarUpFlash {
+        0%   { scale: 1; translate: 0 0; filter: saturate(1); }
+        25%  { scale: 1.5; translate: -3px 0; filter: saturate(2.4); }
+        45%  { scale: 1.5; translate: 3px 0; }
+        65%  { scale: 1.5; translate: -2px 0; }
+        85%  { scale: 1.5; translate: 1px 0; }
+        100% { scale: 1; translate: 0 0; filter: saturate(1); }
+      }
+      /* Same hover hop as shop cards, but 30% shorter (7% of height vs 10%).
+         Both the star-up flash (scale) and the hop (translate) target the
+         unit's own visual wrapper (not the bench cell/table border), and use
+         separate CSS properties so they compose if they ever overlap. */
+      @keyframes benchCellHop { 0%, 100% { translate: 0 0; } 50% { translate: 0 -7%; } }
+      .bench-unit-visual {
+        --flash-anim: none;
+        --hop-anim: none;
+        animation: var(--flash-anim), var(--hop-anim);
+        transform-origin: center;
+      }
+      .bench-star-up-flash { --flash-anim: benchStarUpFlash 0.5s ease-out 1; }
+      /* A crawler dropped onto the bench by a Cave Crawler earthquake: pops in
+         from above, jumps, rumbles side-to-side, then settles. Reuses the same
+         --flash-anim slot on .bench-unit-visual (a fresh spawn never coincides
+         with a star-up flash). */
+      @keyframes benchQuakeSpawn {
+        0%   { translate: 0 -80%; scale: 0.5; filter: brightness(1.7) saturate(1.4); }
+        28%  { translate: 0 -34%; scale: 1.12; filter: brightness(1.3); }
+        52%  { translate: 0 0;    scale: 1; filter: brightness(1.1); }
+        60%  { translate: -3px 0; }
+        69%  { translate: 3px 0; }
+        78%  { translate: -2px 0; }
+        87%  { translate: 2px 0; }
+        100% { translate: 0 0; scale: 1; filter: brightness(1) saturate(1); }
+      }
+      .bench-quake-spawn { --flash-anim: benchQuakeSpawn 0.65s ease-out 1; }
+      .bench-cell-occupied:hover .bench-unit-visual { --hop-anim: benchCellHop 1s ease-in-out infinite; }
+
+      /* Item-bench icons hop on hover, same feel as bench units. */
+      .item-slot-visual { --hop-anim: none; animation: var(--hop-anim); transform-origin: center bottom; }
+      .item-slot:hover .item-slot-visual { --hop-anim: benchCellHop 0.9s ease-in-out infinite; }
+
+      /* ─── Delibird item round (carousel) ─────────────────────────────────
+         Delibird swoops in from the left, then hops three times at different
+         angles; then the item tray expands outward from the centre. */
+      @keyframes delibirdSwoopIn {
+        0%   { transform: translate(-70vw, -40px) rotate(-8deg); }
+        70%  { transform: translate(6px, -26px) rotate(4deg); }
+        88%  { transform: translate(0, 4px) rotate(0deg); }
+        100% { transform: translate(0, 0) rotate(0deg); }
+      }
+      @keyframes delibirdHops {
+        0%   { transform: translate(0, 0) rotate(0deg); }
+        16%  { transform: translate(-15px, -38px) rotate(-13deg); }
+        33%  { transform: translate(0, 0) rotate(0deg); }
+        50%  { transform: translate(17px, -44px) rotate(12deg); }
+        66%  { transform: translate(0, 0) rotate(0deg); }
+        82%  { transform: translate(-7px, -30px) rotate(-7deg); }
+        100% { transform: translate(0, 0) rotate(0deg); }
+      }
+      .delibird-swoop { animation: delibirdSwoopIn 0.75s cubic-bezier(0.25,0.6,0.3,1) 1 both; }
+      .delibird-hops  { animation: delibirdHops 1.25s ease-in-out 1 both; }
+      /* Item tray reveal: width grows from 0 so items appear from the middle out. */
+      #delibird-tray {
+        overflow: hidden; width: 0;
+        transition: width 0.5s cubic-bezier(0.2,0.7,0.2,1);
+      }
+      #delibird-tray.open { width: var(--tray-w, 360px); }
+      @keyframes delibirdItemHop { 0%, 100% { translate: 0 0; } 50% { translate: 0 -16%; } }
+      .delibird-item { transform-origin: center bottom; }
+      .delibird-item:hover .delibird-item-visual { animation: delibirdItemHop 0.75s ease-in-out infinite; }
+      /* Held-unit cursor rejection: tried to place on a board hex while at
+         its level's board cap. `translate` (not `transform`) so it composes
+         with the cursor's own base `transform: translate(-50%,-50%)` centering. */
+      @keyframes heldUnitRejected {
+        0%   { translate: 0 0; filter: saturate(1) brightness(1); }
+        15%  { translate: -7px 0; filter: sepia(1) saturate(6) hue-rotate(-50deg) brightness(0.9); }
+        35%  { translate: 6px 0; }
+        55%  { translate: -5px 0; }
+        75%  { translate: 3px 0; filter: sepia(1) saturate(6) hue-rotate(-50deg) brightness(0.9); }
+        100% { translate: 0 0; filter: saturate(1) brightness(1); }
+      }
+      .held-unit-rejected { animation: heldUnitRejected 0.4s ease-out 1; }
+      /* Reroll / Buy XP button feedback — brief background flash, triggered
+         from either the click or the (d)/(f) keyboard shortcut. */
+      @keyframes econBtnFlash { 0% { background: #3d6396; } 100% { background: #1a2a3a; } }
+      .econ-btn-flash { animation: econBtnFlash 0.35s ease-out 1; }
+      /* Dragging a held unit over the shop bar to sell it */
+      .shop-sell-dim {
+        opacity: 0.55;
+        filter: grayscale(0.9) brightness(0.75);
+        transition: opacity 0.15s ease, filter 0.15s ease;
+      }
+      @keyframes heldUnitSellFlash {
+        0%, 100% { filter: grayscale(0.7) brightness(0.85); }
+        50%      { filter: grayscale(1) brightness(0.6); }
+      }
+      .held-unit-sell-mode { animation: heldUnitSellFlash 0.6s ease-in-out infinite; }
+      /* Gold HUD icon: shrink pulse on spend, grow pulse on gain */
+      @keyframes goldIconShrink { 0% { scale: 1; } 50% { scale: 0.7; } 100% { scale: 1; } }
+      @keyframes goldIconGrow   { 0% { scale: 1; } 50% { scale: 1.3; } 100% { scale: 1; } }
+      .gold-icon-spend { animation: goldIconShrink 0.3s ease-out 1; }
+      .gold-icon-earn  { animation: goldIconGrow   0.3s ease-out 1; }
     </style>
   </head>
   <body>

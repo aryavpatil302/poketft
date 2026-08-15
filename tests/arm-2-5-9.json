@@ -1,0 +1,68 @@
+{
+  "label": "arm 2 5 9",
+  "units": [
+    {
+      "id": "charizard",
+      "tier": 1,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "wheezing",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "torkoal",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "gogoat",
+      "tier": 2,
+      "col": 5,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "vigoroth",
+      "tier": 2,
+      "col": 5,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "bellibolt",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "tangela",
+      "tier": 2,
+      "col": 1,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "a_marowak",
+      "tier": 2,
+      "col": 0,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "armarouge",
+      "tier": 2,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    }
+  ]
+}

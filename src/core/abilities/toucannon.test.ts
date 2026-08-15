@@ -60,13 +60,15 @@ describe('Toucannon - Beak Blast', () => {
     expect(proj?.damagePayload?.canCrit).toBe(true)
   })
 
-  it('tier 1 base damage is 300', () => {
+  it('tier 1 damage scales with 700% of attack (scalingRatio 7.0)', () => {
     cast(caster, state)
     const proj = [...state.projectiles.values()].find(p => p.abilityId === 'toucannon_beak_blast')
-    expect(proj?.damagePayload?.baseAmount).toBe(300)
+    expect(proj?.damagePayload?.baseAmount).toBe(0)
+    expect(proj?.damagePayload?.scalingStat).toBe('attack')
+    expect(proj?.damagePayload?.scalingRatio).toBe(7.0)
   })
 
-  it('tier 2 base damage is 475', () => {
+  it('tier 2 damage scales with 1500% of attack (scalingRatio 15.0)', () => {
     const t2 = makeUnit('toucannon', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     t2.visualPos = { x: 300, y: 500 }
@@ -76,7 +78,7 @@ describe('Toucannon - Beak Blast', () => {
     t2.targetId = e.id
     cast(t2, s)
     const proj = [...s.projectiles.values()].find(p => p.abilityId === 'toucannon_beak_blast')
-    expect(proj?.damagePayload?.baseAmount).toBe(475)
+    expect(proj?.damagePayload?.scalingRatio).toBe(15.0)
   })
 
   it('projectile has an onHit callback for AoE explosion', () => {

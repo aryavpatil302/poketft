@@ -1,0 +1,40 @@
+{
+  "label": "5 cave",
+  "units": [
+    {
+      "id": "zubat",
+      "tier": 3,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "druddigon",
+      "tier": 3,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "sableye",
+      "tier": 3,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "ferrothorn",
+      "tier": 3,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "excadrill",
+      "tier": 3,
+      "col": 1,
+      "row": 6,
+      "team": "player"
+    }
+  ]
+}

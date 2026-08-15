@@ -2,16 +2,34 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit, computeStats } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
-import { hexDistance } from '../hexGrid'
+import { tickLeapPixel } from '../systems/movement'
+import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 
 // Import to ensure abilities are registered
 import '../systems/ability'
 
+const CAST_TICKS = 15
+
 function makeTestState(player: Unit, enemy: Unit): CombatState {
-  player.hexPos = { col: 0, row: 3 }
-  enemy.hexPos  = { col: 6, row: 0 }
+  player.hexPos = { col: 3, row: 4 }
+  enemy.hexPos  = { col: 3, row: 1 }
   return createCombatState([player], [enemy])
+}
+
+function cast(caster: Unit, state: CombatState): void {
+  caster.currentMana = caster.maxMana
+  triggerAbility(caster, state)
+  for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+// Mirrors combatEngine tickLeapMovement — advances the leap until landing.
+function advanceLeaps(unit: Unit, state: CombatState, maxTicks = 3000): void {
+  for (let t = 0; t < maxTicks; t++) {
+    if (unit.state !== 'leaping') break
+    const arrived = tickLeapPixel(unit, state)
+    if (arrived && !(unit as any)._leap) unit.state = 'idle'
+  }
 }
 
 describe('Vigoroth - Fury Swipes', () => {
@@ -23,55 +41,64 @@ describe('Vigoroth - Fury Swipes', () => {
     vigoroth = makeUnit('vigoroth', 'player', 1)
     enemy    = makeUnit('tangela', 'enemy', 1)
     state    = makeTestState(vigoroth, enemy)
-    vigoroth.currentMana = vigoroth.maxMana
     vigoroth.targetId = enemy.id
   })
 
   it('triggers ability cast animation', () => {
+    vigoroth.currentMana = vigoroth.maxMana
     triggerAbility(vigoroth, state)
     expect(vigoroth.state).toBe('casting')
-    expect(vigoroth.abilityCastTimer).toBe(15)  // VigorothAbility.castTimeTicks
+    expect(vigoroth.abilityCastTimer).toBe(CAST_TICKS)
   })
 
   it('resets mana to 0 after cast', () => {
-    triggerAbility(vigoroth, state)
-    for (let i = 0; i < 15; i++) tickAbilityCast(vigoroth, state)
+    cast(vigoroth, state)
     expect(vigoroth.currentMana).toBe(0)
   })
 
-  it('applies a shield on cast (tier 1 = 75)', () => {
-    triggerAbility(vigoroth, state)
-    for (let i = 0; i < 15; i++) tickAbilityCast(vigoroth, state)
-    expect(vigoroth.shields).toHaveLength(1)
-    expect(vigoroth.shields[0].value).toBe(75)
-    expect(vigoroth.shields[0].durationTicks).toBe(-1)  // lasts until broken
+  it('enters leaping state after cast', () => {
+    cast(vigoroth, state)
+    expect(vigoroth.state).toBe('leaping')
+    expect(vigoroth.targetId).toBe(enemy.id)
   })
 
-  it('shield values: tier 1=75, tier 2=100, tier 3=150', () => {
-    for (const [tier, expected] of [[1, 75], [2, 100], [3, 150]] as const) {
-      const v = makeUnit('vigoroth', 'player', tier as 1 | 2 | 3)
+  // Shield = base[tier-1] scaled by special/100 — mirrors vigoroth.ts onCast.
+  const SHIELD_BASE = [200, 350, 500] as const
+
+  it('applies a shield on landing (6-second duration)', () => {
+    cast(vigoroth, state)
+    advanceLeaps(vigoroth, state)
+    const spMult = computeStats(vigoroth).special / 100
+    expect(vigoroth.shields).toHaveLength(1)
+    expect(vigoroth.shields[0].value).toBe(Math.round(SHIELD_BASE[0] * spMult))
+    expect(vigoroth.shields[0].durationTicks).toBe(6 * TICK_RATE)
+  })
+
+  it('shield scales by tier and special attack', () => {
+    for (const tier of [1, 2, 3] as const) {
+      const v = makeUnit('vigoroth', 'player', tier)
       const e = makeUnit('tangela', 'enemy', 1)
       const s = makeTestState(v, e)
-      v.currentMana = v.maxMana
       v.targetId = e.id
-      triggerAbility(v, s)
-      for (let i = 0; i < 15; i++) tickAbilityCast(v, s)
-      expect(v.shields[0].value).toBe(expected)
+      cast(v, s)
+      advanceLeaps(v, s)
+      const spMult = computeStats(v).special / 100
+      expect(v.shields[0].value).toBe(Math.round(SHIELD_BASE[tier - 1] * spMult))
     }
   })
 
-  it('applies atkSpd_buff status effect', () => {
-    triggerAbility(vigoroth, state)
-    for (let i = 0; i < 15; i++) tickAbilityCast(vigoroth, state)
+  it('applies atkSpd_buff status effect on landing', () => {
+    cast(vigoroth, state)
+    advanceLeaps(vigoroth, state)
     const buff = vigoroth.statusEffects.find(e => e.id === 'atkSpd_buff')
     expect(buff).toBeDefined()
     expect(buff?.magnitude).toBeCloseTo(0.20)  // tier 1 = 20%
-    expect(buff?.durationTicks).toBe(-1)        // permanent until shield breaks
+    expect(buff?.durationTicks).toBe(-1)        // removed when shield expires
   })
 
-  it('applies dmg_buff status effect (tier 1 = +50 flat attack)', () => {
-    triggerAbility(vigoroth, state)
-    for (let i = 0; i < 15; i++) tickAbilityCast(vigoroth, state)
+  it('applies dmg_buff status effect on landing (tier 1 = +50 flat attack)', () => {
+    cast(vigoroth, state)
+    advanceLeaps(vigoroth, state)
     const buff = vigoroth.statusEffects.find(e => e.id === 'dmg_buff')
     expect(buff).toBeDefined()
     expect(buff?.magnitude).toBe(50)
@@ -79,44 +106,28 @@ describe('Vigoroth - Fury Swipes', () => {
 
   it('atkSpd buff reflects in computeStats', () => {
     const baseAs = vigoroth.attackSpeed
-    triggerAbility(vigoroth, state)
-    for (let i = 0; i < 15; i++) tickAbilityCast(vigoroth, state)
+    cast(vigoroth, state)
+    advanceLeaps(vigoroth, state)
     computeStats(vigoroth)
     expect(vigoroth._computedStats!.attackSpeed).toBeCloseTo(baseAs + baseAs * 0.20)
   })
 
   it('dmg_buff reflects in computeStats', () => {
     const baseAtk = vigoroth.attack
-    triggerAbility(vigoroth, state)
-    for (let i = 0; i < 15; i++) tickAbilityCast(vigoroth, state)
+    cast(vigoroth, state)
+    advanceLeaps(vigoroth, state)
     computeStats(vigoroth)
     expect(vigoroth._computedStats!.attack).toBe(baseAtk + 50)
   })
 
   it('removing the shield via onExpire removes both buffs', () => {
-    triggerAbility(vigoroth, state)
-    for (let i = 0; i < 15; i++) tickAbilityCast(vigoroth, state)
+    cast(vigoroth, state)
+    advanceLeaps(vigoroth, state)
 
     const shield = vigoroth.shields[0]
     if (shield.onExpire) shield.onExpire(vigoroth, shield)
 
     expect(vigoroth.statusEffects.find(e => e.id === 'atkSpd_buff')).toBeUndefined()
     expect(vigoroth.statusEffects.find(e => e.id === 'dmg_buff')).toBeUndefined()
-  })
-
-  it('enters leaping state when enemy is within 4 hexes', () => {
-    // Place Vigoroth within leap range of enemy
-    vigoroth.hexPos = { col: 3, row: 3 }
-    enemy.hexPos    = { col: 3, row: 1 }
-    const s = createCombatState([vigoroth], [enemy])
-    vigoroth.currentMana = vigoroth.maxMana
-    vigoroth.targetId = enemy.id
-    triggerAbility(vigoroth, s)
-    for (let i = 0; i < 15; i++) tickAbilityCast(vigoroth, s)
-
-    // hexPos updates only after tickLeapPixel completes in the combat loop;
-    // right after cast we just confirm the leap was initiated
-    expect(vigoroth.state).toBe('leaping')
-    expect(vigoroth.targetId).toBe(enemy.id)
   })
 })

@@ -1,0 +1,19 @@
+{
+  "label": "klawf",
+  "units": [
+    {
+      "id": "klawf",
+      "tier": 1,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "dummy",
+      "tier": 1,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    }
+  ]
+}

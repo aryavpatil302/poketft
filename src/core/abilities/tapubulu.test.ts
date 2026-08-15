@@ -79,11 +79,11 @@ describe('Tapu Bulu - Nature\'s Madness', () => {
     expect(cap?.magnitude).toBeCloseTo(0.5)
   })
 
-  it('applies tapubulu_madness status with trueDmgPct (tier 1 = 0.05)', () => {
+  it('applies tapubulu_madness status carrying the 50% chunk magnitude', () => {
     cast(caster, state)
     const madness = caster.statusEffects.find(fx => fx.id === 'tapubulu_madness')
     expect(madness).toBeDefined()
-    expect(madness?.magnitude).toBeCloseTo(0.05)
+    expect(madness?.magnitude).toBeCloseTo(0.5)
     expect(madness?.durationTicks).toBe(-1)
   })
 
@@ -98,15 +98,29 @@ describe('Tapu Bulu - Nature\'s Madness', () => {
     expect(armor?.magnitude).toBe(50)
   })
 
-  it('tier 2 - tapubulu_madness trueDmgPct is 0.08', () => {
-    const t2 = makeUnit('tapu_bulu','player', 2)
-    t2.hexPos = { col: 3, row: 5 }
-    const e = makeUnit('dummy', 'enemy', 1)
-    e.hexPos = { col: 3, row: 2 }
-    const s = createCombatState([t2], [e])
-    cast(t2, s)
-    const madness = t2.statusEffects.find(fx => fx.id === 'tapubulu_madness')
-    expect(madness?.magnitude).toBeCloseTo(0.08)
+  it('only every 3rd strike chunks 50% of the target current HP (strikes 1 & 2 deal no bonus)', () => {
+    cast(caster, state)
+    enemy.maxHp = 1000
+    enemy.currentHp = 1000
+    const h = caster.passiveAttackHandlers.find(hh => hh.id === 'tapubulu_madness')!
+    caster.attackCount = 1
+    h.onAttack(caster, enemy, state)
+    caster.attackCount = 2
+    h.onAttack(caster, enemy, state)
+    expect(enemy.currentHp).toBe(1000)   // no chunk on strikes 1 & 2
+    caster.attackCount = 3
+    h.onAttack(caster, enemy, state)
+    expect(enemy.currentHp).toBe(500)    // 3rd strike removes 50% of current HP
+  })
+
+  it('3rd strike executes a target at or below 5% HP', () => {
+    cast(caster, state)
+    enemy.maxHp = 1000
+    enemy.currentHp = 50   // exactly 5%
+    const h = caster.passiveAttackHandlers.find(hh => hh.id === 'tapubulu_madness')!
+    caster.attackCount = 3
+    h.onAttack(caster, enemy, state)
+    expect(enemy.state).toBe('dead')
   })
 
   it('emits a shield event (for the HP gain visual)', () => {

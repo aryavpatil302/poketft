@@ -7,7 +7,7 @@ import type { Unit, CombatState } from '../types'
 
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks = 20): void {
+function cast(caster: Unit, state: CombatState, castTicks = 15): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
   for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
@@ -49,25 +49,41 @@ describe('Zubat - Poison Sting', () => {
     expect(proj.sourceId).toBe(caster.id)
   })
 
-  it('projectile onHit applies poison status to target (tier 1 = 20 dmg/tick)', () => {
+  it('projectile has magic damage payload (tier 1 = 200)', () => {
+    cast(caster, state)
+    const proj = [...state.projectiles.values()][0]
+    expect(proj.damagePayload?.baseAmount).toBe(200)
+    expect(proj.damagePayload?.damageType).toBe('magic')
+  })
+
+  it('projectile onHit applies zubat_poison status to target', () => {
     cast(caster, state)
     const proj = [...state.projectiles.values()][0]
     expect(proj.onHit).toBeDefined()
     proj.onHit!(caster, enemy, state)
-    const poison = enemy.statusEffects.find(e => e.id === 'poison')
+    const poison = enemy.statusEffects.find(e => e.id === 'zubat_poison')
     expect(poison).toBeDefined()
-    expect(poison!.magnitude).toBe(20)
   })
 
-  it('poison lasts 3 seconds (3 * TICK_RATE)', () => {
+  it('poison lasts 4 seconds (4 * TICK_RATE)', () => {
     cast(caster, state)
     const proj = [...state.projectiles.values()][0]
     proj.onHit!(caster, enemy, state)
-    const poison = enemy.statusEffects.find(e => e.id === 'poison')
-    expect(poison!.durationTicks).toBe(3 * TICK_RATE)
+    const poison = enemy.statusEffects.find(e => e.id === 'zubat_poison')
+    expect(poison!.durationTicks).toBe(4 * TICK_RATE)
   })
 
-  it('tier 2 poison magnitude is 30', () => {
+  it('tier 1 poison ticks for 5 damage per second (20 total / 4 ticks)', () => {
+    cast(caster, state)
+    const proj = [...state.projectiles.values()][0]
+    proj.onHit!(caster, enemy, state)
+    const poison = enemy.statusEffects.find(e => e.id === 'zubat_poison')!
+    const hpBefore = enemy.currentHp
+    poison.tickEffect!(enemy, state)
+    expect(enemy.currentHp).toBe(hpBefore - 5)
+  })
+
+  it('tier 2 poison ticks for 13 damage per second (50 total / 4 ticks)', () => {
     const t2 = makeUnit('zubat', 'player', 2)
     t2.hexPos = { col: 3, row: 5 }
     const e2 = makeUnit('dummy', 'enemy', 1)
@@ -76,11 +92,13 @@ describe('Zubat - Poison Sting', () => {
     cast(t2, s2)
     const proj = [...s2.projectiles.values()][0]
     proj.onHit!(t2, e2, s2)
-    const poison = e2.statusEffects.find(e => e.id === 'poison')
-    expect(poison!.magnitude).toBe(30)
+    const poison = e2.statusEffects.find(e => e.id === 'zubat_poison')!
+    const hpBefore = e2.currentHp
+    poison.tickEffect!(e2, s2)
+    expect(e2.currentHp).toBe(hpBefore - 13)
   })
 
-  it('tier 3 poison magnitude is 50', () => {
+  it('tier 3 poison ticks for 19 damage per second (75 total / 4 ticks)', () => {
     const t3 = makeUnit('zubat', 'player', 3)
     t3.hexPos = { col: 3, row: 5 }
     const e3 = makeUnit('dummy', 'enemy', 1)
@@ -89,18 +107,10 @@ describe('Zubat - Poison Sting', () => {
     cast(t3, s3)
     const proj = [...s3.projectiles.values()][0]
     proj.onHit!(t3, e3, s3)
-    const poison = e3.statusEffects.find(e => e.id === 'poison')
-    expect(poison!.magnitude).toBe(50)
-  })
-
-  it('poison tick effect reduces enemy HP', () => {
-    cast(caster, state)
-    const proj = [...state.projectiles.values()][0]
-    proj.onHit!(caster, enemy, state)
-    const poison = enemy.statusEffects.find(e => e.id === 'poison')!
-    const hpBefore = enemy.currentHp
-    poison.tickEffect!(enemy, state)
-    expect(enemy.currentHp).toBe(Math.max(0, hpBefore - 20))
+    const poison = e3.statusEffects.find(e => e.id === 'zubat_poison')!
+    const hpBefore = e3.currentHp
+    poison.tickEffect!(e3, s3)
+    expect(e3.currentHp).toBe(hpBefore - 19)
   })
 
   it('does not apply poison to already dead target', () => {
@@ -108,7 +118,7 @@ describe('Zubat - Poison Sting', () => {
     const proj = [...state.projectiles.values()][0]
     enemy.state = 'dead'
     proj.onHit!(caster, enemy, state)
-    const poison = enemy.statusEffects.find(e => e.id === 'poison')
+    const poison = enemy.statusEffects.find(e => e.id === 'zubat_poison')
     expect(poison).toBeUndefined()
   })
 })

@@ -1,66 +1,71 @@
 # Add Trait
 
-Add a new trait to the simulator. Traits are defined in `src/data/traits.ts` and applied by `src/core/systems/trait.ts` at the start of combat.
+Add a new trait to the simulator. `src/data/traits.ts` holds the `TraitDefinition`s (display/tooltip text only), and `src/core/systems/traitEffects.ts` holds the actual combat logic, applied once at the start of combat via `initTraitEffects(state)`.
+
+**Important**: `TraitDefinition`'s `statBonus`/`teamBonus`/`specialEffect` fields in `traits.ts` are **never read by combat code** — they exist purely for the trait-bar tooltip UI and the bot AI's board-power scoring (`src/enemy/boardPower.ts`). Writing numbers there does nothing to gameplay. The real thresholds and effects always live in a hand-written function in `traitEffects.ts`, and must be kept in sync with the `traits.ts` description text by hand.
 
 ## Steps
 
-### 1. Add the TraitDefinition to `src/data/traits.ts`
+### 1. Add the TraitDefinition to `src/data/traits.ts` (UI text only)
 
 ```typescript
 {
-  id: 'traitname',          // lowercase, used in unit definitions
+  id: 'traitname',          // lowercase, used in unit definitions' `types` array
   name: 'Display Name',
   thresholds: [
-    {
-      count: 2,
-      description: '(2) Short description of the 2-unit bonus.',
-      statBonus: {           // flat stat additions applied to trait units
-        // e.g. defense: 10
-      },
-      teamBonus: {           // applied to ALL allies (not just trait units)
-        // e.g. attackSpeed: 0.05
-      },
-      specialEffect: 'effect_id',  // optional: for effects that can't be expressed as stats
-    },
+    { count: 2, description: '(2) Short description of the 2-unit bonus.', statBonus: {}, teamBonus: {} },
     { count: 4, description: '...', statBonus: {}, teamBonus: {} },
     { count: 6, description: '...', statBonus: {}, teamBonus: {} },
   ],
 }
 ```
+Keep `statBonus`/`teamBonus` empty or purely descriptive — they're not wired to anything. The `description` text is what players actually see, so it must match what you implement in step 2.
 
-### 2. Handle `specialEffect` in `src/core/systems/trait.ts`
+### 2. Implement the real effect in `src/core/systems/traitEffects.ts`
 
-If the trait bonus can't be expressed as a flat stat modifier (e.g. Jungle's "15% extra heal/shield power for jungle units"), add a case in `applySpecialTraitEffect()`:
+Add a new `applyMyTrait(state: CombatState): void` function following the existing per-trait convention (see `applyJungle`, `applyBeachy`, `applyBruiser` for reference), then call it from `initTraitEffects()`:
 
 ```typescript
-case 'jungle_healshield_6': {
-  // applied as a status effect that healAmount/shieldAmount calculations read
-  for (const unit of traitUnits) {
-    addStatusEffect(unit, {
-      id: 'jungle_healshield_bonus',
-      sourceUnitId: 'trait',
-      durationTicks: -1,
-      magnitude: 0.25,  // 25% bonus heal/shield power
-      stackId: 'jungle_healshield',
-    })
+function applyMyTrait(state: CombatState): void {
+  for (const team of ['player', 'enemy'] as const) {
+    const teamUnits = [...state.units.values()].filter(u => !u.isDummy && u.team === team)
+    const traitUnits = teamUnits.filter(u => u.types.includes('traitname'))
+    // TFT-style counting: unique species, not unit count
+    const speciesCount = new Set(traitUnits.map(u => u.definitionId)).size
+
+    if (speciesCount >= 6) { /* apply tier-3 bonus */ }
+    else if (speciesCount >= 4) { /* apply tier-2 bonus */ }
+    else if (speciesCount >= 2) { /* apply tier-1 bonus */ }
+    else continue
+
+    for (const unit of traitUnits) {
+      addStatusEffect(unit, {
+        id: 'traitname_bonus',       // must have a matching case in computeStats()
+        sourceUnitId: 'trait',
+        durationTicks: -1,
+        magnitude: 0.25,
+        stackId: 'traitname_bonus',
+      })
+    }
   }
-  break
 }
 ```
 
+Bonuses that apply to the whole team (not just trait members) iterate `teamUnits` instead of `traitUnits`. Simple flat/permanent bonuses (like Bruiser's HP, Beachy's mana) can mutate `unit.maxHp`/stats directly instead of going through a status effect — check an existing similar trait for which style fits.
+
 ### 3. Verify `computeStats()` reads the new effect
 
-If the trait applies via status effects, make sure `src/core/unitFactory.ts`'s `computeStats()` reads the relevant `statusEffect.id` and adjusts the appropriate computed stat.
+If step 2 applies its bonus via `addStatusEffect`, make sure `src/core/unitFactory.ts`'s `computeStats()` has a `case` for the status-effect `id` you used — an effect with no matching case is silently inert (it exists on the unit but changes nothing).
 
-### 4. Write a test in `src/core/systems/trait.test.ts`
+### 4. Write a test in `src/core/systems/traitEffects.test.ts`
 
 ```typescript
-it('Jungle (2) grants 10% heal/shield power to jungle units', () => {
-  const t1 = makeUnit('tangela', 'player')
-  const t2 = makeUnit('ribombee', 'player')
-  const state = makeTestState([t1, t2], [])
-  applyTraitBonuses([t1, t2], state)
-  // Assert the status effect or stat change was applied
+it('MyTrait (2) grants 25% bonus to trait units', () => {
+  const t1 = makeUnit('unit_a', 'player')
+  const t2 = makeUnit('unit_b', 'player')
+  const state = createCombatState([t1, t2], [])
+  initTraitEffects(state)
+  // Assert the status effect was applied / stat changed
 })
 ```
 

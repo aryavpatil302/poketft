@@ -3,6 +3,7 @@ import type { CombatState, Unit, PassiveAttackHandler } from '../types'
 import { computeStats } from '../unitFactory'
 import { createProjectile } from '../projectile'
 import { addStatusEffect } from '../systems/statusEffect'
+import { TICK_RATE } from '../constants'
 
 export const OranGuruAbility: AbilityHandler = {
   abilityId: 'oranguru_stored_power',
@@ -12,10 +13,12 @@ export const OranGuruAbility: AbilityHandler = {
     const specialPcts  = [0.80, 1.00, 1.20] as const
     const empBonuses   = [100,  175,  300 ] as const
     const spGainValues = [1,    2,    5   ] as const
+    const atkSpdBonuses = [0.20, 0.25, 0.30] as const
 
-    const specialPct = specialPcts[tier - 1]
-    const empBonus   = empBonuses[tier - 1]
-    const spGain     = spGainValues[tier - 1]
+    const specialPct   = specialPcts[tier - 1]
+    const empBonus     = empBonuses[tier - 1]
+    const spGain       = spGainValues[tier - 1]
+    const atkSpdBonus  = atkSpdBonuses[tier - 1]
 
     let waveCount = 0
     const handlerId = `oranguru_wave_${unit.id}_${state.tick}`
@@ -28,11 +31,11 @@ export const OranGuruAbility: AbilityHandler = {
         if (tgt.currentHp <= 0) return
 
         waveCount++
-        const isEmp     = waveCount % 5 === 0
+        const isEmp     = waveCount % 3 === 0
         const stats     = computeStats(src)
         const baseAmount = Math.round(stats.special * specialPct)
 
-        // Permanent special stat gain on every 5th wave
+        // Permanent special stat gain on every 3rd wave
         if (isEmp) {
           const existing = src.statusEffects.find(fx => fx.stackId === 'oranguru_sp_buff')
           if (existing) {
@@ -47,6 +50,18 @@ export const OranGuruAbility: AbilityHandler = {
               stackId: 'oranguru_sp_buff',
             })
           }
+
+          // Empowered waves also grant a 2-second attack speed buff, its
+          // effectiveness scaling with Oranguru's special (100 special =
+          // full 20/25/30%; higher special from his own stacking sp gain
+          // makes each proc progressively stronger).
+          addStatusEffect(src, {
+            id: 'atkSpd_buff',
+            sourceUnitId: src.id,
+            durationTicks: 2 * TICK_RATE,
+            magnitude: atkSpdBonus * (stats.special / 100),
+            stackId: 'oranguru_wave_atkspd',
+          })
         }
 
         const proj = createProjectile({
@@ -58,7 +73,7 @@ export const OranGuruAbility: AbilityHandler = {
           damagePayload: {
             baseAmount: isEmp ? baseAmount + empBonus : baseAmount,
             damageType: 'magic',
-            canCrit: false,
+            canCrit: true,
             abilityId: 'oranguru_stored_power',
           },
         })

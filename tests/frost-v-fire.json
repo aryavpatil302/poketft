@@ -1,0 +1,103 @@
+{
+  "label": "frost v fire",
+  "units": [
+    {
+      "id": "h_avalugg",
+      "tier": 2,
+      "col": 2,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "mamoswine",
+      "tier": 2,
+      "col": 4,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "snorunt",
+      "tier": 2,
+      "col": 3,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "froslass",
+      "tier": 3,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "abomasnow",
+      "tier": 2,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "charizard",
+      "tier": 1,
+      "col": 6,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "graveler",
+      "tier": 2,
+      "col": 2,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "torkoal",
+      "tier": 3,
+      "col": 1,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "wheezing",
+      "tier": 2,
+      "col": 3,
+      "row": 3,
+      "team": "enemy"
+    },
+    {
+      "id": "typhlosion",
+      "tier": 3,
+      "col": 6,
+      "row": 0,
+      "team": "enemy"
+    },
+    {
+      "id": "a_marowak",
+      "tier": 2,
+      "col": 1,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "weavile",
+      "tier": 2,
+      "col": 0,
+      "row": 5,
+      "team": "player"
+    },
+    {
+      "id": "gible",
+      "tier": 2,
+      "col": 5,
+      "row": 2,
+      "team": "enemy"
+    },
+    {
+      "id": "armarouge",
+      "tier": 2,
+      "col": 5,
+      "row": 0,
+      "team": "enemy"
+    }
+  ]
+}

@@ -2,15 +2,26 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickStatusEffects } from '../systems/statusEffect'
 import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
-
 import '../systems/ability'
 
-function cast(caster: Unit, state: CombatState, castTicks = 20): void {
+const CAST_TICKS    = 20
+const TICK_INTERVAL = Math.round(TICK_RATE * 0.5)  // 30
+
+function cast(caster: Unit, state: CombatState): void {
   caster.currentMana = caster.maxMana
   triggerAbility(caster, state)
-  for (let i = 0; i < castTicks; i++) tickAbilityCast(caster, state)
+  for (let i = 0; i < CAST_TICKS; i++) tickAbilityCast(caster, state)
+}
+
+// Advance status effects by N ticks
+function tickN(state: CombatState, n: number): void {
+  for (let i = 0; i < n; i++) {
+    state.tick++
+    tickStatusEffects(state.units, state)
+  }
 }
 
 describe('Abomasnow - Blizzard', () => {
@@ -20,102 +31,115 @@ describe('Abomasnow - Blizzard', () => {
 
   beforeEach(() => {
     caster = makeUnit('abomasnow', 'player', 1)
-    caster.hexPos = { col: 3, row: 5 }
+    caster.hexPos = { col: 3, row: 6 }
     enemy = makeUnit('dummy', 'enemy', 1)
     enemy.hexPos = { col: 3, row: 2 }
     state = createCombatState([caster], [enemy])
   })
 
-  it('fires cast event on trigger', () => {
-    caster.currentMana = caster.maxMana
-    triggerAbility(caster, state)
-    expect(state.events.some(e => e.type === 'cast')).toBe(true)
-  })
-
-  it('creates exactly one PersistentAoEZone after cast', () => {
+  it('resets mana to 0 after cast', () => {
     cast(caster, state)
-    expect(state.persistentAoEZones).toHaveLength(1)
+    expect(caster.currentMana).toBe(0)
   })
 
-  it('zone id matches expected prefix and unit id', () => {
+  it('applies a 30-magnitude MR shred for 3 seconds', () => {
     cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.id).toBe(`abomasnow_blizzard_${caster.id}`)
+    const shred = enemy.statusEffects.find(fx => fx.id === 'shred')
+    expect(shred).toBeDefined()
+    expect(shred!.magnitude).toBe(30)
+    expect(shred!.durationTicks).toBe(3 * TICK_RATE)
   })
 
-  it('zone center is at caster hex position', () => {
+  it('emits abomasnow_blizzard_start vfx event', () => {
     cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.center).toEqual(caster.hexPos)
+    expect(state.events.some(e =>
+      e.type === 'vfx' && (e as { effectId: string }).effectId === 'abomasnow_blizzard_start'
+    )).toBe(true)
   })
 
-  it('zone radius is 2', () => {
+  it('instant cast damage hits enemies in the best-center radius', () => {
+    const hpBefore = enemy.currentHp
     cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.radius).toBe(2)
+    expect(enemy.currentHp).toBeLessThan(hpBefore)
   })
 
-  it('zone damagePerInterval is 60 at tier 1', () => {
+  it('instant cast damage is 300 at tier 1 (mitigated by dummy spDefense=30)', () => {
+    // 300 * 100/(100+30) = 230.7 → Math.round = 231
     cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.damagePerInterval).toBe(60)
+    expect(enemy.currentHp).toBe(enemy.maxHp - 231)
   })
 
-  it('zone durationTicks is 4 * TICK_RATE at tier 1', () => {
+  it('applies blizzard_chill status effect to enemies in zone', () => {
     cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.durationTicks).toBe(4 * TICK_RATE)
+    expect(enemy.statusEffects.some(fx => fx.id === 'blizzard_chill')).toBe(true)
   })
 
-  it('zone targets enemy team (player caster → enemy zone)', () => {
+  it('blizzard_chill durationTicks is 240 (4 seconds)', () => {
     cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.targetTeam).toBe('enemy')
+    const chill = enemy.statusEffects.find(fx => fx.id === 'blizzard_chill')!
+    expect(chill.durationTicks).toBe(4 * TICK_RATE)
   })
 
-  it('tier 2: damagePerInterval = 90, duration = 5 * TICK_RATE', () => {
-    const t2 = makeUnit('abomasnow', 'player', 2)
-    t2.hexPos = { col: 3, row: 5 }
+  it('tick damage fires after TICK_INTERVAL ticks (follows the enemy)', () => {
+    cast(caster, state)
+    const hpAfterCast = enemy.currentHp
+    // Advance enough ticks for the first tick damage to fire
+    tickN(state, TICK_INTERVAL)
+    expect(enemy.currentHp).toBeLessThan(hpAfterCast)
+  })
+
+  it('tier 1 tick damage is 75 (shred reduces dummy spDef 30→0, no mitigation)', () => {
+    cast(caster, state)
+    const hpAfterCast = enemy.currentHp
+    tickN(state, TICK_INTERVAL)
+    expect(hpAfterCast - enemy.currentHp).toBe(75)
+  })
+
+  it('tier 2 tick damage is 100', () => {
+    const c2 = makeUnit('abomasnow', 'player', 2)
+    c2.hexPos = { col: 3, row: 6 }
     const e2 = makeUnit('dummy', 'enemy', 1)
     e2.hexPos = { col: 3, row: 2 }
-    const s2 = createCombatState([t2], [e2])
-    cast(t2, s2)
-    const zone = s2.persistentAoEZones[0]
-    expect(zone.damagePerInterval).toBe(90)
-    expect(zone.durationTicks).toBe(5 * TICK_RATE)
+    const s2 = createCombatState([c2], [e2])
+    cast(c2, s2)
+    const hpAfterCast = e2.currentHp
+    tickN(s2, TICK_INTERVAL)
+    expect(hpAfterCast - e2.currentHp).toBe(100)
   })
 
-  it('tier 3: damagePerInterval = 150, duration = 6 * TICK_RATE', () => {
-    const t3 = makeUnit('abomasnow', 'player', 3)
-    t3.hexPos = { col: 3, row: 5 }
+  it('tier 3 tick damage is 200', () => {
+    const c3 = makeUnit('abomasnow', 'player', 3)
+    c3.hexPos = { col: 3, row: 6 }
     const e3 = makeUnit('dummy', 'enemy', 1)
     e3.hexPos = { col: 3, row: 2 }
-    const s3 = createCombatState([t3], [e3])
-    cast(t3, s3)
-    const zone = s3.persistentAoEZones[0]
-    expect(zone.damagePerInterval).toBe(150)
-    expect(zone.durationTicks).toBe(6 * TICK_RATE)
+    const s3 = createCombatState([c3], [e3])
+    cast(c3, s3)
+    const hpAfterCast = e3.currentHp
+    tickN(s3, TICK_INTERVAL)
+    expect(hpAfterCast - e3.currentHp).toBe(200)
   })
 
-  it('recasting removes the old zone and creates a new one (no duplication)', () => {
+  it('recasting clears old debuffs and creates fresh ones', () => {
     cast(caster, state)
-    expect(state.persistentAoEZones).toHaveLength(1)
+    tickN(state, 10)
+    // HP after first cast + 10 ticks (no tick damage yet)
+    const hpBeforeRecast = enemy.currentHp
     cast(caster, state)
-    // Should still be exactly 1 zone (refreshed, not doubled)
-    expect(state.persistentAoEZones).toHaveLength(1)
+    // Should still have exactly one blizzard_chill
+    const chills = enemy.statusEffects.filter(fx => fx.id === 'blizzard_chill')
+    expect(chills).toHaveLength(1)
+    expect(chills[0].durationTicks).toBe(4 * TICK_RATE)
+    // Instant damage fires again on recast
+    expect(enemy.currentHp).toBeLessThan(hpBeforeRecast)
   })
 
-  it('recast zone has same id as original zone', () => {
+  it('burst centers on the largest enemy cluster (both clustered enemies chilled)', () => {
+    const enemy2 = makeUnit('dummy', 'enemy', 1)
+    enemy.hexPos  = { col: 3, row: 2 }
+    enemy2.hexPos = { col: 4, row: 2 }
+    state = createCombatState([caster], [enemy, enemy2])
     cast(caster, state)
-    const firstZoneId = state.persistentAoEZones[0].id
-    cast(caster, state)
-    const secondZoneId = state.persistentAoEZones[0].id
-    expect(secondZoneId).toBe(firstZoneId)
-  })
-
-  it('zone intervalTicks equals TICK_RATE (damage once per second)', () => {
-    cast(caster, state)
-    const zone = state.persistentAoEZones[0]
-    expect(zone.intervalTicks).toBe(TICK_RATE)
+    expect(enemy.statusEffects.some(fx => fx.id === 'blizzard_chill')).toBe(true)
+    expect(enemy2.statusEffects.some(fx => fx.id === 'blizzard_chill')).toBe(true)
   })
 })

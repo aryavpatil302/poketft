@@ -73,7 +73,7 @@ describe('Golurk - Poltergeist', () => {
   })
 
   it('pushes shadow_punch_empowered modifier with aoeRadius=1, knockUp=true, and correct bonus damage', () => {
-    const dmgs = [225, 300, 375] as const
+    const dmgs = [224, 452, 845] as const  // attack% scaling: [320,430,535]% of attack
     for (const tier of [1, 2, 3] as const) {
       const c = makeUnit('golurk', 'player', tier)
       c.hexPos = { col: 3, row: 5 }

@@ -1,0 +1,26 @@
+{
+  "label": "kingler test",
+  "units": [
+    {
+      "id": "zubat",
+      "tier": 2,
+      "col": 1,
+      "row": 7,
+      "team": "player"
+    },
+    {
+      "id": "kingler",
+      "tier": 1,
+      "col": 6,
+      "row": 4,
+      "team": "player"
+    },
+    {
+      "id": "blastoise",
+      "tier": 1,
+      "col": 0,
+      "row": 7,
+      "team": "player"
+    }
+  ]
+}

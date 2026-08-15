@@ -79,7 +79,7 @@ export const AbsolAbility: AbilityHandler = {
 
     if (dest) {
       const capturedTier = tier
-      startLeap(unit, dest, state, 7.0, (u, _s) => {
+      startLeap(unit, dest, state, 10.0, (u, _s) => {
         // Drop pre-dash target so tickTargeting re-acquires from the new hex position.
         u.targetId = null
         // After landing: brief pause, then slash.

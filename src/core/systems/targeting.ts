@@ -1,7 +1,19 @@
 import type { Unit, CombatState, Team } from '../types'
 import type { OffsetCoord } from '../hexGrid'
-import { hexDistance, hexesInRange, hexId, hexLinePath } from '../hexGrid'
+import { hexDistance, hexesInRange, hexId, hexLinePath, findPath } from '../hexGrid'
 import { computeStats } from '../unitFactory'
+import { softPassableCosts } from './movement'
+import { combatRng } from '../rng'
+
+// Can `unit` actually path to within attack range of `target`? Uses the same
+// soft-cost model as real movement (allies are squeeze-through-able), so a
+// target only reachable through allies still counts as reachable.
+function canReach(unit: Unit, target: Unit, state: CombatState): boolean {
+  const range = (unit._computedStats ?? computeStats(unit)).range
+  if (hexDistance(unit.hexPos, target.hexPos) <= range) return true
+  return findPath(unit.hexPos, target.hexPos, state.hexOccupancy, unit.id, range,
+    softPassableCosts(state, unit)).reachable
+}
 
 // Returns the best target for a unit to attack.
 // Prefers enemies already in attack range; randomises ties so adjacent units
@@ -17,14 +29,26 @@ export function acquireTarget(unit: Unit, state: CombatState): string | null {
   const range = (unit._computedStats ?? computeStats(unit)).range
   const enemies: Unit[] = []
   for (const other of state.units.values()) {
-    if (other.team === unit.team || other.state === 'dead') continue
+    if (other.team === unit.team || other.state === 'dead' || other.definitionId === 'ruiner_stone') continue
     enemies.push(other)
   }
   if (enemies.length === 0) return null
 
   // Prefer enemies already in attack range; fall back to all enemies
   const inRange = enemies.filter(e => hexDistance(unit.hexPos, e.hexPos) <= range)
-  const pool = inRange.length > 0 ? inRange : enemies
+  let pool = inRange.length > 0 ? inRange : enemies
+
+  // Out of range: if the geometrically-nearest enemy is walled off (unreachable),
+  // bias toward enemies we can actually path to, so the unit engages a reachable
+  // one instead of parking forever staring at an enemy it can never touch.
+  if (inRange.length === 0 && enemies.length > 1) {
+    const nearest = enemies.reduce((a, b) =>
+      hexDistance(unit.hexPos, a.hexPos) <= hexDistance(unit.hexPos, b.hexPos) ? a : b)
+    if (!canReach(unit, nearest, state)) {
+      const reachable = enemies.filter(e => canReach(unit, e, state))
+      if (reachable.length > 0) pool = reachable
+    }
+  }
 
   // Find the minimum distance within the pool
   let minDist = Infinity
@@ -34,13 +58,17 @@ export function acquireTarget(unit: Unit, state: CombatState): string | null {
   }
   const closest = pool.filter(e => hexDistance(unit.hexPos, e.hexPos) === minDist)
 
-  // Keep the current target if it's still among the closest (prevents flickering while moving)
-  if (unit.targetId && closest.some(e => e.id === unit.targetId)) {
+  const isCliff = (u: Unit) => u.definitionId === 'cliff_l' || u.definitionId === 'cliff_r'
+  const cliffPool = closest.filter(isCliff)
+  const tiePool   = cliffPool.length > 0 ? cliffPool : closest
+
+  // Keep the current target if it's still in the preferred pool (prevents flickering while moving)
+  if (unit.targetId && tiePool.some(e => e.id === unit.targetId)) {
     return unit.targetId
   }
 
-  // Pick randomly among equidistant candidates
-  return closest[Math.floor(Math.random() * closest.length)].id
+  // Pick randomly among equidistant candidates, cliffs preferred
+  return tiePool[Math.floor(combatRng() * tiePool.length)].id
 }
 
 // Called once per tick.
