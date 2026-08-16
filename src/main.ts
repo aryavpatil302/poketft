@@ -3325,7 +3325,7 @@ function finishItemRound(itemId: string | undefined): void {
     (s.streakGold ? ` · streak ${s.streakGold}` : '') + ` | +${s.xpGained} XP`
   resolveBotCreepRound(run)
   run.round++
-  run.gameOver = checkGameOver(run)
+  run.gameOver = checkGameOver(run, localSeatIndex)
   saveRun(run)
 
   if (run.gameOver) { enterGameOver(run.gameOver); return }
@@ -4329,7 +4329,7 @@ function frame(ts: number): void {
           })
         }
         run.round++
-        run.gameOver = checkGameOver(run)
+        run.gameOver = checkGameOver(run, localSeatIndex)
         saveRun(run)
 
         box.innerHTML = `${box.textContent}<div style="font-size:10px;font-weight:normal;margin-top:4px;opacity:0.85;">${lastSettlementLine}</div>`

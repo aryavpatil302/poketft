@@ -96,11 +96,11 @@ describe('botMatches', () => {
 
   it('checkGameOver: loss when human dies, win when all bots die', () => {
     const run = newRun(botSeats())
-    expect(checkGameOver(run)).toBeNull()
+    expect(checkGameOver(run, 0)).toBeNull()
     run.players[0].eliminated = true
-    expect(checkGameOver(run)).toBe('loss')
+    expect(checkGameOver(run, 0)).toBe('loss')
     run.players[0].eliminated = false
     for (let i = 1; i < 6; i++) run.players[i].eliminated = true
-    expect(checkGameOver(run)).toBe('win')
+    expect(checkGameOver(run, 0)).toBe('win')
   })
 })
