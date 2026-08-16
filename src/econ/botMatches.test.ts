@@ -103,4 +103,100 @@ describe('botMatches', () => {
     for (let i = 1; i < 6; i++) run.players[i].eliminated = true
     expect(checkGameOver(run, 0)).toBe('win')
   })
+
+  // ─── Seat symmetry: degenerate seat counts and ordering stability ──────────
+
+  it('pickNextOpponent never self-pairs and never picks an eliminated seat, for every seat', () => {
+    for (let forSeat = 0; forSeat < 6; forSeat++) {
+      const run = newRun(botSeats())
+      const rng = seededRng(100 + forSeat)
+      for (let i = 0; i < 20; i++) {
+        const pick = pickNextOpponent(run, forSeat, rng)
+        expect(pick).not.toBe(forSeat)
+        expect(run.players[pick].eliminated).toBe(false)
+      }
+    }
+  })
+
+  it('pickNextOpponent returns the -1 sentinel and checkGameOver returns win when forSeat is the last seat standing', () => {
+    const run = newRun(botSeats())
+    for (let i = 1; i < 6; i++) run.players[i].eliminated = true
+    const rng = seededRng(5)
+    for (let i = 0; i < 5; i++) expect(pickNextOpponent(run, 0, rng)).toBe(-1)
+    expect(checkGameOver(run, 0)).toBe('win')
+  })
+
+  it('pickNextOpponent returns the only other living seat every call when exactly two seats are alive', () => {
+    const run = newRun(botSeats())
+    for (const i of [0, 1, 3, 5]) run.players[i].eliminated = true   // seats 2 and 4 remain
+    const rngFrom2 = seededRng(11)
+    for (let i = 0; i < 20; i++) expect(pickNextOpponent(run, 2, rngFrom2)).toBe(4)
+    const rngFrom4 = seededRng(13)
+    for (let i = 0; i < 20; i++) expect(pickNextOpponent(run, 4, rngFrom4)).toBe(2)
+  })
+
+  it('eliminating seats one at a time never yields a pick that is eliminated', () => {
+    const run = newRun(botSeats())
+    const rng = seededRng(21)
+    const picks = new Set<number>()
+    for (let i = 0; i < 40; i++) {
+      const eliminateIdx = 1 + Math.floor(i / 8)   // eliminate one more seat every 8 calls
+      if (eliminateIdx <= 5) run.players[eliminateIdx].eliminated = true
+      const pick = pickNextOpponent(run, 0, rng)
+      if (pick === -1) continue
+      expect(run.players[pick].eliminated).toBe(false)
+      expect(pick).not.toBe(0)
+      picks.add(pick)
+    }
+  })
+
+  it('pickNextOpponent ordering is stable under a fixed seed across structurally identical states', () => {
+    const runA = newRun(botSeats())
+    const runB = newRun(botSeats())
+    runA.players[2].eliminated = true
+    runB.players[2].eliminated = true
+    const rngA = seededRng(11)
+    const rngB = seededRng(11)
+    const seqA = Array.from({ length: 10 }, () => pickNextOpponent(runA, 3, rngA))
+    const seqB = Array.from({ length: 10 }, () => pickNextOpponent(runB, 3, rngB))
+    expect(seqA).toEqual(seqB)
+  })
+
+  it('selection is not influenced by board power', () => {
+    const run = newRun(botSeats())
+    // Seat 1 gets a large board; seat 2 stays empty. Both remain eligible for seat 0.
+    run.players[1].board = [
+      { definitionId: 'tangela', tier: 3, hexPos: { col: 0, row: 4 } },
+      { definitionId: 'zubat', tier: 2, hexPos: { col: 1, row: 4 } },
+      { definitionId: 'kingler', tier: 2, hexPos: { col: 2, row: 4 } },
+    ]
+    for (const i of [3, 4, 5]) run.players[i].eliminated = true
+    const rng = seededRng(31)
+    const picks = new Set<number>()
+    for (let i = 0; i < 40; i++) {
+      const pick = pickNextOpponent(run, 0, rng)
+      picks.add(pick)
+      run.nextOpponent = pick   // mirror real usage so the anti-rematch filter can rotate
+    }
+    expect(picks.has(1)).toBe(true)   // the large board
+    expect(picks.has(2)).toBe(true)   // the empty board
+  })
+
+  it('checkGameOver answers correctly for a non-zero seat', () => {
+    const run = newRun(botSeats())
+    expect(checkGameOver(run, 3)).toBeNull()
+    run.players[3].eliminated = true
+    expect(checkGameOver(run, 3)).toBe('loss')
+    run.players[3].eliminated = false
+    for (const i of [0, 1, 2, 4, 5]) run.players[i].eliminated = true
+    expect(checkGameOver(run, 3)).toBe('win')
+  })
+
+  it('checkGameOver returns loss for every seat when all seats are eliminated simultaneously', () => {
+    const run = newRun(botSeats())
+    for (const p of run.players) p.eliminated = true
+    for (let i = 0; i < run.players.length; i++) {
+      expect(checkGameOver(run, i)).toBe('loss')
+    }
+  })
 })
