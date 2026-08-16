@@ -103,12 +103,13 @@ export function resolveBotFight(a: PlayerEcon, b: PlayerEcon, rng?: Rng): BotFig
   return { winner: aWon ? 'a' : 'b', survivorStars, quakes, contribA, contribB }
 }
 
-// Pick the human's next opponent: random living bot, avoiding an immediate
-// rematch when more than one bot is alive.
-export function pickNextOpponent(state: RunState, rng: Rng = Math.random): number {
+// Pick an opponent for `forSeat`: random living seat other than `forSeat`,
+// avoiding an immediate rematch when more than one other seat is alive.
+// Returns -1 when no eligible opponent exists (only `forSeat` remains living).
+export function pickNextOpponent(state: RunState, forSeat: number, rng: Rng = Math.random): number {
   const living = state.players
     .map((p, i) => [p, i] as const)
-    .filter(([p, i]) => i !== 0 && !p.eliminated)
+    .filter(([p, i]) => i !== forSeat && !p.eliminated)
     .map(([, i]) => i)
   if (living.length === 0) return -1
   const choices = living.length > 1 ? living.filter(i => i !== state.nextOpponent) : living
@@ -187,7 +188,7 @@ export function resolveBotRound(
   }
 
   // 4. choose next opponent
-  state.nextOpponent = pickNextOpponent(state, rng)
+  state.nextOpponent = pickNextOpponent(state, 0, rng)
 
   return outcomes
 }
@@ -219,14 +220,20 @@ export function resolveBotCreepRound(state: RunState, rng: Rng = Math.random): v
     botPlanRound(state, bot, humanPower, rng)
   }
 
-  state.nextOpponent = pickNextOpponent(state, rng)
+  state.nextOpponent = pickNextOpponent(state, 0, rng)
 }
 
-// Win/loss check for the whole run (call after resolveBotRound + human settle)
-export function checkGameOver(state: RunState): 'win' | 'loss' | null {
-  const human = state.players[0]
-  if (human.eliminated) return 'loss'
-  const botsAlive = state.players.some((p, i) => i > 0 && !p.eliminated)
-  if (!botsAlive) return 'win'
+// Win/loss check for the whole run, from `forSeat`'s point of view (call
+// after resolveBotRound + settlement). The eliminated check runs BEFORE the
+// last-seat-standing check — this order is load-bearing: when every seat is
+// eliminated on the same round, every seat must read 'loss', not have one of
+// them spuriously read 'win' because it also happens to be "the only seat
+// left with rivalsAlive === false". For forSeat = 0 in a lobby whose other
+// seats are all bots, both branches reduce to exactly the old behaviour.
+export function checkGameOver(state: RunState, forSeat: number): 'win' | 'loss' | null {
+  const me = state.players[forSeat]
+  if (!me || me.eliminated) return 'loss'
+  const rivalsAlive = state.players.some((p, i) => i !== forSeat && !p.eliminated)
+  if (!rivalsAlive) return 'win'
   return null
 }
