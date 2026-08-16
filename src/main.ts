@@ -1729,6 +1729,10 @@ let heldUnit: { definitionId: string; tier: 1 | 2 | 3; item?: string } | null = 
 let heldFrom: { kind: 'bench'; slot: number } | { kind: 'board'; hex: OffsetCoord } | null = null
 let currentOpponentIndex = -1        // captured at combat start for settlement
 let lastSettlementLine = ''
+// The seat this client controls. Single-player leaves this at 0. Phase 3/4
+// (room server + client networking) will set this from the room's seat
+// assignment once a lobby can host more than one human.
+let localSeatIndex = 0
 
 function econActive(): boolean {
   const chk = document.getElementById('chk-test-mode') as HTMLInputElement | null
@@ -1747,7 +1751,7 @@ function overlayModeActive(): boolean {
   return econActive()
 }
 
-function humanEcon(): PlayerEcon { return run.players[0] }
+function humanEcon(): PlayerEcon { return run.players[localSeatIndex] }
 
 function playerBoardUnitCount(): number {
   let n = 0
@@ -1911,7 +1915,7 @@ function initFreshRun(): void {
   for (let i = 1; i < run.players.length; i++) {
     botPlanRound(run, run.players[i], 0)
   }
-  run.nextOpponent = pickNextOpponent(run)
+  run.nextOpponent = pickNextOpponent(run, localSeatIndex)
   saveRun(run)
 }
 
@@ -3531,8 +3535,8 @@ function startCombat(): void {
     } else {
       // Resolve the opponent (fall back if the stored one died meanwhile)
       let oppIdx = run.nextOpponent
-      if (oppIdx < 1 || run.players[oppIdx]?.eliminated) oppIdx = pickNextOpponent(run)
-      if (oppIdx < 1) return   // no living bots — game should already be over
+      if (oppIdx < 0 || oppIdx === localSeatIndex || run.players[oppIdx]?.eliminated) oppIdx = pickNextOpponent(run, localSeatIndex)
+      if (oppIdx < 0) return   // no living opponent — the run should already be over
       currentOpponentIndex = oppIdx
       const opp = run.players[oppIdx]
 

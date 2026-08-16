@@ -26,7 +26,7 @@ describe('botMatches', () => {
     run.players[3].eliminated = true
     const rng = seededRng(1)
     for (let i = 0; i < 20; i++) {
-      const pick = pickNextOpponent(run, rng)
+      const pick = pickNextOpponent(run, 0, rng)
       expect(pick).not.toBe(2)
       expect(pick).not.toBe(3)
       expect(pick).toBeGreaterThan(0)
@@ -34,7 +34,18 @@ describe('botMatches', () => {
     // Only one bot left → rematch allowed
     for (const i of [1, 2, 3, 4]) run.players[i].eliminated = true
     run.nextOpponent = 5
-    expect(pickNextOpponent(run, rng)).toBe(5)
+    expect(pickNextOpponent(run, 0, rng)).toBe(5)
+  })
+
+  it('pickNextOpponent works for a non-zero local seat', () => {
+    const run = newRun(botSeats())
+    const rng = seededRng(7)
+    for (let i = 0; i < 20; i++) {
+      const pick = pickNextOpponent(run, 3, rng)
+      expect(pick).not.toBe(3)
+      expect(pick).not.toBe(-1)
+      expect(run.players[pick].eliminated).toBe(false)
+    }
   })
 
   it('resolveBotRound settles the human opponent, fights the rest, and plans next round', () => {
