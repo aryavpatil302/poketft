@@ -157,3 +157,14 @@ None - no external service configuration required.
 ---
 *Phase: 01-seat-agnostic-core-refactor*
 *Completed: 2026-08-16*
+
+## Self-Check: PASSED
+
+- FOUND: src/main.ts
+- FOUND: src/econ/botMatches.ts
+- FOUND: src/econ/botMatches.test.ts
+- FOUND: .planning/phases/01-seat-agnostic-core-refactor/01-01-SUMMARY.md
+- FOUND commit: 2223a4c (Task 1)
+- FOUND commit: 0cca6e6 (Task 2)
+- FOUND commit: f97da79 (Task 3)
+- FOUND commit: 1443ba4 (docs: SUMMARY.md)
