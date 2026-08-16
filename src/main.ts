@@ -1911,9 +1911,13 @@ function syncRunToBoard(): void {
 // take their first shopping turn so round 1 isn't six empty boards.
 function initFreshRun(): void {
   for (const p of run.players) p.gold = 5
-  rollShop(humanEcon(), run.pool)
-  for (let i = 1; i < run.players.length; i++) {
-    botPlanRound(run, run.players[i], 0)
+  // Two ascending passes, not one merged pass: every human shop roll must draw
+  // from the shared pool before any bot purchase, matching today's draw order.
+  for (const p of run.players) {
+    if (p.personaId === null) rollShop(p, run.pool)
+  }
+  for (const p of run.players) {
+    if (p.personaId !== null) botPlanRound(run, p, 0)
   }
   run.nextOpponent = pickNextOpponent(run, localSeatIndex)
   saveRun(run)
@@ -3323,7 +3327,7 @@ function finishItemRound(itemId: string | undefined): void {
   lastSettlementLine =
     `Delibird · took ${picked} · +${s.total}g · base ${s.base} · interest ${s.interest}` +
     (s.streakGold ? ` · streak ${s.streakGold}` : '') + ` | +${s.xpGained} XP`
-  resolveBotCreepRound(run)
+  resolveBotCreepRound(run, localSeatIndex)
   run.round++
   run.gameOver = checkGameOver(run, localSeatIndex)
   saveRun(run)
@@ -4316,12 +4320,13 @@ function frame(ts: number): void {
         }
 
         if (creep) {
-          resolveBotCreepRound(run)
+          resolveBotCreepRound(run, localSeatIndex)
           // TODO(round-3-items): on the final creep round, grant the player an item reward here.
         } else {
           resolveBotRound(run, {
-            botIndex: currentOpponentIndex,
-            botWon: winner === 'enemy',
+            seat: localSeatIndex,
+            opponentSeat: currentOpponentIndex,
+            opponentWon: winner === 'enemy',
             draw: winner === 'draw',
             survivorStars: playerStars,
             // Exact quake count the opponent's crawlers fired this live fight.

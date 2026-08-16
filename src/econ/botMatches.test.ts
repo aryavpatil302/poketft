@@ -56,7 +56,7 @@ describe('botMatches', () => {
     run.players[3].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 3, row: 4 } }]
 
     const hpBefore = run.players.map(p => p.hp)
-    const outcomes = resolveBotRound(run, { botIndex: 1, botWon: false, draw: false, survivorStars: 3 }, seededRng(9))
+    const outcomes = resolveBotRound(run, { seat: 0, opponentSeat: 1, opponentWon: false, draw: false, survivorStars: 3 }, seededRng(9))
 
     // Opponent bot lost to the human → lost HP
     expect(run.players[1].hp).toBeLessThan(hpBefore[1])
@@ -87,7 +87,7 @@ describe('botMatches', () => {
     run.pool['kingler'] -= 3            // as if he bought them
     const before = run.pool['kingler']
 
-    resolveBotRound(run, { botIndex: 1, botWon: false, draw: false, survivorStars: 5 }, seededRng(3))
+    resolveBotRound(run, { seat: 0, opponentSeat: 1, opponentWon: false, draw: false, survivorStars: 5 }, seededRng(3))
 
     expect(bot.eliminated).toBe(true)
     expect(bot.board).toHaveLength(0)

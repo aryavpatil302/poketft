@@ -116,41 +116,71 @@ export function pickNextOpponent(state: RunState, forSeat: number, rng: Rng = Ma
   return choices[Math.floor(rng() * choices.length)]
 }
 
-// Run the full bot side of a round, AFTER the human's own match was settled:
-//  1. every living bot (except the human's opponent, whose result is passed in)
+// One live (real, on-screen) fight's result, from the point of view of the
+// seat whose match was played out live. Either side of a live fight can be
+// human or bot — `seat`/`opponentSeat` name which physical seats fought,
+// never which side is "the bot".
+export interface LiveMatchResult {
+  seat: number            // the seat whose fight was played out live (the caller's local seat)
+  opponentSeat: number    // the seat it fought
+  opponentWon: boolean    // true when `opponentSeat` beat `seat`
+  draw: boolean
+  survivorStars: number   // survivor stars credited against `opponentSeat`'s settlement
+  opponentQuakes?: number // Cave Crawler earthquakes `opponentSeat` triggers this round
+}
+
+// Every human seat's (personaId === null) strongest board power, used as the
+// planning target for every bot. Parity property: with exactly one human
+// seat, this returns that seat's econBoardPower verbatim (seeded from the
+// first human seat found, not from 0, so a negative-power board still reads
+// correctly). Stability property: human seats are counted whether or not
+// they are eliminated, so the value does not change on the round a human dies
+// — which is exactly the round resolveBotRound/resolveBotCreepRound call it.
+export function humanTablePower(state: RunState): number {
+  let max: number | null = null
+  for (const p of state.players) {
+    if (p.personaId !== null) continue
+    const power = econBoardPower(p)
+    if (max === null || power > max) max = power
+  }
+  return max ?? 0
+}
+
+// Run the full bot side of a round, AFTER the live seat's own match was settled:
+//  1. every living bot (except the two seats that already fought live)
 //     fights in random pairs; odd bot out gets a bye (counts as a draw)
 //  2. each bot gets its settlement (income/XP/HP)
 //  3. eliminated bots return their units to the pool
 //  4. every surviving bot plans its next round (spends gold on the shared pool)
-//  5. the human's next opponent is chosen
+//  5. the live seat's next opponent is chosen
 export function resolveBotRound(
   state: RunState,
-  humanOpponentResult: { botIndex: number; botWon: boolean; draw: boolean; survivorStars: number; opponentQuakes?: number },
+  live: LiveMatchResult,
   rng: Rng = Math.random,
 ): BotMatchOutcome[] {
   const outcomes: BotMatchOutcome[] = []
   const round = state.round
 
-  // 1. settle the human's opponent from the live match result
-  const oppEcon = state.players[humanOpponentResult.botIndex]
+  // 1. settle the live opponent from the live match result
+  const oppEcon = state.players[live.opponentSeat]
   if (oppEcon && !oppEcon.eliminated) {
     settleRound(oppEcon, {
-      won: humanOpponentResult.botWon,
-      draw: humanOpponentResult.draw,
-      survivorStars: humanOpponentResult.survivorStars,
+      won: live.opponentWon,
+      draw: live.draw,
+      survivorStars: live.survivorStars,
       round,
     })
     // Cave Crawler rewards from the live fight (exact quake count threaded from main.ts).
     if (!oppEcon.eliminated) {
-      rollCrawlerEarthquakeRewards(state, oppEcon, humanOpponentResult.opponentQuakes ?? 0, rng)
+      rollCrawlerEarthquakeRewards(state, oppEcon, live.opponentQuakes ?? 0, rng)
     }
     if (oppEcon.eliminated) returnAllToPool(state, oppEcon)
   }
 
-  // 2. pair the remaining living bots
+  // 2. pair the remaining living bots — exclude both seats that already fought live
   const others = state.players
     .map((p, i) => [p, i] as const)
-    .filter(([p, i]) => i !== 0 && i !== humanOpponentResult.botIndex && !p.eliminated)
+    .filter(([p, i]) => i !== live.seat && i !== live.opponentSeat && !p.eliminated)
     .map(([, i]) => i)
 
   // shuffle (Fisher-Yates with injected rng)
@@ -180,47 +210,47 @@ export function resolveBotRound(
     settleRound(state.players[byeIdx], { won: false, draw: true, survivorStars: 0, round })
   }
 
-  // 3. every living bot plans its next round against the human's current power
-  const humanPower = econBoardPower(state.players[0])
-  for (let i = 1; i < state.players.length; i++) {
+  // 3. every living bot plans its next round against the strongest human board
+  const power = humanTablePower(state)
+  for (let i = 0; i < state.players.length; i++) {
     const bot = state.players[i]
-    if (!bot.eliminated) botPlanRound(state, bot, humanPower, rng)
+    if (bot.personaId === null || bot.eliminated) continue
+    botPlanRound(state, bot, power, rng)
   }
 
-  // 4. choose next opponent
-  state.nextOpponent = pickNextOpponent(state, 0, rng)
+  // 4. choose the live seat's next opponent
+  state.nextOpponent = pickNextOpponent(state, live.seat, rng)
 
   return outcomes
 }
 
 // Bot side of a PvE creep round: no fights (neither bot-vs-bot nor bot-vs-human).
 // Every living bot just takes the creep settlement (income + XP, no HP change,
-// like a bye) and plans its next round, then the human's next opponent is chosen
+// like a bye) and plans its next round, then `forSeat`'s next opponent is chosen
 // for when PvP begins. Mirrors resolveBotRound minus the combat.
-export function resolveBotCreepRound(state: RunState, rng: Rng = Math.random): void {
+export function resolveBotCreepRound(state: RunState, forSeat: number, rng: Rng = Math.random): void {
   const round = state.round
   const itemRound = isItemRound(round)
-  for (let i = 1; i < state.players.length; i++) {
+  for (let i = 0; i < state.players.length; i++) {
     const bot = state.players[i]
-    if (!bot.eliminated) {
-      settleRound(bot, { won: false, draw: true, survivorStars: 0, round })
-    }
+    if (bot.personaId === null || bot.eliminated) continue
+    settleRound(bot, { won: false, draw: true, survivorStars: 0, round })
   }
 
-  const humanPower = econBoardPower(state.players[0])
-  for (let i = 1; i < state.players.length; i++) {
+  const power = humanTablePower(state)
+  for (let i = 0; i < state.players.length; i++) {
     const bot = state.players[i]
-    if (bot.eliminated) continue
+    if (bot.personaId === null || bot.eliminated) continue
     // Delibird item round: each living bot also picks an item that suits its board
     // (planning equips it via equipBotItems).
     if (itemRound) {
       const item = chooseBotItem(bot, botOwnedItems(bot), rng)
       if (item) bot.itemBench.push(item)
     }
-    botPlanRound(state, bot, humanPower, rng)
+    botPlanRound(state, bot, power, rng)
   }
 
-  state.nextOpponent = pickNextOpponent(state, 0, rng)
+  state.nextOpponent = pickNextOpponent(state, forSeat, rng)
 }
 
 // Win/loss check for the whole run, from `forSeat`'s point of view (call
