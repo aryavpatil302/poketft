@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { newRun } from './runState'
-import { botSeats } from './bots'
-import { boardToSpecs, pickNextOpponent, resolveBotRound, checkGameOver } from './botMatches'
+import { botSeats, econBoardPower } from './bots'
+import { boardToSpecs, pickNextOpponent, resolveBotRound, resolveBotCreepRound, checkGameOver, humanTablePower } from './botMatches'
 import '../core/systems/ability'   // register abilities for the headless sim
 
 function seededRng(seed: number): () => number {
@@ -198,5 +198,96 @@ describe('botMatches', () => {
     for (let i = 0; i < run.players.length; i++) {
       expect(checkGameOver(run, i)).toBe('loss')
     }
+  })
+
+  // ─── humanTablePower / two-human settlement (Plan 02) ──────────────────────
+
+  it('humanTablePower is parity-exact for a single-human lobby', () => {
+    const run = newRun(botSeats())
+    run.players[0].board = [
+      { definitionId: 'tangela', tier: 2, hexPos: { col: 3, row: 4 } },
+      { definitionId: 'zubat', tier: 1, hexPos: { col: 2, row: 4 } },
+    ]
+    expect(humanTablePower(run)).toBe(econBoardPower(run.players[0]))
+  })
+
+  it('humanTablePower is stable across the human seat\'s own elimination', () => {
+    const run = newRun(botSeats())
+    run.players[0].board = [{ definitionId: 'tangela', tier: 2, hexPos: { col: 3, row: 4 } }]
+    const before = humanTablePower(run)
+    run.players[0].eliminated = true
+    expect(humanTablePower(run)).toBe(before)
+  })
+
+  it('humanTablePower with two humans returns the stronger board\'s power', () => {
+    const run = newRun(botSeats())
+    run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 2, row: 4 } }]
+    run.players[3].personaId = null   // seat 3 becomes a second human
+    run.players[3].board = [
+      { definitionId: 'tangela', tier: 3, hexPos: { col: 3, row: 4 } },
+      { definitionId: 'kingler', tier: 2, hexPos: { col: 1, row: 4 } },
+    ]
+    expect(humanTablePower(run)).toBe(econBoardPower(run.players[3]))
+  })
+
+  it('humanTablePower with no human seats returns 0', () => {
+    const run = newRun(botSeats())
+    for (const p of run.players) p.personaId = 'some-persona'
+    expect(humanTablePower(run)).toBe(0)
+  })
+
+  it('two humans settle symmetrically: neither live seat is double-settled, and the abstract path covers everyone else', () => {
+    const run = newRun(botSeats())
+    run.players[3].personaId = null   // seat 3 becomes a second human
+    const before0 = { gold: run.players[0].gold, hp: run.players[0].hp }
+
+    const outcomes = resolveBotRound(
+      run,
+      { seat: 0, opponentSeat: 1, opponentWon: false, draw: false, survivorStars: 2 },
+      seededRng(17),
+    )
+
+    // Seat 0 (the live seat) is untouched by resolveBotRound — main.ts settles it separately.
+    expect(run.players[0].gold).toBe(before0.gold)
+    expect(run.players[0].hp).toBe(before0.hp)
+    // Seat 1 (the live opponent) was settled once in step 1 — it must never appear
+    // in an abstract-pairing outcome (that would double-settle it).
+    for (const o of outcomes) {
+      expect(o.aIndex).not.toBe(1)
+      expect(o.bIndex).not.toBe(1)
+    }
+    // Seats 2, 3, 4, 5 go through the abstract path: 4 seats -> 2 pairs -> 2 outcomes.
+    expect(outcomes).toHaveLength(2)
+    const involved = new Set(outcomes.flatMap(o => [o.aIndex, o.bIndex]))
+    expect(involved).toEqual(new Set([2, 3, 4, 5]))
+    for (const o of outcomes) expect(o.aIndex).not.toBe(o.bIndex)
+  })
+
+  it('eliminating seats before resolveBotRound yields strictly fewer abstract pairings', () => {
+    const runA = newRun(botSeats())
+    const outcomesA = resolveBotRound(
+      runA,
+      { seat: 0, opponentSeat: 1, opponentWon: false, draw: false, survivorStars: 1 },
+      seededRng(23),
+    )
+
+    const runB = newRun(botSeats())
+    runB.players[4].eliminated = true
+    runB.players[5].eliminated = true
+    const outcomesB = resolveBotRound(
+      runB,
+      { seat: 0, opponentSeat: 1, opponentWon: false, draw: false, survivorStars: 1 },
+      seededRng(23),
+    )
+
+    expect(outcomesB.length).toBeLessThan(outcomesA.length)
+  })
+
+  it('resolveBotCreepRound for a non-zero human seat sets nextOpponent to a valid living seat', () => {
+    const run = newRun(botSeats())
+    run.players[3].personaId = null   // seat 3 becomes a second human
+    resolveBotCreepRound(run, 3, seededRng(5))
+    expect(run.nextOpponent).not.toBe(3)
+    expect(run.players[run.nextOpponent].eliminated).toBe(false)
   })
 })
