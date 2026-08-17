@@ -59,7 +59,8 @@ describe('freeSeat', () => {
     const table = newSeatTable(run)
     const originalPersona = table.roster[1].personaId
     const originalName = table.roster[1].name
-    assignSeat(run, table, 'c1', 'Misty')
+    assignSeat(run, table, 'c0', 'Ash')     // takes seat 0, leaving seat 1 the lowest free
+    assignSeat(run, table, 'c1', 'Misty')   // takes seat 1
     expectOccupancyInvariant(run, table)
 
     const freed = freeSeat(run, table, 'c1')
