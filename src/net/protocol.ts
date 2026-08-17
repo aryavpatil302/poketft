@@ -48,6 +48,12 @@ export type ServerMessage =
   | { t: 'rejected'; reason: RejectReason }
   | { t: 'seat-taken'; seat: number; name: string }
   | { t: 'seat-freed'; seat: number; name: string }
+  // `deadline` is an absolute epoch-milliseconds timestamp, paired with
+  // `serverNow` (Date.now() at send time) rather than a bare
+  // remaining-milliseconds number — a client subtracts the two to correct
+  // for its own clock skew instead of trusting its local wall clock, and can
+  // recompute the remaining time at any point after receipt without drift.
+  | { t: 'phase'; phase: RoomPhase; round: number; deadline: number | null; serverNow: number }
 
 // Narrow parse — never throws. Returns null for non-JSON input, a parsed
 // value that is not a plain object, or any `t` other than 'action'. Does NOT

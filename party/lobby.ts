@@ -7,7 +7,7 @@
 // would drag DOM globals into the Workers bundle.
 
 import type * as Party from 'partykit/server'
-import { applyAction, startPlanning } from '../src/game/round'
+import { applyAction, startPlanning, resolveRound } from '../src/game/round'
 import type { RunState } from '../src/econ/runState'
 import {
   newRoomRun, newSeatTable, assignSeat, freeSeat, seatOf, lobbyView,
@@ -15,6 +15,7 @@ import {
 } from './seats'
 import {
   PROTOCOL_VERSION,
+  PLANNING_MS,
   MAX_ACTIONS_PER_PHASE,
   parseClientMessage,
   type RoomPhase,
@@ -23,15 +24,43 @@ import {
 
 const MAX_MESSAGE_LENGTH = 4096
 
+// Hashes the room id into a seed, mixed with the round number, for
+// resolveRound's seat-pairing rng. FNV-1a-style string fold — cheap, no
+// dependency, stable across runs of the same room id.
+//
+// This seed decides seat PAIRING ONLY. Combat itself draws from
+// Math.random() inside resolveRound's recorded fights — this project
+// deliberately cut deterministic seed-replay (see src/net/fightWire.ts's
+// header comment) — so this value is not a replay handle and nothing
+// downstream may treat it as one.
+function roundSeedFor(roomId: string, round: number): number {
+  let hash = 2166136261
+  for (let i = 0; i < roomId.length; i++) {
+    hash ^= roomId.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  hash = hash ^ Math.imul(round, 2654435761)
+  return hash >>> 0
+}
+
 export default class Lobby implements Party.Server {
   run!: RunState
   table!: SeatTable
   phase: RoomPhase = 'idle'
 
+  // Absolute epoch-ms deadline for the current planning phase, and the
+  // scheduled timer that fires onDeadline() when it arrives. Both null
+  // outside 'planning' (or, transiently, right after a fresh onStart before
+  // the first connection opens the loop).
+  deadline: number | null = null
+  private timer: ReturnType<typeof setTimeout> | null = null
+
   // Per-connection-id action budget for this planning phase. Reset on
   // connect (a fresh connection should not inherit a stale counter from a
-  // previous occupant of the same seat) and on resetActionBudget(), which
-  // Plan 03-04 will call at the start of every new planning phase.
+  // previous occupant of the same seat) and, with no argument, at the start
+  // of every new planning phase (beginPlanning()) — every currently-tracked
+  // connection's budget resets together so it never leaks across a round
+  // boundary.
   private actionBudget = new Map<string, number>()
 
   constructor(readonly room: Party.Room) {}
@@ -59,10 +88,76 @@ export default class Lobby implements Party.Server {
     await this.room.storage.put('run', this.run)
   }
 
-  // Called on connect (a fresh connection starts unpenalized) and, from
-  // Plan 03-04, at the start of every new planning phase.
-  resetActionBudget(connId: string): void {
-    this.actionBudget.set(connId, 0)
+  // Called with a connId on connect (a fresh connection starts unpenalized).
+  // Called with no argument at the start of every new planning phase
+  // (beginPlanning()) to reset every currently-tracked connection at once.
+  resetActionBudget(connId?: string): void {
+    if (connId !== undefined) {
+      this.actionBudget.set(connId, 0)
+      return
+    }
+    for (const id of this.actionBudget.keys()) this.actionBudget.set(id, 0)
+  }
+
+  private broadcastPhase(): void {
+    this.room.broadcast(JSON.stringify(
+      { t: 'phase', phase: this.phase, round: this.run.round, deadline: this.deadline, serverNow: Date.now() } satisfies ServerMessage,
+    ))
+  }
+
+  // Opens a new planning phase: bank pending income + roll shops
+  // (startPlanning), flip the phase, set an absolute deadline, reset every
+  // connection's action budget together, and schedule the timer that fires
+  // resolution when the deadline arrives.
+  //
+  // Uses setTimeout rather than a Durable Object alarm: connections keep the
+  // room alive for the whole planning window, hibernation is not enabled
+  // here, and a plain timer is directly observable from the Node harness
+  // (scripts/roomRound.ts). Alarm-based scheduling (this.room.storage.
+  // setAlarm(this.deadline) with onAlarm() calling onDeadline()) is the
+  // hardening path if a room ever needs to resolve with nobody connected —
+  // which this milestone explicitly does not do (see onClose below).
+  private async beginPlanning(): Promise<void> {
+    startPlanning(this.run)
+    this.phase = 'planning'
+    this.deadline = Date.now() + PLANNING_MS
+    this.resetActionBudget()
+    this.timer = setTimeout(() => void this.onDeadline(), PLANNING_MS)
+
+    await this.persist()
+    this.broadcastPhase()
+    this.room.broadcast(JSON.stringify({ t: 'snapshot', snapshot: this.run } satisfies ServerMessage))
+  }
+
+  private clearTimer(): void {
+    if (this.timer !== null) clearTimeout(this.timer)
+    this.timer = null
+    this.deadline = null
+  }
+
+  // Fires when a planning phase's deadline arrives. Ordering here is
+  // load-bearing (see the plan's must_haves): the phase flips to 'resolving'
+  // as the FIRST statement, before clearTimer or resolveRound run, so there
+  // is a deterministic answer to "which side of the deadline did this
+  // action land on" — the room is a single-threaded Durable Object, so the
+  // event loop (not a race) decides, and onMessage's phase guard reads
+  // exactly this flag.
+  private async onDeadline(): Promise<void> {
+    this.phase = 'resolving'
+    this.clearTimer()
+
+    const result = resolveRound(this.run, roundSeedFor(this.room.id, this.run.round))
+    // Do NOT increment this.run.round here — resolveRound already does it
+    // internally; doing it twice would skip every other round, including
+    // the creep/item rounds keyed on specific round numbers.
+    await this.persist()
+
+    if (result.survivors.length <= 1) {
+      this.phase = 'over'
+      this.broadcastPhase()
+      return
+    }
+    await this.beginPlanning()
   }
 
   async onConnect(conn: Party.Connection, ctx: Party.ConnectionContext): Promise<void> {
@@ -78,13 +173,13 @@ export default class Lobby implements Party.Server {
     }
     this.resetActionBudget(conn.id)
 
-    const wasFirstHuman = this.phase === 'idle'
-    if (wasFirstHuman) {
-      startPlanning(this.run)
-      this.phase = 'planning'
+    if (this.phase === 'idle') {
+      // The first human seat of a fresh (or emptied-out) room opens the
+      // round loop; beginPlanning() itself persists and broadcasts.
+      await this.beginPlanning()
+    } else {
+      await this.persist()
     }
-
-    await this.persist()
 
     const welcome: ServerMessage = {
       t: 'welcome',
@@ -96,6 +191,14 @@ export default class Lobby implements Party.Server {
       round: this.run.round,
     }
     conn.send(JSON.stringify(welcome))
+    if (this.phase === 'planning') {
+      // A connection joining mid-planning-phase needs the live deadline
+      // immediately, so its countdown is correct from the server's real
+      // clock rather than starting fresh from an assumed duration.
+      conn.send(JSON.stringify(
+        { t: 'phase', phase: this.phase, round: this.run.round, deadline: this.deadline, serverNow: Date.now() } satisfies ServerMessage,
+      ))
+    }
     this.room.broadcast(JSON.stringify({ t: 'lobby', lobby: lobbyView(this.run, this.table) } satisfies ServerMessage))
     this.room.broadcast(
       JSON.stringify({ t: 'seat-taken', seat, name: this.run.players[seat].name } satisfies ServerMessage),
@@ -112,6 +215,14 @@ export default class Lobby implements Party.Server {
     this.room.broadcast(
       JSON.stringify({ t: 'seat-freed', seat, name: this.run.players[seat].name } satisfies ServerMessage),
     )
+
+    if (Array.from(this.room.getConnections()).length === 0) {
+      // Nobody is watching — stop burning a timer and resume the loop on
+      // the next connect. The settled economy is preserved either way; this
+      // just stops the clock, it never touches this.run.
+      this.clearTimer()
+      this.phase = 'idle'
+    }
   }
 
   async onMessage(raw: string, sender: Party.Connection): Promise<void> {
@@ -144,6 +255,15 @@ export default class Lobby implements Party.Server {
       return
     }
 
+    // An action is applied if and only if its handler runs while the phase
+    // is still 'planning'. Deliberately dropped, never queued: applying a
+    // buy after settlement would spend post-settlement gold against a
+    // pre-settlement shop that no longer exists.
+    if (this.phase !== 'planning') {
+      sender.send(JSON.stringify({ t: 'rejected', reason: 'wrong-phase' } satisfies ServerMessage))
+      return
+    }
+
     const result = applyAction(this.run, seat, msg.action)
     if (!result.ok) {
       sender.send(JSON.stringify({ t: 'rejected', reason: result.reason } satisfies ServerMessage))
@@ -164,6 +284,8 @@ export default class Lobby implements Party.Server {
       room: this.room.id,
       phase: this.phase,
       round: this.run.round,
+      deadline: this.deadline,
+      timerScheduled: this.timer !== null,
       connections: Array.from(this.room.getConnections()).length,
       storageKeys,
       seats: lobbyView(this.run, this.table).map(s => ({ seat: s.seat, human: s.human })),
