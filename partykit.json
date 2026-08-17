@@ -1,0 +1,6 @@
+{
+  "$schema": "https://www.partykit.io/schema.json",
+  "name": "poketft",
+  "main": "party/lobby.ts",
+  "compatibilityDate": "2024-11-11"
+}

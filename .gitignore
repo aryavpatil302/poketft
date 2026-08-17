@@ -1,1 +1,5 @@
 training_runs/
+
+# partykit dev's local Durable Object storage (room state persisted across
+# `partykit dev` restarts) — never committed, purely local dev state.
+.partykit/
