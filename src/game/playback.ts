@@ -75,6 +75,27 @@ export function applyFrame(state: CombatState, frame: FightFrame): void {
     unit.visualPos = { x: uf.visualPos.x, y: uf.visualPos.y }    // the frame must stay replayable.
     unit.state = uf.state as typeof unit.state
     unit.items = [...uf.items]
+    // Animation-driving fields — without these the renderer's windup/lunge/
+    // squash-stretch math sees makeUnit's frozen zero/false/empty defaults
+    // every frame, so nothing animates even though position and HP are
+    // correct. Restoring them is the whole fix: playback replaces exactly
+    // what a live tick would have left on the unit at this instant.
+    unit.targetId = uf.targetId
+    unit.attackTimer = uf.attackTimer
+    unit.attackWindupTimer = uf.attackWindupTimer
+    unit.isInWindup = uf.isInWindup
+    unit.pendingCrit = uf.pendingCrit
+    unit.abilityCastTimer = uf.abilityCastTimer
+    unit.attackCount = uf.attackCount
+    unit.attackModifiers = uf.attackModifiers.map(m => ({ ...m }))
+    unit.shields = uf.shields.map(s => ({ ...s }))
+    unit.statusEffects = uf.statusEffects.map(fx => ({ ...fx }))
+    unit.marks = uf.marks.map(m => ({ ...m }))
+    unit.dmgDealt = { ...uf.dmgDealt }
+    unit.dmgTaken = { ...uf.dmgTaken }
+    unit._leap = uf.leap
+      ? { ...uf.leap, destHex: unit.hexPos, midpointFired: true }
+      : undefined
   }
 
   // Occupancy is derived state with no history — rebuilding from the frame's
@@ -98,10 +119,13 @@ export function applyFrame(state: CombatState, frame: FightFrame): void {
       currentPos: { x: pf.currentPos.x, y: pf.currentPos.y },
       speed: 0,
       hitRadius: pf.hitRadius,
+      ...(pf.targetId !== undefined ? { targetId: pf.targetId } : {}),
       ...(pf.targetPos !== undefined ? { targetPos: { x: pf.targetPos.x, y: pf.targetPos.y } } : {}),
       ...(pf.arcHeight !== undefined ? { arcHeight: pf.arcHeight } : {}),
       ...(pf.launchDist !== undefined ? { launchDist: pf.launchDist } : {}),
       ...(pf.abilityId !== undefined ? { abilityId: pf.abilityId } : {}),
+      ...(pf.damagePayload !== undefined ? { damagePayload: { ...pf.damagePayload } } : {}),
+      ...(pf.healPayload !== undefined ? { healPayload: { ...pf.healPayload } } : {}),
     }
     projectiles.set(pf.id, projectile)
   }

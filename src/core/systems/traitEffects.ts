@@ -721,7 +721,9 @@ function applyRuiner(state: CombatState): void {
       attackModifiers: [], passiveAttackHandlers: [], passiveCastHandlers: [],
       role: undefined,
       placedAt: 0,
-      attackCount: 0, damageTakenThisCombat: 0, damageDealtThisCombat: 0, traitDmg: {}, traitHeal: {}, traitShield: {}, traitMitigated: {}, traitCount: {},
+      attackCount: 0, damageTakenThisCombat: 0, damageDealtThisCombat: 0,
+      dmgDealt: { physical: 0, magic: 0, true: 0 }, dmgTaken: { physical: 0, magic: 0, true: 0 },
+      traitDmg: {}, traitHeal: {}, traitShield: {}, traitMitigated: {}, traitCount: {},
       silenced: false, whirlpooled: false, marks: [],
       incomingDamageMult: 1.0,
       _computedStats: null,
@@ -1051,16 +1053,35 @@ function applyQuickclaw(state: CombatState): void {
 // ─── Froststone ───────────────────────────────────────────────────────────────
 // Auto attacks mark enemies (up to 5 stacks) dealing scaling true damage.
 // Hitting a fully-stacked target consumes all marks for bonus special damage.
+// Ordinary autos can only ADD marks — consuming needs a spell hit (see the
+// separate ability-damage gate in damage.ts) — EXCEPT Mamoswine's own autos
+// while his Thick Fat empowerment is active (canConsume), since that buff is
+// specifically meant to let his autos behave like an ability hit for this.
+
+function isMamoswineEmpowered(unit: Unit): boolean {
+  return unit.definitionId === 'mamoswine' && unit.attackModifiers.some(m => m.id === 'mamoswine_thick_fat_auto')
+}
 
 function applyFroststoneMark(
   source: Unit, target: Unit, state: CombatState,
-  perMarkDmg: number,
+  perMarkDmg: number, canConsume = false,
 ): void {
   if (target.team === source.team || target.state === 'dead') return
 
   const markFx        = target.statusEffects.find(fx => fx.stackId === 'froststone_mark')
   const currentStacks = markFx?.magnitude ?? 0
-  if (currentStacks >= 5) return  // fully stacked — only spells consume
+
+  if (currentStacks >= 5) {
+    if (!canConsume) return  // fully stacked — only spells (or an empowered consuming auto) consume
+    const activeFx      = source.statusEffects.find(fx => fx.stackId === 'froststone_active')
+    const consumeBonus  = activeFx?.magnitude ?? 100
+    if (markFx) target.statusEffects = target.statusEffects.filter(fx => fx !== markFx)
+    applyDamage(source, target, { baseAmount: consumeBonus, damageType: 'true', canCrit: false, abilityId: 'froststone_consume', traitSource: 'froststone' }, state)
+    const existAnim = target.statusEffects.find(fx => fx.stackId === 'froststone_consume_anim')
+    if (existAnim) { existAnim.durationTicks = 45 }
+    else { target.statusEffects.push({ id: 'froststone_consume_anim', sourceUnitId: source.id, durationTicks: 45, magnitude: 45, stackId: 'froststone_consume_anim' }) }
+    return
+  }
 
   // Apply mark + bonus true damage scaled by current stacks
   const bonusDmg = perMarkDmg * (1 + currentStacks)
@@ -1075,37 +1096,39 @@ function applyFroststoneMark(
 
 
 function applyFroststone(state: CombatState): void {
-  const froststoneUnits = [...state.units.values()].filter(u =>
-    u.team === 'player' && !u.isDummy && u.types.includes('froststone')
-  )
-  const n = new Set(froststoneUnits.map(u => u.definitionId)).size
-  const level = n >= 6 ? 6 : n >= 4 ? 4 : n >= 2 ? 2 : 0
-  if (level === 0) return
+  for (const team of ['player', 'enemy'] as const) {
+    const froststoneUnits = [...state.units.values()].filter(u =>
+      u.team === team && !u.isDummy && u.types.includes('froststone')
+    )
+    const n = new Set(froststoneUnits.map(u => u.definitionId)).size
+    const level = n >= 6 ? 6 : n >= 4 ? 4 : n >= 2 ? 2 : 0
+    if (level === 0) continue
 
-  const perMarkDmg   = level >= 6 ? 25 : level >= 4 ? 19 : 13
-  const consumeBonus = level >= 6 ? 200 : level >= 4 ? 150 : 100
+    const perMarkDmg   = level >= 6 ? 25 : level >= 4 ? 19 : 13
+    const consumeBonus = level >= 6 ? 200 : level >= 4 ? 150 : 100
 
-  for (const unit of froststoneUnits) {
-    if (unit.passiveAttackHandlers.some(h => h.id === 'froststone_mark')) continue
+    for (const unit of froststoneUnits) {
+      if (unit.passiveAttackHandlers.some(h => h.id === 'froststone_mark')) continue
 
-    // Store consume bonus on the unit so tryConsumeFroststoneMark can read it
-    if (!unit.statusEffects.some(fx => fx.stackId === 'froststone_active')) {
-      unit.statusEffects.push({ id: 'froststone_active', sourceUnitId: 'trait', durationTicks: -1, magnitude: consumeBonus, stackId: 'froststone_active' })
+      // Store consume bonus on the unit so tryConsumeFroststoneMark can read it
+      if (!unit.statusEffects.some(fx => fx.stackId === 'froststone_active')) {
+        unit.statusEffects.push({ id: 'froststone_active', sourceUnitId: 'trait', durationTicks: -1, magnitude: consumeBonus, stackId: 'froststone_active' })
+      }
+
+      const stats    = unit._computedStats ?? computeStats(unit)
+      const isRanged = stats.range > 1
+
+      unit.passiveAttackHandlers.push({
+        id: 'froststone_mark',
+        onAttack(source: Unit, target: Unit, st: CombatState) {
+          if (isRanged) return  // ranged units apply mark on projectile hit
+          applyFroststoneMark(source, target, st, perMarkDmg, isMamoswineEmpowered(source))
+        },
+        onProjectileHit(source: Unit, target: Unit, st: CombatState) {
+          applyFroststoneMark(source, target, st, perMarkDmg, isMamoswineEmpowered(source))
+        },
+      })
     }
-
-    const stats    = unit._computedStats ?? computeStats(unit)
-    const isRanged = stats.range > 1
-
-    unit.passiveAttackHandlers.push({
-      id: 'froststone_mark',
-      onAttack(source: Unit, target: Unit, st: CombatState) {
-        if (isRanged) return  // ranged units apply mark on projectile hit
-        applyFroststoneMark(source, target, st, perMarkDmg)
-      },
-      onProjectileHit(source: Unit, target: Unit, st: CombatState) {
-        applyFroststoneMark(source, target, st, perMarkDmg)
-      },
-    })
   }
 }
 
@@ -1233,7 +1256,9 @@ function applySubstitutor(state: CombatState): void {
             statusEffects: [], shields: [],
             attackModifiers: [], passiveAttackHandlers: [], passiveCastHandlers: [],
             role: undefined, placedAt: 0,
-            attackCount: 0, damageTakenThisCombat: 0, damageDealtThisCombat: 0, traitDmg: {}, traitHeal: {}, traitShield: {}, traitMitigated: {}, traitCount: {},
+            attackCount: 0, damageTakenThisCombat: 0, damageDealtThisCombat: 0,
+      dmgDealt: { physical: 0, magic: 0, true: 0 }, dmgTaken: { physical: 0, magic: 0, true: 0 },
+      traitDmg: {}, traitHeal: {}, traitShield: {}, traitMitigated: {}, traitCount: {},
             silenced: false, whirlpooled: false, marks: [],
             incomingDamageMult: 1.0,
             _computedStats: null,

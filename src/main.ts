@@ -447,6 +447,29 @@ document.getElementById('app')!.innerHTML = `
       <!-- Lobby scoreboard (economy mode) -->
       <div id="lobby-panel" style="display:none;flex-shrink:0;margin-bottom:10px;"></div>
 
+      <!-- Live damage meter (shown during combat, both modes) -->
+      <div id="damage-meter-section" style="
+        display:none;flex-shrink:0;margin-bottom:10px;
+        background:rgba(10,14,26,0.85);border:1px solid #2a3550;border-radius:6px;
+        padding:6px 8px;box-sizing:border-box;
+      ">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:9px;color:#8899cc;letter-spacing:.04em;opacity:0.8;">DAMAGE</span>
+          <button id="dmg-meter-collapse" style="background:transparent;border:none;color:#889;cursor:pointer;font-size:11px;padding:0 2px;">▾</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <div style="display:flex;background:#151c30;border-radius:3px;overflow:hidden;">
+            <button id="dmg-meter-tab-mine" style="padding:2px 7px;font-size:9px;border:none;cursor:pointer;background:#3a5ca0;color:#fff;">Mine</button>
+            <button id="dmg-meter-tab-enemy" style="padding:2px 7px;font-size:9px;border:none;cursor:pointer;background:transparent;color:#889;">Enemy</button>
+          </div>
+          <div style="display:flex;background:#151c30;border-radius:3px;overflow:hidden;">
+            <button id="dmg-meter-stat-dealt" style="padding:2px 7px;font-size:9px;border:none;cursor:pointer;background:#555;color:#fff;">Dealt</button>
+            <button id="dmg-meter-stat-taken" style="padding:2px 7px;font-size:9px;border:none;cursor:pointer;background:transparent;color:#889;">Taken</button>
+          </div>
+        </div>
+        <div id="damage-meter" style="margin-top:6px;overflow-y:auto;max-height:280px;"></div>
+      </div>
+
       <!-- Header with collapse button -->
       <div id="test-tools-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-shrink:0;">
         <h3 style="margin:0;color:#88aaff;font-size:13px;">Test Tools</h3>
@@ -1305,10 +1328,18 @@ function renderSunEffect(): void {
 function renderEnemyTraitDisplay(): void {
   const section = document.getElementById('enemy-traits-section')
 
-  // Use combatState units during/after combat; fall back to placedUnits (test mode)
-  const source: Iterable<Unit> = combatState
-    ? combatState.units.values()
-    : placedUnits.values()
+  // Hidden during combat — the enemy trait panel is a planning-phase tool;
+  // during combat the damage meter (renderDamageMeter) takes the sidebar,
+  // and enemy traits remain available via the per-unit hover tooltip.
+  if (combatState) {
+    if (section) section.style.display = 'none'
+    document.getElementById('enemy-trait-overlay')!.style.display = 'none'
+    setTraitList('enemy-traits', [])
+    setTraitList('enemy-trait-overlay-inner', [])
+    return
+  }
+
+  const source: Iterable<Unit> = placedUnits.values()
 
   const counts = new Map<string, number>()
   const seenDefs = new Set<string>()
@@ -1338,6 +1369,180 @@ function renderEnemyTraitDisplay(): void {
   setTraitList('enemy-trait-overlay-inner', sorted)
 }
 
+// ─── Live damage meter ──────────────────────────────────────────────────────
+// Per-unit stacked bars for the player's own team, live during combat (and
+// playback — Unit.dmgDealt/dmgTaken round-trip through FightFrame the same
+// way position/HP do). Dealt: physical red, magic blue, true white. Taken:
+// physical dark red, magic dark blue, true white. Sorted by total dealt,
+// matching the reference layout the user is replicating.
+type DmgColorMap = { physical: string; magic: string; true: string }
+const DMG_DEALT_COLOR: DmgColorMap = { physical: '#e04444', magic: '#4477e0', true: '#e8e8e8' }
+const DMG_TAKEN_COLOR: DmgColorMap = { physical: '#7a1f1f', magic: '#1f2f7a', true: '#e8e8e8' }
+
+// Leaderboard-style bar: overall length is this row's share of the row with
+// the highest total (so units compare at a glance, not just self-composition),
+// and the filled portion is itself split by damage type (physical/magic/true)
+// in proportion to how much of this unit's total each type contributed. The
+// number is overlaid on the bar, matching the reference layout.
+// One persistent row's element refs, built once per unit id and reused every
+// render — reusing the SAME bar-fill element across renders is what lets the
+// CSS width transition below actually animate (a freshly created element has
+// no "previous width" to animate from; innerHTML-per-frame would only ever
+// show the final state).
+interface DamageMeterRow {
+  el: HTMLElement
+  fill: HTMLElement
+  segs: Record<'physical' | 'magic' | 'true', HTMLElement>
+}
+
+// Separate row maps per stat — switching Dealt/Taken keeps each its own set
+// of persistent elements (and therefore its own running CSS transition state)
+// instead of repurposing one row's bar for two different meanings.
+const damageMeterRows: Record<'dealt' | 'taken', Map<string, DamageMeterRow>> = { dealt: new Map(), taken: new Map() }
+let damageMeterTeam: 'player' | 'enemy' = 'player'
+let damageMeterStat: 'dealt' | 'taken' = 'dealt'
+let damageMeterCollapsed = false
+
+const DMG_BAR_HEIGHT = 12   // thin bar, per reference layout
+
+function updateBarFill(row: DamageMeterRow, dmg: { physical: number; magic: number; true: number }, maxTotal: number): void {
+  const total = dmg.physical + dmg.magic + dmg.true
+  const barPct = maxTotal > 0 ? Math.max(total > 0 ? 3 : 0, total / maxTotal * 100) : 0
+  row.fill.style.width = `${barPct.toFixed(2)}%`
+  for (const k of ['physical', 'magic', 'true'] as const) {
+    row.segs[k].style.width = total > 0 ? `${(dmg[k] / total * 100).toFixed(2)}%` : '0%'
+  }
+  ;(row.el.querySelector('.dmg-num') as HTMLElement).textContent = String(Math.round(total))
+}
+
+function getOrCreateDamageMeterRow(u: Unit, stat: 'dealt' | 'taken'): DamageMeterRow {
+  const map = damageMeterRows[stat]
+  const existing = map.get(u.id)
+  if (existing) return existing
+
+  const def = UNIT_MAP.get(u.definitionId)
+  const name = def?.name ?? u.definitionId
+  const stars = '★'.repeat(u.tier)
+  const colors = stat === 'dealt' ? DMG_DEALT_COLOR : DMG_TAKEN_COLOR
+
+  const el = document.createElement('div')
+  el.style.marginBottom = '6px'
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;">
+      <img src="${def?.spritePath ?? ''}" style="width:18px;height:18px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;" onerror="this.style.display='none'">
+      <span style="font-size:10px;color:#aabbdd;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</span>
+      <span style="font-size:9px;color:#dd9;flex-shrink:0;">${stars}</span>
+    </div>
+    <div style="height:${DMG_BAR_HEIGHT}px;background:#1a1e2a;border-radius:3px;overflow:hidden;position:relative;">
+      <div class="dmg-fill" style="width:0%;height:100%;display:flex;transition:width 0.25s ease;">
+        <div class="dmg-seg-physical" style="width:0%;height:100%;background:${colors.physical};transition:width 0.25s ease;"></div>
+        <div class="dmg-seg-magic" style="width:0%;height:100%;background:${colors.magic};transition:width 0.25s ease;"></div>
+        <div class="dmg-seg-true" style="width:0%;height:100%;background:${colors.true};transition:width 0.25s ease;"></div>
+      </div>
+      <span class="dmg-num" style="position:absolute;left:5px;top:50%;transform:translateY(-50%);font-size:9px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.9);font-weight:600;"></span>
+    </div>`
+
+  const row: DamageMeterRow = {
+    el,
+    fill: el.querySelector('.dmg-fill') as HTMLElement,
+    segs: {
+      physical: el.querySelector('.dmg-seg-physical') as HTMLElement,
+      magic: el.querySelector('.dmg-seg-magic') as HTMLElement,
+      true: el.querySelector('.dmg-seg-true') as HTMLElement,
+    },
+  }
+  map.set(u.id, row)
+  return row
+}
+
+function renderDamageMeter(): void {
+  const section = document.getElementById('damage-meter-section')
+  if (!section) return
+
+  if (!combatState) {
+    section.style.display = 'none'
+    // Next combat starts with fresh rows, fresh bars — detach elements too,
+    // not just the Map bookkeeping (clear() alone would leave orphaned rows
+    // sitting in `body`, waiting to be found by the next render's cleanup).
+    for (const row of damageMeterRows.dealt.values()) row.el.remove()
+    for (const row of damageMeterRows.taken.values()) row.el.remove()
+    damageMeterRows.dealt.clear()
+    damageMeterRows.taken.clear()
+    return
+  }
+
+  const allUnits = [...combatState.units.values()].filter(u => !u.isDummy)
+  if (allUnits.length === 0) {
+    section.style.display = 'none'
+    return
+  }
+  section.style.display = 'block'
+
+  // Tab styling reflects the active selection every render, not just on
+  // click — keeps it correct even if renderDamageMeter runs before the click
+  // handlers below have wired the initial state into the DOM.
+  const mineTab = document.getElementById('dmg-meter-tab-mine')!
+  const enemyTab = document.getElementById('dmg-meter-tab-enemy')!
+  mineTab.style.background = damageMeterTeam === 'player' ? '#3a5ca0' : 'transparent'
+  mineTab.style.color = damageMeterTeam === 'player' ? '#fff' : '#889'
+  enemyTab.style.background = damageMeterTeam === 'enemy' ? '#a03a3a' : 'transparent'
+  enemyTab.style.color = damageMeterTeam === 'enemy' ? '#fff' : '#889'
+
+  const dealtTab = document.getElementById('dmg-meter-stat-dealt')!
+  const takenTab = document.getElementById('dmg-meter-stat-taken')!
+  dealtTab.style.background = damageMeterStat === 'dealt' ? '#555' : 'transparent'
+  dealtTab.style.color = damageMeterStat === 'dealt' ? '#fff' : '#889'
+  takenTab.style.background = damageMeterStat === 'taken' ? '#555' : 'transparent'
+  takenTab.style.color = damageMeterStat === 'taken' ? '#fff' : '#889'
+
+  const body = document.getElementById('damage-meter')!
+  document.getElementById('dmg-meter-collapse')!.textContent = damageMeterCollapsed ? '▸' : '▾'
+  body.style.display = damageMeterCollapsed ? 'none' : 'block'
+  if (damageMeterCollapsed) return
+
+  const units = allUnits.filter(u => u.team === damageMeterTeam)
+  if (units.length === 0) {
+    body.innerHTML = `<div style="font-size:9px;color:#556;">No ${damageMeterTeam === 'player' ? 'ally' : 'enemy'} units.</div>`
+    return
+  }
+
+  const statOf = (u: Unit) => damageMeterStat === 'dealt' ? u.dmgDealt : u.dmgTaken
+  const totalOf = (u: Unit) => { const d = statOf(u); return d.physical + d.magic + d.true }
+  const sorted = [...units].sort((a, b) => totalOf(b) - totalOf(a))
+  const max = Math.max(1, ...sorted.map(totalOf))
+
+  // Drop rows for units no longer in this list (switched tabs, unit removed,
+  // or — the common case — a new round started with a fresh set of unit ids
+  // and the previous round's rows are now stale). Removing from the Map
+  // alone isn't enough: the row's element stays in `body` until explicitly
+  // detached, so a pruned-but-still-mounted row would sit frozen at last
+  // round's numbers, and eventually pile up as visible stale entries.
+  const map = damageMeterRows[damageMeterStat]
+  const liveIds = new Set(sorted.map(u => u.id))
+  for (const [id, row] of map) {
+    if (!liveIds.has(id)) { row.el.remove(); map.delete(id) }
+  }
+
+  // Detach any element still sitting in `body` that doesn't belong to the
+  // currently active stat's map — e.g. the Dealt rows, left mounted after
+  // switching to the Taken tab (each stat has its own separate row set; a
+  // tab switch doesn't touch the other stat's elements otherwise).
+  const activeEls = new Set([...map.values()].map(r => r.el))
+  for (const child of [...body.children]) {
+    if (!activeEls.has(child as HTMLElement)) child.remove()
+  }
+
+  // Reorder is instant (no slide animation — a getBoundingClientRect-based
+  // FLIP version forced a layout read/write per row per tick and was
+  // noticeably laggy at combat tick rate). Bar width/number still animate
+  // via updateBarFill's CSS transition, which is cheap (no layout reads).
+  for (const u of sorted) {
+    const row = getOrCreateDamageMeterRow(u, damageMeterStat)
+    updateBarFill(row, statOf(u), max)
+    body.appendChild(row.el)   // moves if already present — sets the new order
+  }
+}
+
 // ─── Power delta display ───────────────────────────────────────────────────────
 
 let lastPowerDelta: number | null = null
@@ -1357,7 +1562,11 @@ let calibParams: CalibParams = loadCalibration()
 function renderPowerDelta(): void {
   const el = document.getElementById('power-delta')
   if (!el) return
-  if (lastPowerDelta === null) {
+  // Win chance / power delta is a testing aid, not a real-game feature — hide
+  // it during economy mode so a real match doesn't spoil its own outcome.
+  // Calibration recording (predictWinProb / recordAndLearn) is unaffected;
+  // only this display is gated.
+  if (econActive() || lastPowerDelta === null) {
     el.style.display = 'none'
     el.textContent = ''
     return
@@ -1702,6 +1911,7 @@ function placeUnit(hex: OffsetCoord): void {
   placedUnits.set(key, unit)
   renderTraitDisplay()
   renderEnemyTraitDisplay()
+  renderDamageMeter()
   renderDummyButtons()
 }
 
@@ -1709,6 +1919,7 @@ function removeUnit(hex: OffsetCoord): void {
   placedUnits.delete(hexId(hex))
   renderTraitDisplay()
   renderEnemyTraitDisplay()
+  renderDamageMeter()
   renderDummyButtons()
 }
 
@@ -3161,6 +3372,7 @@ function updateEconVisibility(): void {
   // sections (see overlayModeActive) — refresh on every mode toggle.
   renderTraitDisplay()
   renderEnemyTraitDisplay()
+  renderDamageMeter()
   applyLayoutMode()
   requestAnimationFrame(resizeCanvases)
 }
@@ -3767,6 +3979,7 @@ function restorePlayerBoard(): void {
   renderTerrainIndicator()
   renderTraitDisplay()
   renderEnemyTraitDisplay()
+  renderDamageMeter()
   applyLayoutMode()
 
   // Economy mode: next planning phase (fresh shop) or the run is over
@@ -3808,6 +4021,7 @@ function applyLayoutMode(): void {
   if (!combatState) { lastPowerDelta = null; lastWinProb = null; pendingBattle = null }
   renderTraitDisplay()
   renderEnemyTraitDisplay()
+  renderDamageMeter()
   renderPowerDelta()
   // Recenter the board after the sidebar layout change settles.
   requestAnimationFrame(resizeCanvases)
@@ -3834,6 +4048,7 @@ function resetCombat(): void {
   pendingBattle = null
   renderTraitDisplay()
   renderEnemyTraitDisplay()
+  renderDamageMeter()
   document.getElementById('result-box')!.style.display = 'none'
   document.getElementById('combat-info')!.textContent = ''
   applyLayoutMode()
@@ -4054,6 +4269,27 @@ document.getElementById('test-search')!.addEventListener('input', () => renderTe
 document.getElementById('btn-close-panel')!.addEventListener('click', () => {
   document.getElementById('right-panel')!.style.display = 'none'
   document.getElementById('btn-open-panel')!.style.display = ''
+})
+
+document.getElementById('dmg-meter-tab-mine')!.addEventListener('click', () => {
+  damageMeterTeam = 'player'
+  renderDamageMeter()
+})
+document.getElementById('dmg-meter-tab-enemy')!.addEventListener('click', () => {
+  damageMeterTeam = 'enemy'
+  renderDamageMeter()
+})
+document.getElementById('dmg-meter-stat-dealt')!.addEventListener('click', () => {
+  damageMeterStat = 'dealt'
+  renderDamageMeter()
+})
+document.getElementById('dmg-meter-stat-taken')!.addEventListener('click', () => {
+  damageMeterStat = 'taken'
+  renderDamageMeter()
+})
+document.getElementById('dmg-meter-collapse')!.addEventListener('click', () => {
+  damageMeterCollapsed = !damageMeterCollapsed
+  renderDamageMeter()
 })
 
 document.getElementById('btn-open-panel')!.addEventListener('click', () => {
@@ -4325,6 +4561,15 @@ function frame(ts: number): void {
         } else {
           const f = playbackLog.frames[playbackIndex++]
           applyFrame(combatState, f)
+          // Live combat populated combatState.units in full at fight start,
+          // so the trait panels (which read combatState.units) had data
+          // immediately. Playback builds combatState empty and fills it in
+          // as frames apply — nothing else re-renders the panels as that
+          // happens, so re-render here each tick to pick up the roster
+          // (including any mid-fight summons/despawns changing trait counts).
+          renderTraitDisplay()
+          renderEnemyTraitDisplay()
+          renderDamageMeter()
           // The overtime speed-up survives playback: a live fight flipped
           // this at tick 1800, so the recorded frame reaching that tick
           // triggers the same 2× speed and banner.
@@ -4338,6 +4583,7 @@ function frame(ts: number): void {
         done = tickCombat(combatState)
         // In test mode: suppress the tick-limit timeout, but still stop on a real team wipe
         if (testMode && combatState.phase === 'combat') done = false
+        renderDamageMeter()
       }
       for (const [id, u] of combatState.units) posCache.set(id, { ...u.visualPos })
       for (const ev of combatState.events) {
@@ -4506,7 +4752,9 @@ function frame(ts: number): void {
         items: [], types: ['ruiner_stone'], statusEffects: [], shields: [],
         attackModifiers: [], passiveAttackHandlers: [], passiveCastHandlers: [],
         role: undefined, placedAt: 0,
-        attackCount: 0, damageTakenThisCombat: 0, damageDealtThisCombat: 0, traitDmg: {}, traitHeal: {}, traitShield: {}, traitMitigated: {}, traitCount: {},
+        attackCount: 0, damageTakenThisCombat: 0, damageDealtThisCombat: 0,
+        dmgDealt: { physical: 0, magic: 0, true: 0 }, dmgTaken: { physical: 0, magic: 0, true: 0 },
+        traitDmg: {}, traitHeal: {}, traitShield: {}, traitMitigated: {}, traitCount: {},
         silenced: false, whirlpooled: false, marks: [],
         incomingDamageMult: 1.0, _computedStats: null,
       }

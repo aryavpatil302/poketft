@@ -15,7 +15,7 @@ import { chooseBotItem, botOwnedItems } from '../econ/botItems'
 import { rollCrawlerEarthquakeRewards } from '../econ/caveCrawlerSpawn'
 import { isItemRound, isCreepRound, creepRoundDef } from '../econ/creeps'
 import { stageOf, MAX_LEVEL } from '../econ/constants'
-import type { CombatEvent, CombatState, Unit } from '../core/types'
+import type { CombatEvent, CombatState, Unit, AttackModifier, DamagePayload, HealPayload } from '../core/types'
 import { createCombatState, advanceCombatTick } from '../core/combatEngine'
 import { makeUnit } from '../core/unitFactory'
 import { hexToPixel, BOARD_COLS } from '../core/hexGrid'
@@ -251,6 +251,46 @@ export function startPlanning(state: RunState, rng: Rng = Math.random): void {
 
 // ─── Fight recording — the architectural core ───────────────────────────────
 
+// Render-relevant, serializable subset of core/types.ts's Shield. Drops
+// onExpire — a callback cannot cross a wire or survive JSON.stringify, and
+// the render layer never invokes it, only reads the plain fields below.
+export interface ShieldFrame {
+  id: string
+  sourceAbility: string
+  sourceUnitId?: string
+  value: number
+  maxValue: number
+  durationTicks: number
+  effectiveMaxHp?: number
+  traitSource?: string
+}
+
+// Render-relevant, serializable subset of core/types.ts's StatusEffect.
+// Drops onExpire/onDeath/tickEffect for the same reason ShieldFrame drops
+// onExpire — the renderer only ever checks id/stackId/durationTicks/
+// magnitude (e.g. `unit.statusEffects.some(fx => fx.stackId === '…')`) to
+// decide whether a buff-driven animation branch is active.
+export interface StatusEffectFrame {
+  id: string
+  sourceUnitId: string
+  durationTicks: number
+  magnitude?: number
+  stackId?: string
+}
+
+// Render-relevant, serializable subset of core/types.ts's UnitMark. Drops
+// onDetonate/onCarrierDeath for the same reason StatusEffectFrame drops its
+// callbacks — the renderer only checks mark ids (e.g. effectLayer's
+// 'charizard_flame_mark' / 'celebi_mark_*' icon checks) to decide whether to
+// draw the above-head mark icon. UnitMark is distinct from StatusEffect —
+// both need capturing separately.
+export interface MarkFrame {
+  id: string
+  sourceUnitId: string
+  durationTicks: number
+  magnitude?: number
+}
+
 export interface UnitFrame {
   id: string
   definitionId: string
@@ -264,6 +304,29 @@ export interface UnitFrame {
   maxMana: number
   state: string
   items: string[]
+  // Animation-driving fields the render layer reads to compute windup/lunge/
+  // squash-stretch progress and target-lock lines. Without these every unit
+  // plays back frozen in its base pose — makeUnit's zero/false/empty
+  // defaults never get overwritten, so nothing animates even though HP,
+  // position, and state ('attacking', 'casting', …) are all correct.
+  targetId: string | null
+  attackTimer: number
+  attackWindupTimer: number
+  isInWindup: boolean
+  pendingCrit: boolean
+  abilityCastTimer: number
+  attackCount: number
+  attackModifiers: AttackModifier[]   // plain data, no callbacks — safe to copy as-is
+  shields: ShieldFrame[]
+  statusEffects: StatusEffectFrame[]
+  marks: MarkFrame[]
+  // Live damage-meter breakdown — mirrors Unit.dmgDealt/dmgTaken verbatim so
+  // the sidebar's per-unit stacked bars work identically live or in playback.
+  dmgDealt: { physical: number; magic: number; true: number }
+  dmgTaken: { physical: number; magic: number; true: number }
+  // In-flight dash state (present only while state === 'leaping'). Optional —
+  // absent whenever the unit isn't mid-leap, matching the live Unit's _leap.
+  leap?: { sx: number; sy: number; ex: number; ey: number; tick: number; total: number }
 }
 
 // Render-relevant, serializable subset of core/types.ts's Projectile. The
@@ -273,6 +336,7 @@ export interface UnitFrame {
 export interface ProjectileFrame {
   id: string
   sourceId: string
+  targetId?: string
   startPos: { x: number; y: number }
   currentPos: { x: number; y: number }
   targetPos?: { x: number; y: number }
@@ -280,6 +344,13 @@ export interface ProjectileFrame {
   arcHeight?: number
   launchDist?: number
   abilityId?: string
+  // Plain data (no callbacks) — the effect layer reads damagePayload.abilityId
+  // to distinguish a plain auto-attack (tagged 'auto_attack' here, NOT on
+  // proj.abilityId which is ability-projectiles-only) so it can pick the
+  // per-species <definitionId>_auto.png sprite instead of falling back to
+  // the default dot. healPayload similarly selects the heal-projectile color.
+  damagePayload?: DamagePayload
+  healPayload?: HealPayload
 }
 
 // One elapsed combat tick — not one event. Unit movement emits no
@@ -347,6 +418,29 @@ function captureFrame(cs: CombatState): FightFrame {
       maxMana: u.maxMana,
       state: u.state,
       items: [...u.items],
+      targetId: u.targetId,
+      attackTimer: u.attackTimer,
+      attackWindupTimer: u.attackWindupTimer,
+      isInWindup: u.isInWindup,
+      pendingCrit: u.pendingCrit,
+      abilityCastTimer: u.abilityCastTimer,
+      attackCount: u.attackCount,
+      attackModifiers: u.attackModifiers.map(m => ({ ...m })),
+      shields: u.shields.map(s => ({
+        id: s.id, sourceAbility: s.sourceAbility, sourceUnitId: s.sourceUnitId,
+        value: s.value, maxValue: s.maxValue, durationTicks: s.durationTicks,
+        effectiveMaxHp: s.effectiveMaxHp, traitSource: s.traitSource,
+      })),
+      statusEffects: u.statusEffects.map(fx => ({
+        id: fx.id, sourceUnitId: fx.sourceUnitId, durationTicks: fx.durationTicks,
+        magnitude: fx.magnitude, stackId: fx.stackId,
+      })),
+      marks: u.marks.map(m => ({
+        id: m.id, sourceUnitId: m.sourceUnitId, durationTicks: m.durationTicks, magnitude: m.magnitude,
+      })),
+      dmgDealt: { ...u.dmgDealt },
+      dmgTaken: { ...u.dmgTaken },
+      ...(u._leap ? { leap: { sx: u._leap.sx, sy: u._leap.sy, ex: u._leap.ex, ey: u._leap.ey, tick: u._leap.tick, total: u._leap.total } } : {}),
     })
   }
 
@@ -358,10 +452,13 @@ function captureFrame(cs: CombatState): FightFrame {
       startPos: { x: p.startPos.x, y: p.startPos.y },
       currentPos: { x: p.currentPos.x, y: p.currentPos.y },
       hitRadius: p.hitRadius,
+      ...(p.targetId !== undefined ? { targetId: p.targetId } : {}),
       ...(p.targetPos !== undefined ? { targetPos: { x: p.targetPos.x, y: p.targetPos.y } } : {}),
       ...(p.arcHeight !== undefined ? { arcHeight: p.arcHeight } : {}),
       ...(p.launchDist !== undefined ? { launchDist: p.launchDist } : {}),
       ...(p.abilityId !== undefined ? { abilityId: p.abilityId } : {}),
+      ...(p.damagePayload !== undefined ? { damagePayload: { ...p.damagePayload } } : {}),
+      ...(p.healPayload !== undefined ? { healPayload: { ...p.healPayload } } : {}),
     })
   }
 

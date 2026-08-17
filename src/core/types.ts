@@ -127,6 +127,7 @@ export interface StatusEffect {
   tickEffect?: (unit: Unit, state: CombatState) => void
   tickInterval?: number   // only fire tickEffect every N ticks (default: 1)
   suppressManaGain?: boolean  // while this effect is active, the unit cannot gain mana
+  suppressTargeting?: boolean // while active, this unit can't be newly acquired as a target, and drops out of anyone's current lock (still hittable by AoE/marks already in flight)
 }
 
 // ─── Attack modifier ──────────────────────────────────────────────────────────
@@ -292,6 +293,11 @@ export interface Unit {
   attackCount: number            // total autos fired this combat
   damageTakenThisCombat: number  // cumulative pre-mitigation damage taken
   damageDealtThisCombat: number  // cumulative final damage dealt (after mitigation)
+  // Live damage-meter breakdown by type — final (post-mitigation, post-shield)
+  // HP damage, split by DamageType. Drives the combat sidebar's per-unit
+  // stacked dealt/taken bars (dmgDealt keyed by source, dmgTaken by target).
+  dmgDealt: { physical: number; magic: number; true: number }
+  dmgTaken: { physical: number; magic: number; true: number }
   // Per-trait contribution tallies (trait id → amount), for the report's "trait
   // contribution" breakdown. traitDmg = damage this unit's traits added to what it
   // dealt; traitHeal/traitShield = amount its traits added to heals/shields it got;

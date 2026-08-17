@@ -356,6 +356,8 @@ export function makeUnit(
     attackCount: 0,
     damageTakenThisCombat: 0,
     damageDealtThisCombat: 0,
+    dmgDealt: { physical: 0, magic: 0, true: 0 },
+    dmgTaken: { physical: 0, magic: 0, true: 0 },
     traitDmg: {},
     traitHeal: {},
     traitShield: {},

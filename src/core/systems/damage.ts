@@ -191,6 +191,14 @@ export function applyDamage(
   // Track damage dealt by the source
   source.damageDealtThisCombat += hpDamage
 
+  // Live damage-meter breakdown, by final (post-mitigation, post-shield) HP
+  // damage — the same value damageDealtThisCombat/damageTakenThisCombat use,
+  // just split by type instead of summed.
+  if (hpDamage > 0) {
+    source.dmgDealt[payload.damageType] += hpDamage
+    target.dmgTaken[payload.damageType] += hpDamage
+  }
+
   // Effective-HP: bonus max-HP traits (Bruiser/Volcano/Beachy/River) soak a share of
   // every hit proportional to how much of this unit's max HP they granted.
   if (hpDamage > 0 && target._traitHp && target.maxHp > 0) {
@@ -500,7 +508,11 @@ export function applyDamage(
 
   // Froststone: each ability damage instance from a froststone unit adds a mark.
   // At 5 stacks, consume (bonus magic damage + animation) then immediately start a new mark.
+  // Mamoswine's own empowered-auto bonus damage is excluded here — it's handled by
+  // the auto-driven path in traitEffects.ts (applyFroststoneMark/isMamoswineEmpowered),
+  // which already lets it consume; letting it through this gate too would double it up.
   if (payload.abilityId && payload.abilityId !== 'auto_attack' && payload.abilityId !== 'froststone_consume'
+      && payload.abilityId !== 'mamoswine_thick_fat_auto'
       && source.types.includes('froststone') && target.state !== 'dead') {
     const activeFx = source.statusEffects.find(fx => fx.stackId === 'froststone_active')
     if (activeFx) {

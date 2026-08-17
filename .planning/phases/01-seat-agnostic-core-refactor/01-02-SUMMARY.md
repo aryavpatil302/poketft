@@ -87,9 +87,12 @@ coverage:
   - id: D5
     description: "Single-player is confirmed unchanged in the browser: shop/bench/board, planning countdown, creep rounds, PvP settlement, lobby panel, and localStorage reload all behave as before the refactor; setting localSeatIndex to a living non-zero seat renders that seat's shop/bench/board as the player's"
     requirement: "CORE-03"
-    verification: []
+    verification:
+      - kind: manual_procedural
+        ref: "User-performed browser playthrough: npm run dev, economy mode, shop/bench/board, creep round, PvP round + settlement line, lobby panel with 6 seats, hard-refresh reload from localStorage — all confirmed unchanged by the developer 2026-08-16."
+        status: pass
     human_judgment: true
-    rationale: "Requires a real browser session (npm run dev + manual play) — this project's workflow.human_verify_mode is end-of-phase, so this check is deferred to a single end-of-phase verification pass rather than performed per-plan. Not yet performed as of this SUMMARY; see Phase 1 verification / next steps."
+    rationale: "Requires a real browser session (npm run dev + manual play) — performed by the developer end-of-phase per workflow.human_verify_mode. Confirmed passing 2026-08-16."
 
 duration: 35min
 completed: 2026-08-16
