@@ -22,13 +22,14 @@ import { loadRun, saveRun, clearRun, newRun, type RunState, type PlayerEcon } fr
 import { rollShop, reroll as shopReroll, buyUnit, sellFromBench, sellFromBoard } from './econ/shop'
 import { buyXp, xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower, personaById } from './econ/bots'
-import { pickNextOpponent, checkGameOver } from './econ/botMatches'
+import { checkGameOver } from './econ/botMatches'
 import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices } from './econ/creeps'
 import {
-  REROLL_COST, XP_BUY_COST, sellValue, copiesHeld, stageLabel, stageOf, SHOP_ODDS,
+  REROLL_COST, XP_BUY_COST, sellValue, copiesHeld, stageLabel, SHOP_ODDS,
   BASE_INCOME_BY_ROUND, BASE_INCOME_CAP, MAX_INTEREST, streakBonus, WIN_BONUS, XP_PER_ROUND,
 } from './econ/constants'
-import { startPlanning, resolveRound, pairSeats, type RoundResult } from './game/round'
+import { startPlanning, resolveRound, pairSeats, type RoundResult, type FightLog } from './game/round'
+import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from './game/playback'
 import { TRAIT_TOOLTIPS } from './data/traitTooltips'
 import { REPO_TESTS } from './repoTests'
 import type { CombatState, Unit, ItemDefinition } from './core/types'
@@ -3532,6 +3533,13 @@ let inOvertime = false
 let accumulator = 0
 let lastTs = 0
 let inspectedUnitId: string | null = null
+// The recorded log an economy fight is replaying, and the next frame index
+// to apply. Non-null iff the game is currently playing back a resolveRound
+// fight; both null/zero when combatRunning is a live test-mode simulation
+// (playbackLog null then discriminates "test-mode ticking" from "replaying"
+// in frame()'s per-tick branch) or when no combat is running at all.
+let playbackLog: FightLog | null = null
+let playbackIndex = 0
 
 interface UnitSnapshot { definitionId: string; tier: number; hexPos: { col: number; row: number }; item?: string }
 let preCombatSnapshot: UnitSnapshot[] = []
@@ -3560,6 +3568,8 @@ function startCombat(): void {
 
   returnHeldUnitToBench()   // never lose a unit still attached to the cursor
   planningTimerStartTs = null
+  playbackLog = null
+  playbackIndex = 0
 
   const allPlaced = getPlacedUnitsArray()
   let playerUnits = allPlaced.filter(u => u.team === 'player')
@@ -3568,6 +3578,8 @@ function startCombat(): void {
   if (testMode) {
     // Test mode: use exactly what's placed — no mirroring, no auto enemies.
     // Need at least one unit on each side for the win condition to work.
+    // Unlike economy mode, test mode has no RunState and no round to
+    // resolve — it still builds a live CombatState and ticks it directly.
     if (playerUnits.length === 0) {
       const def = makeUnit('tangela', 'player', 1)
       def.hexPos = { col: 3, row: 6 }
@@ -3580,49 +3592,96 @@ function startCombat(): void {
       def.visualPos = hexToPixel(def.hexPos, HEX_SIZE)
       enemyUnits = [def]
     }
+
+    preCombatSnapshot = playerUnits.map(u => ({
+      definitionId: u.definitionId,
+      tier: u.tier as 1 | 2 | 3,
+      hexPos: { ...u.hexPos },
+      item: u.items[0],
+    }))
+    if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
+    combatState = createCombatState(playerUnits, enemyUnits, undefined)
   } else {
-    // Economy mode: you fight your next opponent's persistent board.
+    // Economy mode: the round is fought and settled by resolveRound BEFORE
+    // any frame is drawn — the browser then plays back the recorded log
+    // rather than simulating the fight itself.
     if (econPhase === 'gameOver' || run.gameOver) return
     // Fill the board up to the player's level from the bench before locking in.
     autoFieldFromBench()
     playerUnits = getPlacedUnitsArray().filter(u => u.team === 'player')
-    syncBoardToRun()
+    syncBoardToRun()   // the engine reads run.players[..].board — commit first
 
-    if (isCreepRound(run.round)) {
-      // PvE creep round: fixed neutral board, no bot opponent, no win-prediction.
-      currentOpponentIndex = -1
-      const def = creepRoundDef(run.round)!
-      enemyUnits = def.spawns.map(s => {
-        const u = makeUnit(s.definitionId, 'enemy', s.tier)
-        u.hexPos = { col: s.col, row: s.row }
-        u.visualPos = hexToPixel(u.hexPos, HEX_SIZE)
-        return u
-      })
+    econPhase = 'combat'
+    updateEconVisibility()
+    unitLayer.setHoveredUnit(null)
+
+    snapshotPreRound()
+    const res = resolveRound(run, roundSeedFor(run))
+    applyRoundResult(res)   // settles, advances the round, announces next matchup
+
+    const mine = res.seats.find(s => s.seat === localSeatIndex)
+
+    if (!mine || mine.logIndex === null) {
+      // A bye (odd seat out) — nothing to watch. Settlement already ran
+      // above; go straight to the next planning phase / game over.
       lastWinProb = null
       lastPowerDelta = 0
-      pendingBattle = null   // creeps aren't calibration data — skip recording
-    } else {
-      // Resolve the opponent (fall back if the stored one died meanwhile)
-      let oppIdx = run.players[localSeatIndex].nextOpponent ?? -1
-      if (oppIdx < 0 || oppIdx === localSeatIndex || run.players[oppIdx]?.eliminated) oppIdx = pickNextOpponent(run, localSeatIndex)
-      if (oppIdx < 0) return   // no living opponent — the run should already be over
-      currentOpponentIndex = oppIdx
-      const opp = run.players[oppIdx]
+      pendingBattle = null
+      combatState = null
+      combatRunning = false
+      saveRun(run)
+      if (run.gameOver) { enterGameOver(run.gameOver); return }
+      startPlanningPhase(true)
+      return
+    }
 
-      // Mirror the bot's player-half board onto the enemy rows (items included —
-      // bots equip items during planning, so they must carry them into the fight)
-      enemyUnits = opp.board.map(e2 => {
+    playbackLog = res.logs[mine.logIndex]
+    playbackIndex = 0
+    if (playbackLog.seatB === localSeatIndex) {
+      // Defensive only: src/game/round.ts's resolvePvpRound always records a
+      // human-vs-bot fight with the human as seatA, so this should be
+      // unreachable in single-player. A human-vs-human pairing (Phase 4) has
+      // no single correct seatA choice from inside that seat-agnostic
+      // function and would hit this — flag it loudly rather than silently
+      // rendering the human's own board flipped and colored 'enemy'.
+      console.warn('[playback] local seat recorded as seatB of its own fight log — rendering may be mirrored (expected only for a future human-vs-human matchup)')
+    }
+    combatState = createPlaybackState(playbackLog)
+
+    // Rebuild placedUnits from this seat's committed board — resolveRound
+    // may have moved the round forward and reset planning-phase state, so
+    // rebuild explicitly rather than trusting placedUnits' pre-fight contents.
+    placedUnits.clear()
+    for (const e of humanEcon().board) {
+      const unit = makeUnit(e.definitionId, 'player', e.tier)
+      unit.hexPos = { ...e.hexPos }
+      unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
+      if (e.item) unit.items = [e.item]
+      placedUnits.set(hexId(unit.hexPos), unit)
+    }
+    playerUnits = getPlacedUnitsArray().filter(u => u.team === 'player')
+    preCombatSnapshot = playerUnits.map(u => ({
+      definitionId: u.definitionId,
+      tier: u.tier as 1 | 2 | 3,
+      hexPos: { ...u.hexPos },
+      item: u.items[0],
+    }))
+    if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
+
+    // Win prediction + calibration setup, now after resolveRound, keyed on
+    // the opponent resolveRound actually paired this seat against.
+    if (mine.opponentSeat >= 0) {
+      const opp = run.players[mine.opponentSeat]
+      const enemyBoardUnits = opp.board.map(e2 => {
         const u = makeUnit(e2.definitionId, 'enemy', e2.tier)
         u.hexPos = { col: e2.hexPos.col, row: 7 - e2.hexPos.row }
         u.visualPos = hexToPixel(u.hexPos, HEX_SIZE)
         if (e2.item) u.items = [e2.item]
         return u
       })
-
-      // Win prediction + calibration recording still runs on real board profiles
       calibParams = loadCalibration()
       const pProfile = calcBoardProfile(playerUnits)
-      const eProfile = calcBoardProfile(enemyUnits)
+      const eProfile = calcBoardProfile(enemyBoardUnits)
       lastPowerDelta = pProfile.power > 0 ? (eProfile.power - pProfile.power) / pProfile.power : 0
       const pf = boardFeat(pProfile)
       const ef = boardFeat(eProfile)
@@ -3632,29 +3691,18 @@ function startCombat(): void {
         pf, ef,
         rawDelta: lastPowerDelta,
         predWin: pred.p,
-        unitIds: new Set([...playerUnits, ...enemyUnits].map(u => u.id)),
+        unitIds: new Set([...playerUnits, ...enemyBoardUnits].map(u => u.id)),
       }
+    } else {
+      // Creep round (opponentSeat -1) — not calibration data, matching today.
+      lastWinProb = null
+      lastPowerDelta = 0
+      pendingBattle = null
     }
 
-    econPhase = 'combat'
-    updateEconVisibility()
-    unitLayer.setHoveredUnit(null)
     saveRun(run)
   }
 
-  // Snapshot player units so we can restore them after combat
-  preCombatSnapshot = playerUnits.map(u => ({
-    definitionId: u.definitionId,
-    tier: u.tier as 1 | 2 | 3,
-    hexPos: { ...u.hexPos },
-    item: u.items[0],
-  }))
-  if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
-
-  // Real econ fights scale stage-dependent traits (Substitutor) by the current
-  // stage; test-mode fights pass no stage and get full-strength values.
-  const combatStage = (!testMode && econActive()) ? stageOf(run.round) : undefined
-  combatState = createCombatState(playerUnits, enemyUnits, combatStage)
   combatRunning = true
   accumulator = 0
   lastTs = 0
@@ -3689,6 +3737,8 @@ function restorePlayerBoard(): void {
   document.getElementById('overtime-box')!.style.display = 'none'
   combatRunning        = false
   combatState          = null
+  playbackLog = null
+  playbackIndex        = 0
   inspectedUnitId = null
   document.getElementById('unit-info-panel')!.style.display = 'none'
   document.getElementById('result-box')!.style.display = 'none'
@@ -3770,6 +3820,8 @@ function resetCombat(): void {
   document.getElementById('overtime-box')!.style.display = 'none'
   combatRunning = false
   combatState   = null
+  playbackLog   = null
+  playbackIndex = 0
   placedUnits.clear()
   inspectedUnitId = null
   document.getElementById('unit-info-panel')!.style.display = 'none'
@@ -3786,18 +3838,28 @@ function resetCombat(): void {
   document.getElementById('combat-info')!.textContent = ''
   applyLayoutMode()
 
-  // Economy mode: a mid-combat reset is a replay — the round is not consumed,
-  // no settlement happened; restore the board and keep the same shop.
+  // Economy mode: a mid-combat reset now abandons a REPLAY, not a round. In
+  // the pre-engine game a reset here really did discard an unconsumed round
+  // (no settlement had happened yet); now resolveRound already fought and
+  // settled the round back in startCombat, before the first frame was even
+  // drawn, so the round this replay was showing is already resolved and
+  // banked. A reset stops watching it and goes to planning for the
+  // ALREADY-ADVANCED round — it does not, and cannot, replay an unconsumed
+  // round anymore. This is a deliberate behaviour change from before this
+  // plan (see 02-05-SUMMARY.md), not a bug: the player keeps every gold/XP/HP
+  // change the fight they didn't finish watching already applied.
   if (econActive()) {
     if (run.gameOver) enterGameOver(run.gameOver)
     else startPlanningPhase(false)
   }
 }
 
+// Test-mode-only tick body (economy mode replays a recorded log via
+// applyFrame instead — see frame()'s playbackLog branch). Still shares its
+// per-tick engine call with the headless sim so test-mode combat and every
+// simulation run identical movement/attack/cast logic; only the terminal
+// win/loss + overtime handling below is live-specific.
 function tickCombat(state: CombatState): boolean {
-  // One shared tick body with the headless sim (combatEngine.advanceCombatTick),
-  // so the live game and every simulation run identical movement/attack/cast logic.
-  // Only the terminal win/loss + overtime handling below is live-specific.
   advanceCombatTick(state)
 
   let playerAlive = false, enemyAlive = false
@@ -4253,9 +4315,30 @@ function frame(ts: number): void {
     const testMode = (document.getElementById('chk-test-mode') as HTMLInputElement).checked
     while (accumulator >= step && !done) {
       accumulator -= step
-      done = tickCombat(combatState)
-      // In test mode: suppress the tick-limit timeout, but still stop on a real team wipe
-      if (testMode && combatState.phase === 'combat') done = false
+      if (playbackLog) {
+        // Economy mode: advance the recorded log instead of ticking a live
+        // sim — the browser never runs a combat tick for an economy fight;
+        // the outcome it shows is the outcome resolveRound already settled
+        // at combat start.
+        if (playbackIndex >= playbackLength(playbackLog)) {
+          done = true
+        } else {
+          const f = playbackLog.frames[playbackIndex++]
+          applyFrame(combatState, f)
+          // The overtime speed-up survives playback: a live fight flipped
+          // this at tick 1800, so the recorded frame reaching that tick
+          // triggers the same 2× speed and banner.
+          if (!inOvertime && f.tick >= 1800) {
+            inOvertime = true
+            document.getElementById('overtime-box')!.style.display = 'block'
+          }
+        }
+      } else {
+        // Test mode only — tickCombat's header comment records that.
+        done = tickCombat(combatState)
+        // In test mode: suppress the tick-limit timeout, but still stop on a real team wipe
+        if (testMode && combatState.phase === 'combat') done = false
+      }
       for (const [id, u] of combatState.units) posCache.set(id, { ...u.visualPos })
       for (const ev of combatState.events) {
         if (ev.type === 'vfx' && ev.effectId === 'earthquake') {
@@ -4290,7 +4373,11 @@ function frame(ts: number): void {
       effectLayer.clearCastAnimations()
       setCombatBarState('idle')
 
-      const winner = combatState.phase === 'playerWin' ? 'player'
+      // Playback's winner is the recorded field verbatim, never re-derived
+      // from reconstructed unit state — see playbackWinner's own comment and
+      // T-02-20 in this plan's threat model. Test mode still reads phase.
+      const winner = playbackLog ? playbackWinner(playbackLog)
+                   : combatState.phase === 'playerWin' ? 'player'
                    : combatState.phase === 'enemyWin'  ? 'enemy'
                    : 'draw'
       const box = document.getElementById('result-box')!
@@ -4350,12 +4437,13 @@ function frame(ts: number): void {
         pendingBattle = null
       }
 
-      // Economy settlement now happens at combat START (see startCombat /
-      // resolveRound + applyRoundResult) — Task 2 of this plan moves the
-      // playback wiring here. Between this task's commit and Task 2's, no
-      // economy round is settled at combat end; that is a deliberately
-      // broken intermediate state (see 02-05-PLAN.md Task 1's closing note),
-      // not a regression to fix here.
+      // Economy settlement already happened in startCombat (resolveRound +
+      // applyRoundResult, before this fight was even shown) — just surface
+      // the settlement line the browser has been holding in lastSettlementLine
+      // since combat start.
+      if (playbackLog) {
+        box.innerHTML = `${box.textContent}<div style="font-size:10px;font-weight:normal;margin-top:4px;opacity:0.85;">${lastSettlementLine}</div>`
+      }
 
       if (autoResetTimer === null) {
         autoResetTimer = setTimeout(restorePlayerBoard, 5000)
