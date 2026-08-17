@@ -213,3 +213,15 @@ None. `npm run room:dev` still starts the local room; `npm run room:smoke` and `
 ---
 *Phase: 03-partykit-room-server*
 *Completed: 2026-08-17*
+
+## Self-Check: PASSED
+
+- FOUND: party/seats.ts
+- FOUND: party/seats.test.ts
+- FOUND: scripts/roomSeats.ts
+- FOUND: party/lobby.ts (modified)
+- FOUND: src/net/protocol.ts (modified)
+- FOUND commit: 3607e23 (Task 1 RED)
+- FOUND commit: 386acc9 (Task 1 GREEN)
+- FOUND commit: ff6f375 (Task 2)
+- FOUND commit: 76e3c6a (Task 3)
