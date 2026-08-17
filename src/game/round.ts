@@ -3,17 +3,18 @@
 // is the module both single-player (src/main.ts) and the future PartyKit
 // room server (Phase 3) call into.
 
-import type { RunState, BoardEntry } from '../econ/runState'
+import type { RunState, BoardEntry, PlayerEcon, BenchedUnit } from '../econ/runState'
 import { livingPlayers } from '../econ/runState'
 import type { Rng } from '../econ/shop'
-import { rollShop, buyUnit } from '../econ/shop'
+import { rollShop, buyUnit, reroll as shopReroll, sellFromBench, sellFromBoard } from '../econ/shop'
+import { buyXp, boardCap } from '../econ/xp'
 import { settleRound } from '../econ/income'
 import { resolveBotFight } from '../econ/botMatches'
-import { stageOf } from '../econ/constants'
+import { stageOf, MAX_LEVEL } from '../econ/constants'
 import type { CombatEvent, CombatState, Unit } from '../core/types'
 import { createCombatState, advanceCombatTick } from '../core/combatEngine'
 import { makeUnit } from '../core/unitFactory'
-import { hexToPixel } from '../core/hexGrid'
+import { hexToPixel, BOARD_COLS } from '../core/hexGrid'
 import { HEX_SIZE } from '../core/constants'
 
 // ─── Seeded RNG ─────────────────────────────────────────────────────────────
@@ -48,9 +49,29 @@ export type GameAction =
 export type ActionReason =
   | 'bad-seat' | 'eliminated' | 'empty-slot' | 'no-gold' | 'bench-full'
   | 'pool-empty' | 'board-full' | 'occupied' | 'not-player-hex' | 'no-unit'
-  | 'no-item' | 'max-level' | 'not-implemented'
+  | 'no-item' | 'max-level' | 'not-implemented' | 'unsellable'
 
 export type ActionResult = { ok: true } | { ok: false; reason: ActionReason }
+
+// Mirrors src/main.ts's isCliffId. Kept local — src/main.ts is a browser
+// entry point this module must not import. Ascender pillars are never
+// sellable and never count toward the board cap.
+function isPillar(definitionId: string): boolean {
+  return definitionId === 'cliff_l' || definitionId === 'cliff_r'
+}
+
+// Non-pillar board entries — the number the board cap actually limits.
+// Pillars do not count toward the cap, so this cannot be econ.board.length.
+function fieldedCount(econ: PlayerEcon): number {
+  return econ.board.filter(entry => !isPillar(entry.definitionId)).length
+}
+
+// The player half: rows 4-7 (mirrors src/main.ts's `[4, 5, 6, 7].includes`),
+// full column range.
+function isPlayerHex(hex: { col: number; row: number }): boolean {
+  return Number.isInteger(hex.col) && Number.isInteger(hex.row) &&
+    hex.row >= 4 && hex.row <= 7 && hex.col >= 0 && hex.col < BOARD_COLS
+}
 
 // The seat parameter is the ONLY seat authority in this function: no branch
 // may resolve a PlayerEcon from anything except state.players[seat]. This is
@@ -62,10 +83,6 @@ export function applyAction(
   action: GameAction,
   rng: Rng = Math.random,
 ): ActionResult {
-  // rng is unused until Plan 02 wires 'reroll' (the first case that needs
-  // it) — referenced here so the exported signature stays intact meanwhile.
-  void rng
-
   if (seat < 0 || seat >= state.players.length) return { ok: false, reason: 'bad-seat' }
   const econ = state.players[seat]
   if (econ.eliminated) return { ok: false, reason: 'eliminated' }
@@ -75,15 +92,129 @@ export function applyAction(
       const result = buyUnit(state, econ, action.slot)
       return result.ok ? { ok: true } : { ok: false, reason: result.reason }
     }
-    // Every case below is filled in by Plan 02 — declared now so the whole
-    // action surface exists for that plan (and any caller) to build against.
-    case 'sell':      return { ok: false, reason: 'not-implemented' }
-    case 'reroll':    return { ok: false, reason: 'not-implemented' }
-    case 'buyXp':     return { ok: false, reason: 'not-implemented' }
-    case 'lock':      return { ok: false, reason: 'not-implemented' }
-    case 'moveBoard': return { ok: false, reason: 'not-implemented' }
-    case 'moveBench': return { ok: false, reason: 'not-implemented' }
-    case 'placeItem': return { ok: false, reason: 'not-implemented' }
+
+    case 'reroll': {
+      return shopReroll(econ, state.pool, rng) ? { ok: true } : { ok: false, reason: 'no-gold' }
+    }
+
+    case 'buyXp': {
+      // Checked first so the caller can tell "capped" from "broke" — buyXp
+      // itself collapses both into a single false.
+      if (econ.level >= MAX_LEVEL) return { ok: false, reason: 'max-level' }
+      return buyXp(econ) ? { ok: true } : { ok: false, reason: 'no-gold' }
+    }
+
+    case 'lock': {
+      econ.shopLocked = action.locked
+      return { ok: true }
+    }
+
+    case 'sell': {
+      if (action.from === 'bench') {
+        return sellFromBench(state, econ, action.index) ? { ok: true } : { ok: false, reason: 'no-unit' }
+      }
+      const entry = econ.board[action.index]
+      if (!entry) return { ok: false, reason: 'no-unit' }
+      if (isPillar(entry.definitionId)) return { ok: false, reason: 'unsellable' }
+      return sellFromBoard(state, econ, action.index) ? { ok: true } : { ok: false, reason: 'no-unit' }
+    }
+
+    case 'moveBoard': {
+      const sourceIdx = econ.board.findIndex(
+        e => e.hexPos.col === action.from.col && e.hexPos.row === action.from.row,
+      )
+      if (sourceIdx === -1) return { ok: false, reason: 'no-unit' }
+      if (!isPlayerHex(action.to)) return { ok: false, reason: 'not-player-hex' }
+
+      const destIdx = econ.board.findIndex(
+        e => e.hexPos.col === action.to.col && e.hexPos.row === action.to.row,
+      )
+      // econ.board.length is unchanged either way (swap or relocate), so no
+      // cap check applies here — the cap only gates a move that ADDS a
+      // fielded unit (bench-to-empty-hex), never a board-to-board move.
+      if (destIdx !== -1) {
+        const sourceEntry = econ.board[sourceIdx]
+        const destEntry = econ.board[destIdx]
+        const tmp = sourceEntry.hexPos
+        sourceEntry.hexPos = destEntry.hexPos
+        destEntry.hexPos = tmp
+      } else {
+        econ.board[sourceIdx].hexPos = { col: action.to.col, row: action.to.row }
+      }
+      return { ok: true }
+    }
+
+    case 'moveBench': {
+      if ('bench' in action.to) {
+        const n = action.to.bench
+        if (action.benchIndex < 0 || action.benchIndex >= econ.bench.length) return { ok: false, reason: 'no-unit' }
+        if (n < 0 || n >= econ.bench.length) return { ok: false, reason: 'no-unit' }
+        const tmp = econ.bench[action.benchIndex]
+        econ.bench[action.benchIndex] = econ.bench[n]
+        econ.bench[n] = tmp
+        return { ok: true }
+      }
+
+      // Hex destination.
+      if (action.benchIndex < 0 || action.benchIndex >= econ.bench.length) return { ok: false, reason: 'no-unit' }
+      const benchUnit = econ.bench[action.benchIndex]
+      if (!benchUnit) return { ok: false, reason: 'no-unit' }
+      if (!isPlayerHex(action.to)) return { ok: false, reason: 'not-player-hex' }
+      // Capture into a local so TS's narrowing (to { col, row }) survives
+      // into the closures below — narrowing on a property access does not
+      // persist across nested function boundaries.
+      const to = action.to as { col: number; row: number }
+
+      const destIdx = econ.board.findIndex(
+        e => e.hexPos.col === to.col && e.hexPos.row === to.row,
+      )
+      if (destIdx !== -1) {
+        // Swap: the board occupant becomes a benched unit, the bench unit
+        // takes the hex. The fielded count is unchanged, so no cap check.
+        const destEntry = econ.board[destIdx]
+        const displaced: BenchedUnit = { definitionId: destEntry.definitionId, tier: destEntry.tier }
+        if (destEntry.item) displaced.item = destEntry.item
+        const placed: BoardEntry = {
+          definitionId: benchUnit.definitionId, tier: benchUnit.tier,
+          hexPos: { col: to.col, row: to.row },
+        }
+        if (benchUnit.item) placed.item = benchUnit.item
+        econ.board[destIdx] = placed
+        econ.bench[action.benchIndex] = displaced
+        return { ok: true }
+      }
+
+      // Empty hex: this move ADDS a fielded unit, so it is cap-checked —
+      // unless the moving unit is a pillar, which never counts toward the cap.
+      if (!isPillar(benchUnit.definitionId) && fieldedCount(econ) >= boardCap(econ)) {
+        return { ok: false, reason: 'board-full' }
+      }
+      const placed: BoardEntry = {
+        definitionId: benchUnit.definitionId, tier: benchUnit.tier,
+        hexPos: { col: to.col, row: to.row },
+      }
+      if (benchUnit.item) placed.item = benchUnit.item
+      econ.bench[action.benchIndex] = null
+      econ.board.push(placed)
+      return { ok: true }
+    }
+
+    case 'placeItem': {
+      if (action.itemIndex < 0 || action.itemIndex >= econ.itemBench.length) return { ok: false, reason: 'no-item' }
+      const entry = econ.board.find(
+        e => e.hexPos.col === action.onHex.col && e.hexPos.row === action.onHex.row,
+      )
+      if (!entry) return { ok: false, reason: 'no-unit' }
+
+      // Validation is done — every write below is safe to perform.
+      const item = econ.itemBench[action.itemIndex]
+      const prevItem = entry.item
+      econ.itemBench.splice(action.itemIndex, 1)
+      if (prevItem) econ.itemBench.push(prevItem)
+      entry.item = item
+      return { ok: true }
+    }
+
     default: {
       // Exhaustiveness check: a future GameAction variant that isn't handled
       // above is a compile error here, not a silent fall-through.
