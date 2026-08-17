@@ -8,60 +8,47 @@
 
 import type * as Party from 'partykit/server'
 import { applyAction, startPlanning } from '../src/game/round'
-import { newRun, type RunState } from '../src/econ/runState'
-import { PERSONAS, botSeats } from '../src/econ/bots'
-import { pickRandomNames } from '../src/econ/botNames'
-import { PLAYER_COUNT } from '../src/econ/constants'
+import type { RunState } from '../src/econ/runState'
+import {
+  newRoomRun, newSeatTable, assignSeat, freeSeat, seatOf, lobbyView,
+  type SeatTable,
+} from './seats'
 import {
   PROTOCOL_VERSION,
+  MAX_ACTIONS_PER_PHASE,
   parseClientMessage,
   type RoomPhase,
-  type LobbySeatView,
   type ServerMessage,
 } from '../src/net/protocol'
 
 const MAX_MESSAGE_LENGTH = 4096
 
-// A room has no privileged human seat — every seat starts bot-held. With 6
-// seats and 5 personas, seats 0 and 5 share a persona id; that's fine, a
-// persona is a decision-weight profile, not an identity.
-function newRoomRun(): RunState {
-  const run = newRun(botSeats())
-  const names = pickRandomNames(PLAYER_COUNT)
-  for (let i = 0; i < run.players.length; i++) {
-    const persona = PERSONAS[i % PERSONAS.length]
-    run.players[i].personaId = persona.id
-    run.players[i].name = names[i] ?? persona.name
-  }
-  // newRun() alone leaves everyone at STARTING_GOLD (0) — round 1 would be an
-  // unaffordable empty shop. src/main.ts's initFreshRun (browser-only, not
-  // importable here) grants every fresh single-player run the same small
-  // stake before the first roll; mirrored here so the room matches
-  // single-player's fresh-run behavior instead of diverging from it.
-  for (const p of run.players) p.gold = 5
-  return run
-}
-
-function lobbyView(run: RunState, occupants: (string | null)[]): LobbySeatView[] {
-  return run.players.map((p, seat) => ({
-    seat,
-    name: p.name,
-    hp: p.hp,
-    human: occupants[seat] !== null,
-    eliminated: p.eliminated,
-  }))
-}
-
 export default class Lobby implements Party.Server {
   run!: RunState
-  occupants: (string | null)[] = []
+  table!: SeatTable
   phase: RoomPhase = 'idle'
+
+  // Per-connection-id action budget for this planning phase. Reset on
+  // connect (a fresh connection should not inherit a stale counter from a
+  // previous occupant of the same seat) and on resetActionBudget(), which
+  // Plan 03-04 will call at the start of every new planning phase.
+  private actionBudget = new Map<string, number>()
 
   constructor(readonly room: Party.Room) {}
 
   async onStart(): Promise<void> {
     this.run = (await this.room.storage.get<RunState>('run')) ?? newRoomRun()
-    this.occupants = Array(PLAYER_COUNT).fill(null)
+    // The seat table is deliberately NOT persisted: connection ids do not
+    // survive a room restart, so occupancy must be rebuilt from live
+    // connections, never from storage.
+    this.table = newSeatTable(this.run)
+    // A room that restarted while humans were seated must not resume with
+    // ownerless human seats: force every seat's personaId back to its
+    // roster value now that the (fresh, all-null) occupants table above
+    // says every seat is bot-held again.
+    for (let i = 0; i < this.run.players.length; i++) {
+      this.run.players[i].personaId = this.table.roster[i].personaId
+    }
     this.phase = 'idle'
   }
 
@@ -72,21 +59,27 @@ export default class Lobby implements Party.Server {
     await this.room.storage.put('run', this.run)
   }
 
-  async onConnect(conn: Party.Connection): Promise<void> {
-    const seat = this.occupants.findIndex(o => o === null)
-    if (seat === -1) {
+  // Called on connect (a fresh connection starts unpenalized) and, from
+  // Plan 03-04, at the start of every new planning phase.
+  resetActionBudget(connId: string): void {
+    this.actionBudget.set(connId, 0)
+  }
+
+  async onConnect(conn: Party.Connection, ctx: Party.ConnectionContext): Promise<void> {
+    // Read the display name once, at connect time, from the connection
+    // URL's query string — never from a message, so a seated connection's
+    // name cannot be changed later by a crafted payload.
+    const name = new URL(ctx.request.url).searchParams.get('name')
+    const seat = assignSeat(this.run, this.table, conn.id, name)
+    if (seat === null) {
       conn.send(JSON.stringify({ t: 'rejected', reason: 'not-seated' } satisfies ServerMessage))
       conn.close()
       return
     }
+    this.resetActionBudget(conn.id)
 
-    const wasEmpty = this.occupants.every(o => o === null)
-    this.occupants[seat] = conn.id
-    // Setting personaId to null is what makes the seat human — the same
-    // discriminator Phase 1 and Phase 2 settle on.
-    this.run.players[seat].personaId = null
-
-    if (wasEmpty) {
+    const wasFirstHuman = this.phase === 'idle'
+    if (wasFirstHuman) {
       startPlanning(this.run)
       this.phase = 'planning'
     }
@@ -98,19 +91,27 @@ export default class Lobby implements Party.Server {
       protocol: PROTOCOL_VERSION,
       seat,
       snapshot: this.run,
-      lobby: lobbyView(this.run, this.occupants),
+      lobby: lobbyView(this.run, this.table),
       phase: this.phase,
       round: this.run.round,
     }
     conn.send(JSON.stringify(welcome))
-    this.room.broadcast(JSON.stringify({ t: 'lobby', lobby: lobbyView(this.run, this.occupants) } satisfies ServerMessage))
+    this.room.broadcast(JSON.stringify({ t: 'lobby', lobby: lobbyView(this.run, this.table) } satisfies ServerMessage))
+    this.room.broadcast(
+      JSON.stringify({ t: 'seat-taken', seat, name: this.run.players[seat].name } satisfies ServerMessage),
+    )
   }
 
-  onClose(conn: Party.Connection): void {
-    // Tracer scope only: free the seat. Full revert semantics (restoring the
-    // bot persona) are Plan 03-03's job.
-    const seat = this.occupants.findIndex(o => o === conn.id)
-    if (seat !== -1) this.occupants[seat] = null
+  async onClose(conn: Party.Connection): Promise<void> {
+    this.actionBudget.delete(conn.id)
+    const seat = freeSeat(this.run, this.table, conn.id)
+    if (seat === null) return
+
+    await this.persist()
+    this.room.broadcast(JSON.stringify({ t: 'lobby', lobby: lobbyView(this.run, this.table) } satisfies ServerMessage))
+    this.room.broadcast(
+      JSON.stringify({ t: 'seat-freed', seat, name: this.run.players[seat].name } satisfies ServerMessage),
+    )
   }
 
   async onMessage(raw: string, sender: Party.Connection): Promise<void> {
@@ -119,14 +120,26 @@ export default class Lobby implements Party.Server {
       return
     }
 
+    const usedSoFar = this.actionBudget.get(sender.id) ?? 0
+    if (usedSoFar >= MAX_ACTIONS_PER_PHASE) {
+      sender.send(JSON.stringify({ t: 'rejected', reason: 'rate-limited' } satisfies ServerMessage))
+      return
+    }
+    this.actionBudget.set(sender.id, usedSoFar + 1)
+
     const msg = parseClientMessage(raw)
     if (!msg) {
       sender.send(JSON.stringify({ t: 'rejected', reason: 'malformed' } satisfies ServerMessage))
       return
     }
 
-    const seat = this.occupants.findIndex(o => o === sender.id)
-    if (seat === -1) {
+    // sender.id is the ONLY seat authority in this room: no branch anywhere
+    // in this file may resolve a seat from parsed message content. This
+    // mirrors the comment applyAction already carries on its own `seat`
+    // parameter (src/game/round.ts) — this call site is the boundary that
+    // guard was written for.
+    const seat = seatOf(this.table, sender.id)
+    if (seat === null) {
       sender.send(JSON.stringify({ t: 'rejected', reason: 'not-seated' } satisfies ServerMessage))
       return
     }
@@ -144,7 +157,8 @@ export default class Lobby implements Party.Server {
   async onRequest(_req: Party.Request): Promise<Response> {
     const storageKeys = Array.from((await this.room.storage.list()).keys()).sort()
     // Deliberately exposes only room metadata — no RunState, no seat
-    // contents, no player names (see T-03-08).
+    // contents, no player names (see T-03-08). `seats` reports occupancy
+    // only (seat index + human flag), never a name or HP.
     const body = {
       ok: true,
       room: this.room.id,
@@ -152,6 +166,7 @@ export default class Lobby implements Party.Server {
       round: this.run.round,
       connections: Array.from(this.room.getConnections()).length,
       storageKeys,
+      seats: lobbyView(this.run, this.table).map(s => ({ seat: s.seat, human: s.human })),
     }
     return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
   }

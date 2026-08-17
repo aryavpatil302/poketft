@@ -19,6 +19,7 @@
     "sim-bots": "tsx src/sim/botLeague.ts",
     "room:dev": "partykit dev",
     "room:smoke": "tsx scripts/roomSmoke.ts",
+    "room:seats": "tsx scripts/roomSeats.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

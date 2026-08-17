@@ -15,7 +15,7 @@ function toCamel(slug: string): string {
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'party/**/*.test.ts'],
   },
 
   plugins: [

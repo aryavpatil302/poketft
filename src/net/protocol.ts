@@ -9,6 +9,13 @@ import type { RunState } from '../econ/runState'
 export const PLANNING_MS = 30_000
 export const PROTOCOL_VERSION = 1
 
+// A human clicking rerolls as fast as physically possible cannot approach
+// this within one planning phase — it bounds a message flood without ever
+// gating real play. Counted per connection id, reset at connect and at the
+// start of each new planning phase (see party/lobby.ts's
+// resetActionBudget()).
+export const MAX_ACTIONS_PER_PHASE = 600
+
 export type RoomPhase = 'idle' | 'planning' | 'resolving' | 'over'
 
 export type RejectReason = ActionReason | 'not-seated' | 'wrong-phase' | 'malformed' | 'too-large' | 'rate-limited'
@@ -39,6 +46,8 @@ export type ServerMessage =
   | { t: 'snapshot'; snapshot: RunState }
   | { t: 'lobby'; lobby: LobbySeatView[] }
   | { t: 'rejected'; reason: RejectReason }
+  | { t: 'seat-taken'; seat: number; name: string }
+  | { t: 'seat-freed'; seat: number; name: string }
 
 // Narrow parse — never throws. Returns null for non-JSON input, a parsed
 // value that is not a plain object, or any `t` other than 'action'. Does NOT
