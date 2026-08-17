@@ -7,7 +7,7 @@
 // would drag DOM globals into the Workers bundle.
 
 import type * as Party from 'partykit/server'
-import { applyAction, startPlanning, resolveRound } from '../src/game/round'
+import { applyAction, startPlanning, resolveRound, type RoundResult } from '../src/game/round'
 import type { RunState } from '../src/econ/runState'
 import {
   newRoomRun, newSeatTable, assignSeat, freeSeat, seatOf, lobbyView,
@@ -21,6 +21,7 @@ import {
   type RoomPhase,
   type ServerMessage,
 } from '../src/net/protocol'
+import { encodeFightLog, type FightChunk } from '../src/net/fightWire'
 
 const MAX_MESSAGE_LENGTH = 4096
 
@@ -84,7 +85,10 @@ export default class Lobby implements Party.Server {
   private async persist(): Promise<void> {
     // The measured RunState is about 5 KiB serialized, comfortably under the
     // 128 KiB Durable Object per-value limit — safe to persist after every
-    // accepted mutation.
+    // accepted mutation. This is the ONLY key this room ever writes: a
+    // fight log is 19-34 MiB against a 128 KiB per-value limit, so a log
+    // must never reach this call — it would fail at runtime, not build
+    // time. broadcastResolve() streams logs over the wire only, never here.
     await this.room.storage.put('run', this.run)
   }
 
@@ -135,6 +139,71 @@ export default class Lobby implements Party.Server {
     this.deadline = null
   }
 
+  // Sends each connected seat its settled result plus, when and only when it
+  // actually fought, the exact recorded fight. Called from onDeadline after
+  // the settled snapshot is persisted and before the next beginPlanning().
+  private async broadcastResolve(result: RoundResult): Promise<void> {
+    // Encode each distinct log exactly once, keyed by logIndex. Two seats
+    // sharing a logIndex therefore share one fightId and one chunk array —
+    // precisely what makes a human-vs-human matchup produce a single fight
+    // both players watch. Encoding per-seat instead would be both twice the
+    // CPU and a correctness hazard, since two separately-encoded copies
+    // could in principle diverge.
+    const encoded = new Map<number, { fightId: string; chunks: FightChunk[] }>()
+    for (const seatResult of result.seats) {
+      if (seatResult.logIndex === null || encoded.has(seatResult.logIndex)) continue
+      const fightId = `${this.room.id}:${result.round}:${seatResult.logIndex}`
+      const chunks = await encodeFightLog(result.logs[seatResult.logIndex], fightId)
+      encoded.set(seatResult.logIndex, { fightId, chunks })
+    }
+
+    let totalChunks = 0
+    let totalBytes = 0
+
+    for (const conn of this.room.getConnections()) {
+      const seat = seatOf(this.table, conn.id)
+      if (seat === null) continue
+      const seatResult = result.seats.find(s => s.seat === seat) ?? null
+      // A seat whose logIndex is null — a bye, an abstractly-resolved
+      // bot-vs-bot pairing, or an item round, which records no fights at
+      // all — gets a resolve with fightId: null and ZERO chunk messages.
+      // Guarded explicitly rather than relying on an empty loop: indexing
+      // result.logs with a null would produce undefined and hand
+      // encodeFightLog a log-shaped nothing.
+      const entry = seatResult?.logIndex != null ? encoded.get(seatResult.logIndex) : undefined
+
+      conn.send(JSON.stringify({
+        t: 'resolve',
+        round: result.round,
+        kind: result.kind,
+        snapshot: this.run,
+        seat: seatResult,
+        fightId: entry?.fightId ?? null,
+        eliminated: result.eliminated,
+        survivors: result.survivors,
+      } satisfies ServerMessage))
+
+      if (entry) {
+        // Per-connection ordering is FIFO, so these chunks arrive after the
+        // resolve that announced them and in index order — the client still
+        // reassembles by index, never by arrival, since ordering ACROSS
+        // connections is unspecified.
+        for (const chunk of entry.chunks) {
+          conn.send(JSON.stringify({ t: 'fight-chunk', chunk } satisfies ServerMessage))
+          totalChunks++
+          totalBytes += chunk.gzipB64.length
+        }
+      }
+    }
+
+    // The only visibility into per-round bandwidth before Phase 5 puts this
+    // on a real internet link.
+    console.log(
+      `[room ${this.room.id}] round ${result.round} (${result.kind}) resolved: ` +
+      `${encoded.size} distinct log(s), ${totalChunks} chunk(s) sent, ${totalBytes} base64 bytes total`,
+    )
+  }
+
   // Fires when a planning phase's deadline arrives. Ordering here is
   // load-bearing (see the plan's must_haves): the phase flips to 'resolving'
   // as the FIRST statement, before clearTimer or resolveRound run, so there
@@ -151,6 +220,7 @@ export default class Lobby implements Party.Server {
     // internally; doing it twice would skip every other round, including
     // the creep/item rounds keyed on specific round numbers.
     await this.persist()
+    await this.broadcastResolve(result)
 
     if (result.survivors.length <= 1) {
       this.phase = 'over'
