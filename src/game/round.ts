@@ -436,17 +436,29 @@ function captureFrame(cs: CombatState): FightFrame {
       abilityCastTimer: u.abilityCastTimer,
       attackCount: u.attackCount,
       attackModifiers: u.attackModifiers.map(({ onHit: _onHit, ...rest }) => rest),
+      // Optional fields are included only when actually set (never as an
+      // explicit `key: undefined`) — an object literal upstream can assign
+      // `sourceUnitId: undefined` explicitly rather than omitting the key,
+      // and a shallow copy preserves that explicit-undefined key. JSON
+      // (this codec's wire format included) silently drops it on the way
+      // out, so a captured-then-decoded frame would then genuinely differ
+      // from the original — non-deterministically, only on whichever real
+      // fight happens to carry such a value. Found via fightWire.test.ts.
       shields: u.shields.map(s => ({
-        id: s.id, sourceAbility: s.sourceAbility, sourceUnitId: s.sourceUnitId,
-        value: s.value, maxValue: s.maxValue, durationTicks: s.durationTicks,
-        effectiveMaxHp: s.effectiveMaxHp, traitSource: s.traitSource,
+        id: s.id, sourceAbility: s.sourceAbility, value: s.value,
+        maxValue: s.maxValue, durationTicks: s.durationTicks,
+        ...(s.sourceUnitId !== undefined ? { sourceUnitId: s.sourceUnitId } : {}),
+        ...(s.effectiveMaxHp !== undefined ? { effectiveMaxHp: s.effectiveMaxHp } : {}),
+        ...(s.traitSource !== undefined ? { traitSource: s.traitSource } : {}),
       })),
       statusEffects: u.statusEffects.map(fx => ({
         id: fx.id, sourceUnitId: fx.sourceUnitId, durationTicks: fx.durationTicks,
-        magnitude: fx.magnitude, stackId: fx.stackId,
+        ...(fx.magnitude !== undefined ? { magnitude: fx.magnitude } : {}),
+        ...(fx.stackId !== undefined ? { stackId: fx.stackId } : {}),
       })),
       marks: u.marks.map(m => ({
-        id: m.id, sourceUnitId: m.sourceUnitId, durationTicks: m.durationTicks, magnitude: m.magnitude,
+        id: m.id, sourceUnitId: m.sourceUnitId, durationTicks: m.durationTicks,
+        ...(m.magnitude !== undefined ? { magnitude: m.magnitude } : {}),
       })),
       dmgDealt: { ...u.dmgDealt },
       dmgTaken: { ...u.dmgTaken },

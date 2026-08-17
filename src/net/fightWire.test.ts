@@ -4,7 +4,7 @@ import { botSeats, botPlanRound, PERSONAS } from '../econ/bots'
 import { recordFight } from '../game/round'
 import type { FightLog } from '../game/round'
 import { createPlaybackState, applyFrame, playbackWinner } from '../game/playback'
-import { encodeFightLog, decodeFightLog, FRAMES_PER_CHUNK } from './fightWire'
+import { encodeFightLog, decodeFightLog, cloneFightLog, FRAMES_PER_CHUNK } from './fightWire'
 import '../core/systems/ability'   // register abilities for the headless sim
 
 function seededRng(seed: number): () => number {
@@ -83,7 +83,10 @@ describe('fightWire — round trip fidelity', () => {
   })
 
   it('Test 2: encodeFightLog does not mutate its argument', async () => {
-    const before: FightLog = JSON.parse(JSON.stringify(realLog))
+    // A plain JSON.stringify/parse is NOT a lossless snapshot here (it turns
+    // AttackModifier.remainingCharges === Infinity into null) — cloneFightLog
+    // is the codec's own lossless clone, exported specifically for this.
+    const before: FightLog = cloneFightLog(realLog)
     await encodeFightLog(realLog, 'fight-purity')
     expect(realLog).toEqual(before)
   })

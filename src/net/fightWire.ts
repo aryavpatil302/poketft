@@ -43,6 +43,34 @@ export interface FightChunk {
   gzipB64: string        // base64 of gzip(JSON.stringify(FightFrame[]))
 }
 
+// ─── Non-finite number sentinel ──────────────────────────────────────────────
+
+// JSON has no representation for Infinity/-Infinity/NaN — JSON.stringify
+// silently turns all three into `null`, which is not lossless. A real field
+// hits this: AttackModifier.remainingCharges (src/core/types.ts) uses
+// Infinity to mean "unlimited charges" for some ability modifiers, and a
+// real recorded fight can carry one into a frame. Found via
+// fightWire.test.ts's round-trip fidelity test against a real fight — this
+// is not a hypothetical edge case, it fires on ordinary combat.
+const NON_FINITE_SENTINEL = '__fightWire_non_finite__'
+
+function nonFiniteReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    return `${NON_FINITE_SENTINEL}${value}`   // "…Infinity", "…-Infinity", "…NaN"
+  }
+  return value
+}
+
+function nonFiniteReviver(_key: string, value: unknown): unknown {
+  if (typeof value === 'string' && value.startsWith(NON_FINITE_SENTINEL)) {
+    const tag = value.slice(NON_FINITE_SENTINEL.length)
+    if (tag === 'Infinity') return Infinity
+    if (tag === '-Infinity') return -Infinity
+    if (tag === 'NaN') return NaN
+  }
+  return value
+}
+
 // ─── Base64 <-> gzip helpers ─────────────────────────────────────────────────
 
 // Chunk size for String.fromCharCode conversion. Do NOT call
@@ -82,6 +110,15 @@ async function base64ToText(b64: string): Promise<string> {
   return new TextDecoder().decode(gunzipped)
 }
 
+// A lossless structural clone of a FightLog — a plain
+// `JSON.parse(JSON.stringify(log))` is NOT lossless (see the non-finite
+// sentinel above), so any caller needing a "before" snapshot to compare
+// against post-encode (e.g. a mutation-safety test) must go through this,
+// not a bare JSON round-trip.
+export function cloneFightLog(log: FightLog): FightLog {
+  return JSON.parse(JSON.stringify(log, nonFiniteReplacer), nonFiniteReviver)
+}
+
 // ─── Encode ──────────────────────────────────────────────────────────────────
 
 // Pure: never mutates `log`. Slices log.frames into FRAMES_PER_CHUNK runs,
@@ -97,7 +134,7 @@ export async function encodeFightLog(log: FightLog, fightId: string): Promise<Fi
   const chunks: FightChunk[] = []
   for (let index = 0; index < total; index++) {
     const slice: FightFrame[] = frames.slice(index * FRAMES_PER_CHUNK, (index + 1) * FRAMES_PER_CHUNK)
-    const gzipB64 = await gzipToBase64(JSON.stringify(slice))
+    const gzipB64 = await gzipToBase64(JSON.stringify(slice, nonFiniteReplacer))
     chunks.push({
       fightId,
       index,
@@ -149,7 +186,7 @@ export async function decodeFightLog(chunks: FightChunk[]): Promise<FightLog> {
   const frames: FightFrame[] = []
   for (const chunk of sorted) {
     const json = await base64ToText(chunk.gzipB64)
-    const slice: FightFrame[] = JSON.parse(json)
+    const slice: FightFrame[] = JSON.parse(json, nonFiniteReviver)
     frames.push(...slice)
   }
 
