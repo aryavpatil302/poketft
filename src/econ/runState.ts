@@ -39,12 +39,22 @@ export interface PlayerEcon {
   shopLocked: boolean
   eliminated: boolean
   cliffPositions?: Record<string, { col: number; row: number }>   // human only: remembered Ascender pillar hexes
+  // The seat this one faces next round, announced at the end of the previous
+  // round by src/game/round.ts's resolveRound; -1 means a bye or no living
+  // rival. Optional so pre-Phase-2 saves back-fill via loadRun below.
+  nextOpponent?: number
 }
 
 export interface RunState {
   round: number
   pool: Record<string, number>   // definitionId → copies remaining (SHARED)
   players: PlayerEcon[]          // [0] = human, [1..5] = bots
+  // LEGACY: superseded by PlayerEcon.nextOpponent (per-seat, mutually
+  // consistent, computed by resolveRound). The round engine in
+  // src/game/round.ts never reads this field — it is left in place only
+  // because src/main.ts's inline round loop still writes/reads it until
+  // Plan 05 rewires main.ts and Phase 3 owns the round loop entirely, at
+  // which point this field is removed.
   nextOpponent: number           // players index the human faces this round
   gameOver: 'win' | 'loss' | null
 }
@@ -92,6 +102,7 @@ export function emptyEcon(name: string, personaId: string | null): PlayerEcon {
     shopLocked: false,
     eliminated: false,
     cliffPositions: {},
+    nextOpponent: -1,
   }
 }
 
@@ -133,6 +144,8 @@ export function loadRun(storage: EconStorage | null = defaultStorage()): RunStat
     for (const p of parsed.state.players) if (typeof p.pendingIncome !== 'number') p.pendingIncome = 0
     // Migrate saves from before remembered Ascender pillar positions.
     for (const p of parsed.state.players) if (typeof p.cliffPositions !== 'object' || p.cliffPositions === null) p.cliffPositions = {}
+    // Migrate saves from before the per-seat next-opponent announcement.
+    for (const p of parsed.state.players) if (typeof p.nextOpponent !== 'number') p.nextOpponent = -1
     return parsed.state as RunState
   } catch {
     return null
