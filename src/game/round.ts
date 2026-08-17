@@ -291,6 +291,16 @@ export interface MarkFrame {
   magnitude?: number
 }
 
+// Render-relevant, serializable subset of core/types.ts's AttackModifier.
+// Despite the "plain data, no callbacks" assumption this module briefly
+// carried, AttackModifier DOES have an optional onHit callback (types.ts) —
+// several abilities attach it. Omit<AttackModifier, 'onHit'> is the exact
+// fix: every other field is genuinely plain data and copies as-is, only
+// onHit needed stripping. Found via a real round-trip fidelity test in
+// Phase 3 (src/net/fightWire.test.ts) that a shallow spread let a stray
+// function reference survive into a "plain" frame.
+export type AttackModifierFrame = Omit<AttackModifier, 'onHit'>
+
 export interface UnitFrame {
   id: string
   definitionId: string
@@ -316,7 +326,7 @@ export interface UnitFrame {
   pendingCrit: boolean
   abilityCastTimer: number
   attackCount: number
-  attackModifiers: AttackModifier[]   // plain data, no callbacks — safe to copy as-is
+  attackModifiers: AttackModifierFrame[]
   shields: ShieldFrame[]
   statusEffects: StatusEffectFrame[]
   marks: MarkFrame[]
@@ -425,7 +435,7 @@ function captureFrame(cs: CombatState): FightFrame {
       pendingCrit: u.pendingCrit,
       abilityCastTimer: u.abilityCastTimer,
       attackCount: u.attackCount,
-      attackModifiers: u.attackModifiers.map(m => ({ ...m })),
+      attackModifiers: u.attackModifiers.map(({ onHit: _onHit, ...rest }) => rest),
       shields: u.shields.map(s => ({
         id: s.id, sourceAbility: s.sourceAbility, sourceUnitId: s.sourceUnitId,
         value: s.value, maxValue: s.maxValue, durationTicks: s.durationTicks,
