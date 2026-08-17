@@ -24,6 +24,12 @@ describe('round engine — tracer slice', () => {
     // tracer's one recorded fight deterministic.
     for (let i = 2; i < run.players.length; i++) run.players[i].eliminated = true
 
+    // Rounds 1-3 are the PvE creep/item opener (isCreepRound/isItemRound,
+    // src/econ/creeps.ts) — resolveRound now dispatches on round kind
+    // (Plan 02-04), so a PvP-style seat-vs-seat tracer needs a round past
+    // the opener. Round 4 is the first plain PvP round.
+    run.round = 4
+
     run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
     run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 } }]
 
@@ -181,6 +187,8 @@ describe('resolveRound — log/settlement agreement', () => {
     // Only seats 0 (human) and 1 (bot) alive → one guaranteed recorded fight,
     // same determinism trick as the tracer test above.
     for (let i = 2; i < run.players.length; i++) run.players[i].eliminated = true
+    // Round 4 is the first plain PvP round — see the tracer test's comment above.
+    run.round = 4
     run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
     run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 } }]
 

@@ -6,10 +6,14 @@
 import type { RunState, BoardEntry, PlayerEcon, BenchedUnit } from '../econ/runState'
 import { livingPlayers } from '../econ/runState'
 import type { Rng } from '../econ/shop'
-import { rollShop, buyUnit, reroll as shopReroll, sellFromBench, sellFromBoard } from '../econ/shop'
+import { rollShop, buyUnit, reroll as shopReroll, sellFromBench, sellFromBoard, returnAllToPool } from '../econ/shop'
 import { buyXp, boardCap } from '../econ/xp'
 import { settleRound } from '../econ/income'
-import { resolveBotFight } from '../econ/botMatches'
+import { resolveBotFight, humanTablePower } from '../econ/botMatches'
+import { botPlanRound } from '../econ/bots'
+import { chooseBotItem, botOwnedItems } from '../econ/botItems'
+import { rollCrawlerEarthquakeRewards } from '../econ/caveCrawlerSpawn'
+import { isItemRound, isCreepRound, creepRoundDef } from '../econ/creeps'
 import { stageOf, MAX_LEVEL } from '../econ/constants'
 import type { CombatEvent, CombatState, Unit } from '../core/types'
 import { createCombatState, advanceCombatTick } from '../core/combatEngine'
@@ -374,8 +378,9 @@ function captureFrame(cs: CombatState): FightFrame {
   }
 }
 
-// Runs one real combat once and captures every tick of it. Deliberately does
-// NOT delegate to runCombat:
+// Shared tick loop for every recorded fight — seat-vs-seat (recordFight) and
+// seat-vs-creep-board (recordCreepFight) both run through this. Deliberately
+// does NOT delegate to runCombat:
 //   1. runCombat's per-tick callback fires only on ticks with events.length
 //      > 0, but units move on event-less ticks and movement emits no
 //      CombatEvent — sampling only event-bearing ticks would play back a
@@ -383,35 +388,14 @@ function captureFrame(cs: CombatState): FightFrame {
 //   2. runCombat's default cap is 1800 ticks, while the live game only
 //      ENTERS overtime at 1800 and hard-draws at 3600 (src/main.ts
 //      tickCombat). Recording must match what the player would have watched.
-export function recordFight(state: RunState, seatA: number, seatB: number, stage: number): FightLog {
-  const econA = state.players[seatA]
-  const econB = state.players[seatB]
-
-  // Empty-side forfeit: no simulation runs at all, mirroring
-  // resolveBotFight's three forfeit branches.
-  if (econA.board.length === 0 || econB.board.length === 0) {
-    const bothEmpty = econA.board.length === 0 && econB.board.length === 0
-    const winner: FightLog['winner'] = bothEmpty ? 'draw' : econA.board.length === 0 ? 'enemy' : 'player'
-    return {
-      seatA, seatB, stage, winner,
-      ticksElapsed: 0,
-      survivorStarsA: econA.board.length === 0 ? 0 : boardStarSum(econA.board),
-      survivorStarsB: econB.board.length === 0 ? 0 : boardStarSum(econB.board),
-      quakesA: 0,
-      quakesB: 0,
-      frames: [],
-    }
-  }
-
-  const playerUnits = econA.board.map(entry => buildUnit(entry, 'player'))
-  const enemyUnits = econB.board.map(entry => buildUnit(entry, 'enemy'))
+function runRecordedFight(playerUnits: Unit[], enemyUnits: Unit[], stage: number): Omit<FightLog, 'seatA' | 'seatB'> {
   const cs = createCombatState(playerUnits, enemyUnits, stage)
 
   const frames: FightFrame[] = []
   let winner: FightLog['winner'] = 'draw'
 
-  // Own tick loop, capped at the same 3600 ticks (30s overtime, on top of the
-  // 30s base) the live game hard-draws at.
+  // Capped at the same 3600 ticks (30s overtime, on top of the 30s base) the
+  // live game hard-draws at.
   while (cs.tick < 3600) {
     advanceCombatTick(cs)
     // Push the frame BEFORE the terminal check so the killing-blow death
@@ -438,7 +422,7 @@ export function recordFight(state: RunState, seatA: number, seatB: number, stage
   }
 
   return {
-    seatA, seatB, stage, winner,
+    stage, winner,
     ticksElapsed: cs.tick,
     survivorStarsA, survivorStarsB,
     quakesA: cs.earthquakeCounts.get('player') ?? 0,
@@ -447,7 +431,67 @@ export function recordFight(state: RunState, seatA: number, seatB: number, stage
   }
 }
 
-// ─── Round resolution — the tracer path ─────────────────────────────────────
+// Runs one real combat once and captures every tick of it. seatB of -1 is
+// the reserved slot for a creep board (see recordCreepFight below).
+export function recordFight(state: RunState, seatA: number, seatB: number, stage: number): FightLog {
+  const econA = state.players[seatA]
+  const econB = state.players[seatB]
+
+  // Empty-side forfeit: no simulation runs at all, mirroring
+  // resolveBotFight's three forfeit branches.
+  if (econA.board.length === 0 || econB.board.length === 0) {
+    const bothEmpty = econA.board.length === 0 && econB.board.length === 0
+    const winner: FightLog['winner'] = bothEmpty ? 'draw' : econA.board.length === 0 ? 'enemy' : 'player'
+    return {
+      seatA, seatB, stage, winner,
+      ticksElapsed: 0,
+      survivorStarsA: econA.board.length === 0 ? 0 : boardStarSum(econA.board),
+      survivorStarsB: econB.board.length === 0 ? 0 : boardStarSum(econB.board),
+      quakesA: 0,
+      quakesB: 0,
+      frames: [],
+    }
+  }
+
+  const playerUnits = econA.board.map(entry => buildUnit(entry, 'player'))
+  const enemyUnits = econB.board.map(entry => buildUnit(entry, 'enemy'))
+  const result = runRecordedFight(playerUnits, enemyUnits, stage)
+  return { seatA, seatB, ...result }
+}
+
+// Records one human seat's fight against the fixed creep board for `round`.
+// seatB is always -1 — the reserved creep slot recordFight documents above.
+// Creep spawn rows are used VERBATIM (creepRoundDef's rows are already
+// enemy-half rows, 0-3) — deliberately NOT run through buildUnit's row-mirror
+// transform (the seat-vs-seat enemy-row flip), which would silently place
+// creeps on the wrong half. The fight would still run; the creeps would just
+// spawn in the wrong spot.
+function recordCreepFight(state: RunState, seat: number, round: number, stage: number): FightLog {
+  const econ = state.players[seat]
+  const def = creepRoundDef(round)!
+
+  const enemyUnits = def.spawns.map(spawn => {
+    const unit = makeUnit(spawn.definitionId, 'enemy', spawn.tier)
+    unit.hexPos = { col: spawn.col, row: spawn.row }   // verbatim — no mirror
+    unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
+    return unit
+  })
+
+  if (econ.board.length === 0) {
+    const survivorStarsB = def.spawns.reduce((sum, s) => sum + s.tier, 0)
+    return {
+      seatA: seat, seatB: -1, stage, winner: 'enemy',
+      ticksElapsed: 0, survivorStarsA: 0, survivorStarsB,
+      quakesA: 0, quakesB: 0, frames: [],
+    }
+  }
+
+  const playerUnits = econ.board.map(entry => buildUnit(entry, 'player'))
+  const result = runRecordedFight(playerUnits, enemyUnits, stage)
+  return { seatA: seat, seatB: -1, ...result }
+}
+
+// ─── Round resolution ────────────────────────────────────────────────────────
 
 export interface SeatFightResult {
   seat: number
@@ -462,32 +506,108 @@ export interface SeatFightResult {
 
 export interface RoundResult {
   round: number
+  kind: 'pvp' | 'creep' | 'item'
   pairings: Array<{ a: number; b: number }>
   seats: SeatFightResult[]
   logs: FightLog[]
   eliminated: number[]
+  survivors: number[]
 }
 
-// Not yet in this task — Plan 04 adds each as a call/branch inside this
-// existing loop, none of which changes the exported shapes above:
-//   - eliminated-seat pool returns
-//   - Cave Crawler earthquake rewards
-//   - bot re-planning after settlement
-//   - the human-only income deferral src/main.ts's settleHumanRound performs
-//     today (this task calls settleRound plainly for every seat — that is
-//     NOT yet the human deferral)
-//   - per-seat next-matchup announcement, creep rounds, item rounds
-//   - the anti-immediate-rematch pairing preference
-export function resolveRound(state: RunState, roundSeed: number): RoundResult {
-  const rng = seededRng(roundSeed)
-  const round = state.round
-  const living = livingPlayers(state)
+// Settles one seat and applies every side effect settlement can trigger, in
+// the order resolveBotRound establishes: settle → defer (humans only) →
+// crawler rewards → pool return. The reward roll must land before a seat can
+// be wiped, and before that seat plans (bot re-planning always runs after
+// every settleSeat call in the branches below).
+function settleSeat(
+  state: RunState,
+  seat: number,
+  result: { won: boolean; draw: boolean; survivorStars: number; round: number },
+  quakes: number,
+  rng: Rng,
+): { hpLost: number; eliminated: boolean } {
+  const econ = state.players[seat]
+  const settlement = settleRound(econ, result)
 
-  if (living.length === 0) {
-    return { round, pairings: [], seats: [], logs: [], eliminated: [] }
+  // Human income is deferred to pendingIncome, banked by the next
+  // startPlanning call — settleHumanRound's exact three-line move, now keyed
+  // on the Phase 1 discriminator instead of seat 0. Bots keep their income
+  // immediately: they plan later in THIS SAME call, and deferring would have
+  // them planning a round behind. This asymmetry is deliberate and load-bearing.
+  if (econ.personaId === null) {
+    econ.gold -= settlement.total
+    econ.pendingIncome += settlement.total
   }
 
-  // Fisher-Yates shuffle a copy of `living` — same loop shape resolveBotRound uses.
+  // Authoritative crawler-reward roll, from the quake count this seat's
+  // fight recorded — supersedes src/main.ts's onLivePlayerQuake, which rolls
+  // the human's rewards live, once per earthquake, during the fight. The
+  // visible consequence — a crawler appearing at settlement rather than
+  // mid-fight — is a deliberate, recorded behaviour change; Plan 05 removes
+  // the live roll rather than leaving both in place.
+  if (quakes > 0 && !settlement.eliminated) {
+    rollCrawlerEarthquakeRewards(state, econ, quakes, rng)
+  }
+
+  if (settlement.eliminated) {
+    returnAllToPool(state, econ)
+  }
+
+  return { hpLost: settlement.hpLost, eliminated: settlement.eliminated }
+}
+
+// Every living bot plans its next round exactly once, ascending seat order,
+// against ONE shared humanTablePower(state) evaluation — the shared-pool
+// draw-order contract resolveBotRound documents (visit order is
+// behaviour-relevant because botPlanRound draws from the shared pool).
+// `onEachBot`, when given, runs immediately before that bot's plan call (the
+// item round's chooseBotItem pick).
+function planAllBots(state: RunState, rng: Rng, onEachBot?: (bot: PlayerEcon) => void): void {
+  const power = humanTablePower(state)
+  for (let i = 0; i < state.players.length; i++) {
+    const bot = state.players[i]
+    if (bot.personaId === null || bot.eliminated) continue
+    if (onEachBot) onEachBot(bot)
+    botPlanRound(state, bot, power, rng)
+  }
+}
+
+// Shared bye-shaped settlement skeleton for the two non-PvP round kinds:
+// every living seat settles as a draw (income + XP, no HP loss, no streak
+// break) via settleSeat — same deferral/crawler-reward/pool-return ordering
+// a PvP pair gets. Ascending seat order (livingPlayers is already ascending).
+function settleByeShaped(
+  state: RunState,
+  round: number,
+  rng: Rng,
+  quakesFor: (seat: number) => number,
+  logIndexFor: (seat: number) => number | null,
+): { seats: SeatFightResult[]; eliminated: number[] } {
+  const seats: SeatFightResult[] = []
+  const eliminated: number[] = []
+  for (const seat of livingPlayers(state)) {
+    const settlement = settleSeat(state, seat, { won: false, draw: true, survivorStars: 0, round }, quakesFor(seat), rng)
+    seats.push({
+      seat, opponentSeat: -1, won: false, draw: true, survivorStars: 0,
+      hpLost: settlement.hpLost, eliminated: settlement.eliminated, logIndex: logIndexFor(seat),
+    })
+    if (settlement.eliminated) eliminated.push(seat)
+  }
+  return { seats, eliminated }
+}
+
+// Fisher-Yates pairing of every living seat — same loop shape resolveBotRound
+// uses — plus one deterministic anti-immediate-rematch repair pass: for each
+// pair (a, b) that is the pair that JUST fought (state.players[a].nextOpponent
+// === b), look ahead for a later pair (c, d) whose b/d swap creates no new
+// rematch, and swap once if found. ONE PASS, no retry loop, no re-shuffle — a
+// rematch is a cosmetic downside, but a pairing search with no guaranteed
+// terminus would hang the round, and with exactly two living seats that just
+// fought, no rematch-free pairing exists at all.
+export function pairSeats(state: RunState, seed: number): Array<{ a: number; b: number }> {
+  const rng = seededRng(seed)
+  const living = livingPlayers(state)
+
   const shuffled = [...living]
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1))
@@ -502,6 +622,67 @@ export function resolveRound(state: RunState, roundSeed: number): RoundResult {
     pairings.push({ a: shuffled[shuffled.length - 1], b: -1 })
   }
 
+  for (let i = 0; i < pairings.length; i++) {
+    const pair = pairings[i]
+    if (pair.b === -1) continue
+    if (state.players[pair.a].nextOpponent !== pair.b) continue   // not a rematch
+
+    for (let j = i + 1; j < pairings.length; j++) {
+      const other = pairings[j]
+      if (other.b === -1) continue
+      const wouldRematchHere = state.players[pair.a].nextOpponent === other.b
+      const wouldRematchThere = state.players[other.a].nextOpponent === pair.b
+      if (!wouldRematchHere && !wouldRematchThere) {
+        const tmp = pair.b
+        pair.b = other.b
+        other.b = tmp
+        break
+      }
+    }
+  }
+
+  return pairings
+}
+
+// Prefers the pairing the players were already shown: valid iff every living
+// seat's nextOpponent is -1 (a bye) or a living seat whose OWN nextOpponent
+// points back (mutual consistency), and the number of announced byes matches
+// the parity of the living count. Returns null on round 1, a stale save, or
+// any inconsistency — resolveRound falls back to a fresh pairSeats shuffle
+// rather than silently re-pairing against what the `Vs {name}` indicator
+// promised during planning.
+function pairingsFromAnnouncement(state: RunState, living: number[]): Array<{ a: number; b: number }> | null {
+  const livingSet = new Set(living)
+  let byeCount = 0
+  for (const seat of living) {
+    const opp = state.players[seat].nextOpponent ?? -1
+    if (opp === -1) { byeCount++; continue }
+    if (!livingSet.has(opp)) return null
+    if ((state.players[opp].nextOpponent ?? -1) !== seat) return null
+  }
+  if (byeCount !== living.length % 2) return null
+
+  const pairings: Array<{ a: number; b: number }> = []
+  const used = new Set<number>()
+  for (const seat of living) {
+    if (used.has(seat)) continue
+    const opp = state.players[seat].nextOpponent ?? -1
+    pairings.push({ a: seat, b: opp })
+    used.add(seat)
+    if (opp !== -1) used.add(opp)
+  }
+  return pairings
+}
+
+// The PvP branch: pair every living seat (honouring last round's announcement
+// when valid), settle every pair (fought recorded iff at least one seat is
+// human, otherwise resolveBotFight's abstract path), replan every living bot,
+// then announce next round's matchup per seat.
+function resolvePvpRound(state: RunState, round: number, roundSeed: number, rng: Rng): RoundResult {
+  const living = livingPlayers(state)
+  const announced = pairingsFromAnnouncement(state, living)
+  const pairings = announced ?? pairSeats(state, roundSeed)
+
   const logs: FightLog[] = []
   const seats: SeatFightResult[] = []
   const eliminated: number[] = []
@@ -510,7 +691,7 @@ export function resolveRound(state: RunState, roundSeed: number): RoundResult {
     if (pair.b === -1) {
       // Odd seat out: bye, settled as a draw — no fight recorded, matching
       // resolveBotRound's odd-bot-out handling.
-      const settlement = settleRound(state.players[pair.a], { won: false, draw: true, survivorStars: 0, round })
+      const settlement = settleSeat(state, pair.a, { won: false, draw: true, survivorStars: 0, round }, 0, rng)
       seats.push({
         seat: pair.a, opponentSeat: -1, won: false, draw: true, survivorStars: 0,
         hpLost: settlement.hpLost, eliminated: settlement.eliminated, logIndex: null,
@@ -534,8 +715,8 @@ export function resolveRound(state: RunState, roundSeed: number): RoundResult {
       const starsForA = aWon ? 0 : log.survivorStarsB   // A lost → B's surviving stars
       const starsForB = bWon ? 0 : log.survivorStarsA   // B lost → A's surviving stars
 
-      const settlementA = settleRound(econA, { won: aWon, draw, survivorStars: starsForA, round })
-      const settlementB = settleRound(econB, { won: bWon, draw, survivorStars: starsForB, round })
+      const settlementA = settleSeat(state, pair.a, { won: aWon, draw, survivorStars: starsForA, round }, log.quakesA, rng)
+      const settlementB = settleSeat(state, pair.b, { won: bWon, draw, survivorStars: starsForB, round }, log.quakesB, rng)
 
       seats.push({
         seat: pair.a, opponentSeat: pair.b, won: aWon, draw, survivorStars: starsForA,
@@ -556,8 +737,8 @@ export function resolveRound(state: RunState, roundSeed: number): RoundResult {
       const starsForA = aWon ? 0 : fight.survivorStars
       const starsForB = bWon ? 0 : fight.survivorStars
 
-      const settlementA = settleRound(econA, { won: aWon, draw, survivorStars: starsForA, round })
-      const settlementB = settleRound(econB, { won: bWon, draw, survivorStars: starsForB, round })
+      const settlementA = settleSeat(state, pair.a, { won: aWon, draw, survivorStars: starsForA, round }, fight.quakes, rng)
+      const settlementB = settleSeat(state, pair.b, { won: bWon, draw, survivorStars: starsForB, round }, fight.quakes, rng)
 
       seats.push({
         seat: pair.a, opponentSeat: pair.b, won: aWon, draw, survivorStars: starsForA,
@@ -573,6 +754,98 @@ export function resolveRound(state: RunState, roundSeed: number): RoundResult {
     }
   }
 
+  // Every living bot re-plans once, after every pair (and the bye) has
+  // settled and every elimination has returned to the pool.
+  planAllBots(state, rng)
+
+  // The caller resolves its own outcome via checkGameOver(state, seat) —
+  // src/main.ts for localSeatIndex today, a future room per connection
+  // later. resolveRound is seat-agnostic and never decides game-over itself.
+  const survivors = livingPlayers(state)
+
+  // Announce next round's matchup per seat — computed BEFORE overwriting
+  // nextOpponent below, so pairSeats' anti-rematch pass still sees THIS
+  // round's just-played pairing. Generalises resolveBotRound's trailing
+  // `state.nextOpponent = pickNextOpponent(...)`, made per-seat and
+  // mutually consistent (survivors only — eliminated seats keep whatever
+  // they had, and nothing reads it).
+  const nextPairings = pairSeats(state, roundSeed + 1)
+  for (const seat of survivors) state.players[seat].nextOpponent = -1
+  for (const pair of nextPairings) {
+    state.players[pair.a].nextOpponent = pair.b
+    if (pair.b !== -1) state.players[pair.b].nextOpponent = pair.a
+  }
+
   state.round++
-  return { round, pairings, seats, logs, eliminated }
+  return { round, kind: 'pvp', pairings, seats, logs, eliminated, survivors }
+}
+
+// The item (Delibird) round: no fights, no pairings. Every living seat
+// settles bye-shaped, then every living bot picks one item (equipBotItems
+// applies it during that same botPlanRound call) and plans once. The human
+// seat's own item pick is a UI choice the CALLER applies to itemBench BEFORE
+// calling resolveRound — exactly as src/main.ts's finishItemRound does today.
+// This function must never choose for the player.
+function resolveItemRound(state: RunState, round: number, rng: Rng): RoundResult {
+  const { seats, eliminated } = settleByeShaped(state, round, rng, () => 0, () => null)
+
+  planAllBots(state, rng, bot => {
+    const item = chooseBotItem(bot, botOwnedItems(bot), rng)
+    if (item) bot.itemBench.push(item)
+  })
+
+  state.round++
+  return { round, kind: 'item', pairings: [], seats, logs: [], eliminated, survivors: livingPlayers(state) }
+}
+
+// The creep (PvE) round: every living HUMAN seat fights the fixed creep
+// board with a real recorded fight (recordCreepFight, seatB === -1); every
+// living seat — human and bot alike — settles bye-shaped regardless of
+// outcome, matching today's behaviour (clearing creeps costs nothing, losing
+// to them costs nothing). Every living bot plans once afterward.
+function resolveCreepRound(state: RunState, round: number, rng: Rng): RoundResult {
+  const stage = stageOf(round)
+  const logs: FightLog[] = []
+  const logIndexBySeat = new Map<number, number>()
+
+  for (const seat of livingPlayers(state)) {
+    if (state.players[seat].personaId !== null) continue
+    const log = recordCreepFight(state, seat, round, stage)
+    logIndexBySeat.set(seat, logs.push(log) - 1)
+  }
+
+  const { seats, eliminated } = settleByeShaped(
+    state, round, rng,
+    seat => {
+      const idx = logIndexBySeat.get(seat)
+      return idx !== undefined ? logs[idx].quakesA : 0
+    },
+    seat => logIndexBySeat.get(seat) ?? null,
+  )
+
+  planAllBots(state, rng)
+
+  state.round++
+  return { round, kind: 'creep', pairings: [], seats, logs, eliminated, survivors: livingPlayers(state) }
+}
+
+// Dispatches on round kind — isItemRound before isCreepRound, because
+// isCreepRound deliberately excludes item rounds and round 3 is both an
+// opening round and an item round. Neither non-PvP branch touches any seat's
+// nextOpponent: the announcement is the PvP branch's job alone, and
+// clobbering it on an item/creep round would blank the `Vs {name}` indicator
+// for the round after.
+export function resolveRound(state: RunState, roundSeed: number): RoundResult {
+  const rng = seededRng(roundSeed)
+  const round = state.round
+  const living = livingPlayers(state)
+  const kind: RoundResult['kind'] = isItemRound(round) ? 'item' : isCreepRound(round) ? 'creep' : 'pvp'
+
+  if (living.length === 0) {
+    return { round, kind, pairings: [], seats: [], logs: [], eliminated: [], survivors: [] }
+  }
+
+  if (kind === 'item') return resolveItemRound(state, round, rng)
+  if (kind === 'creep') return resolveCreepRound(state, round, rng)
+  return resolvePvpRound(state, round, roundSeed, rng)
 }
