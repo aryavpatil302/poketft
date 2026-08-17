@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
+import type { RunState } from '../econ/runState'
 import { newRun } from '../econ/runState'
 import { botSeats } from '../econ/bots'
+import { copiesHeld, MAX_LEVEL, BENCH_SLOTS } from '../econ/constants'
 import { applyAction, startPlanning, resolveRound, recordFight } from './round'
+import type { GameAction, ActionReason } from './round'
 import '../core/systems/ability'   // register abilities for the headless sim
 
 function seededRng(seed: number): () => number {
@@ -262,5 +265,368 @@ describe('startPlanning', () => {
       expect(p.pendingIncome).toBe(0)
       expect(p.shop.some(slot => slot !== null)).toBe(true)
     }
+  })
+})
+
+// ─── applyAction: rejection/atomicity, seat isolation, pool conservation,
+// moves, items ─────────────────────────────────────────────────────────────
+
+// Snapshots the whole state, calls applyAction, asserts the returned reason,
+// and asserts the post-state deep-equals the pre-state snapshot — every
+// rejection path must be provably non-mutating.
+function expectRejected(state: RunState, seat: number, action: GameAction, reason: ActionReason): void {
+  const before = JSON.parse(JSON.stringify(state))
+  const result = applyAction(state, seat, action)
+  expect(result).toEqual({ ok: false, reason })
+  expect(JSON.parse(JSON.stringify(state))).toEqual(before)
+}
+
+// Sums copiesHeld(tier) over every bench entry and board entry of every seat
+// whose definitionId matches — the shared-pool conservation invariant is
+// pool[id] + heldCopies(state, id) staying constant.
+function heldCopies(state: RunState, definitionId: string): number {
+  let total = 0
+  for (const econ of state.players) {
+    for (const b of econ.bench) {
+      if (b && b.definitionId === definitionId) total += copiesHeld(b.tier)
+    }
+    for (const u of econ.board) {
+      if (u.definitionId === definitionId) total += copiesHeld(u.tier)
+    }
+  }
+  return total
+}
+
+describe('applyAction', () => {
+  describe('rejection & atomicity', () => {
+    interface RejectionCase {
+      name: string
+      reason: ActionReason
+      build: () => { state: RunState; seat: number; action: GameAction }
+    }
+
+    // A table so adding a ninth action variant later forces a row rather
+    // than silently going uncovered.
+    const cases: RejectionCase[] = [
+      {
+        name: 'bad-seat: negative seat',
+        reason: 'bad-seat',
+        build: () => ({ state: newRun(botSeats()), seat: -1, action: { t: 'buy', slot: 0 } }),
+      },
+      {
+        name: 'bad-seat: seat at players.length',
+        reason: 'bad-seat',
+        build: () => {
+          const state = newRun(botSeats())
+          return { state, seat: state.players.length, action: { t: 'buy', slot: 0 } }
+        },
+      },
+      {
+        name: 'buy: empty shop slot',
+        reason: 'empty-slot',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].shop[0] = null
+          return { state, seat: 0, action: { t: 'buy', slot: 0 } }
+        },
+      },
+      {
+        name: 'buy: unaffordable',
+        reason: 'no-gold',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].shop[0] = 'zubat'
+          state.players[0].gold = 0
+          return { state, seat: 0, action: { t: 'buy', slot: 0 } }
+        },
+      },
+      {
+        name: 'buy: full bench that would not combine',
+        reason: 'bench-full',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].bench = Array.from({ length: BENCH_SLOTS }, () => ({ definitionId: 'tangela', tier: 1 as const }))
+          state.players[0].shop[0] = 'zubat'
+          state.players[0].gold = 10
+          return { state, seat: 0, action: { t: 'buy', slot: 0 } }
+        },
+      },
+      {
+        name: 'buy: pool exhausted',
+        reason: 'pool-empty',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].shop[0] = 'zubat'
+          state.players[0].gold = 10
+          state.pool['zubat'] = 0
+          return { state, seat: 0, action: { t: 'buy', slot: 0 } }
+        },
+      },
+      {
+        name: 'sell: empty bench slot',
+        reason: 'no-unit',
+        build: () => ({ state: newRun(botSeats()), seat: 0, action: { t: 'sell', from: 'bench', index: 0 } }),
+      },
+      {
+        name: 'sell: out-of-range board index',
+        reason: 'no-unit',
+        build: () => ({ state: newRun(botSeats()), seat: 0, action: { t: 'sell', from: 'board', index: 5 } }),
+      },
+      {
+        name: 'sell: Ascender pillar',
+        reason: 'unsellable',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].board = [{ definitionId: 'cliff_l', tier: 1, hexPos: { col: 0, row: 4 } }]
+          return { state, seat: 0, action: { t: 'sell', from: 'board', index: 0 } }
+        },
+      },
+      {
+        name: 'moveBoard: empty source hex',
+        reason: 'no-unit',
+        build: () => ({
+          state: newRun(botSeats()), seat: 0,
+          action: { t: 'moveBoard', from: { col: 0, row: 4 }, to: { col: 1, row: 4 } },
+        }),
+      },
+      {
+        name: 'moveBoard: destination outside player half',
+        reason: 'not-player-hex',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+          return { state, seat: 0, action: { t: 'moveBoard', from: { col: 0, row: 4 }, to: { col: 0, row: 1 } } }
+        },
+      },
+      {
+        name: 'moveBench: empty bench slot (hex destination)',
+        reason: 'no-unit',
+        build: () => ({
+          state: newRun(botSeats()), seat: 0,
+          action: { t: 'moveBench', benchIndex: 0, to: { col: 0, row: 4 } },
+        }),
+      },
+      {
+        name: 'moveBench: destination outside player half',
+        reason: 'not-player-hex',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].bench[0] = { definitionId: 'zubat', tier: 1 }
+          return { state, seat: 0, action: { t: 'moveBench', benchIndex: 0, to: { col: 0, row: 0 } } }
+        },
+      },
+      {
+        name: 'moveBench: bench-to-empty-hex exceeding the board cap',
+        reason: 'board-full',
+        build: () => {
+          const state = newRun(botSeats())
+          // STARTING_LEVEL is 1 → boardCap is 1; one non-pillar unit already
+          // fielded fills the cap, so fielding the bench unit is rejected.
+          state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+          state.players[0].bench[0] = { definitionId: 'tangela', tier: 1 }
+          return { state, seat: 0, action: { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } } }
+        },
+      },
+      {
+        name: 'buyXp: at max level',
+        reason: 'max-level',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].level = MAX_LEVEL
+          state.players[0].gold = 100
+          return { state, seat: 0, action: { t: 'buyXp' } }
+        },
+      },
+      {
+        name: 'buyXp: without the gold',
+        reason: 'no-gold',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].gold = 0
+          return { state, seat: 0, action: { t: 'buyXp' } }
+        },
+      },
+      {
+        name: 'reroll: without the gold',
+        reason: 'no-gold',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].gold = 0
+          return { state, seat: 0, action: { t: 'reroll' } }
+        },
+      },
+      {
+        name: 'placeItem: empty item-bench index',
+        reason: 'no-item',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+          return { state, seat: 0, action: { t: 'placeItem', itemIndex: 0, onHex: { col: 0, row: 4 } } }
+        },
+      },
+      {
+        name: 'placeItem: hex with no unit on it',
+        reason: 'no-unit',
+        build: () => {
+          const state = newRun(botSeats())
+          state.players[0].itemBench = ['charcoal']
+          return { state, seat: 0, action: { t: 'placeItem', itemIndex: 0, onHex: { col: 0, row: 4 } } }
+        },
+      },
+    ]
+
+    for (const c of cases) {
+      it(`${c.name} → rejected '${c.reason}' with no state mutation`, () => {
+        const { state, seat, action } = c.build()
+        expectRejected(state, seat, action, c.reason)
+      })
+    }
+
+    it('eliminated seat rejects all eight action tags with "eliminated" before any per-action validation', () => {
+      const state = newRun(botSeats())
+      state.players[2].eliminated = true
+      const actions: GameAction[] = [
+        { t: 'buy', slot: 0 },
+        { t: 'sell', from: 'bench', index: 0 },
+        { t: 'reroll' },
+        { t: 'buyXp' },
+        { t: 'lock', locked: true },
+        { t: 'moveBoard', from: { col: 0, row: 4 }, to: { col: 1, row: 4 } },
+        { t: 'moveBench', benchIndex: 0, to: { bench: 1 } },
+        { t: 'placeItem', itemIndex: 0, onHex: { col: 0, row: 4 } },
+      ]
+      for (const action of actions) {
+        expectRejected(state, 2, action, 'eliminated')
+      }
+    })
+  })
+
+  describe('seat isolation', () => {
+    it('a successful action on seat 0 never touches state.players[3]', () => {
+      const state = newRun(botSeats())
+      state.players[0].shop[0] = 'zubat'
+      state.players[0].gold = 10
+      const before3 = JSON.parse(JSON.stringify(state.players[3]))
+      const result = applyAction(state, 0, { t: 'buy', slot: 0 })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[3]).toEqual(before3)
+    })
+
+    it('a successful action on seat 3 never touches state.players[0]', () => {
+      const state = newRun(botSeats())
+      state.players[3].personaId = null   // seat 3 becomes a second human
+      state.players[3].shop[0] = 'zubat'
+      state.players[3].gold = 10
+      const before0 = JSON.parse(JSON.stringify(state.players[0]))
+      const result = applyAction(state, 3, { t: 'buy', slot: 0 })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0]).toEqual(before0)
+    })
+  })
+
+  describe('shared-pool conservation under interleaved two-seat play', () => {
+    it('pool[id] + heldCopies(state, id) stays invariant after every single action in an interleaved buy/sell sequence', () => {
+      const state = newRun(botSeats())
+      state.players[3].personaId = null   // seat 3 becomes a second human
+      const defId = 'zubat'
+      state.players[0].gold = 100
+      state.players[3].gold = 100
+
+      const startingTotal = state.pool[defId] + heldCopies(state, defId)
+
+      // At least eight buy/sell actions, alternating seats. Stocking the
+      // shop directly (rather than rolling) keeps this about applyAction's
+      // behaviour, not the roll.
+      const steps: Array<{ seat: number; kind: 'buy' | 'sell' }> = [
+        { seat: 0, kind: 'buy' },
+        { seat: 3, kind: 'buy' },
+        { seat: 0, kind: 'buy' },
+        { seat: 3, kind: 'buy' },
+        { seat: 0, kind: 'sell' },
+        { seat: 3, kind: 'sell' },
+        { seat: 0, kind: 'buy' },
+        { seat: 3, kind: 'sell' },
+      ]
+
+      for (const step of steps) {
+        const econ = state.players[step.seat]
+        if (step.kind === 'buy') {
+          econ.shop[0] = defId
+          const poolBefore = state.pool[defId]
+          const result = applyAction(state, step.seat, { t: 'buy', slot: 0 })
+          expect(result).toEqual({ ok: true })
+          // Serial application: each successful buy decrements the pool by
+          // exactly one — no call observes a partially-applied earlier call.
+          expect(state.pool[defId]).toBe(poolBefore - 1)
+        } else {
+          const idx = econ.bench.findIndex(b => b?.definitionId === defId)
+          expect(idx).toBeGreaterThanOrEqual(0)
+          const result = applyAction(state, step.seat, { t: 'sell', from: 'bench', index: idx })
+          expect(result).toEqual({ ok: true })
+        }
+        // Checked after EVERY action, not only at the end — a mid-sequence
+        // leak that a later action happens to cancel out must not hide here.
+        expect(state.pool[defId] + heldCopies(state, defId)).toBe(startingTotal)
+      }
+    })
+  })
+
+  describe('move semantics', () => {
+    it('a board-to-board move onto an occupied hex swaps hexPos and leaves board.length unchanged', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [
+        { definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } },
+        { definitionId: 'tangela', tier: 1, hexPos: { col: 1, row: 4 } },
+      ]
+      const lengthBefore = state.players[0].board.length
+      const result = applyAction(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].board.length).toBe(lengthBefore)
+      const zubat = state.players[0].board.find(e => e.definitionId === 'zubat')!
+      const tangela = state.players[0].board.find(e => e.definitionId === 'tangela')!
+      expect(zubat.hexPos).toEqual({ col: 1, row: 4 })
+      expect(tangela.hexPos).toEqual({ col: 0, row: 4 })
+    })
+
+    it('a bench-to-empty-hex move at the cap is rejected with board-full', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      state.players[0].bench[0] = { definitionId: 'tangela', tier: 1 }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: false, reason: 'board-full' })
+    })
+
+    it('the same bench-to-empty-hex move with a pillar as the moving unit is allowed at the cap', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      state.players[0].bench[0] = { definitionId: 'cliff_l', tier: 1 }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].board.some(e => e.definitionId === 'cliff_l')).toBe(true)
+    })
+  })
+
+  describe('item semantics', () => {
+    it('placing an item on a unit that already holds one leaves itemBench.length unchanged and returns the old item', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, item: 'charcoal' }]
+      state.players[0].itemBench = ['expert_belt']
+      const lengthBefore = state.players[0].itemBench.length
+      const result = applyAction(state, 0, { t: 'placeItem', itemIndex: 0, onHex: { col: 0, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].itemBench.length).toBe(lengthBefore)
+      expect(state.players[0].itemBench).toContain('charcoal')
+      expect(state.players[0].board[0].item).toBe('expert_belt')
+    })
+
+    it('placing an item on an empty-handed unit decreases itemBench.length by one', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      state.players[0].itemBench = ['expert_belt']
+      const result = applyAction(state, 0, { t: 'placeItem', itemIndex: 0, onHex: { col: 0, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].itemBench.length).toBe(0)
+      expect(state.players[0].board[0].item).toBe('expert_belt')
+    })
   })
 })
