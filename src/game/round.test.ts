@@ -3,7 +3,9 @@ import type { RunState } from '../econ/runState'
 import { newRun } from '../econ/runState'
 import { botSeats } from '../econ/bots'
 import { copiesHeld, MAX_LEVEL, BENCH_SLOTS } from '../econ/constants'
-import { applyAction, startPlanning, resolveRound, recordFight } from './round'
+import { CREEP_ROUNDS } from '../econ/creeps'
+import { botOwnedItems } from '../econ/botItems'
+import { applyAction, startPlanning, resolveRound, recordFight, pairSeats } from './round'
 import type { GameAction, ActionReason } from './round'
 import '../core/systems/ability'   // register abilities for the headless sim
 
@@ -635,6 +637,372 @@ describe('applyAction', () => {
       expect(result).toEqual({ ok: true })
       expect(state.players[0].itemBench.length).toBe(0)
       expect(state.players[0].board[0].item).toBe('expert_belt')
+    })
+  })
+})
+
+// ─── Task 3: degenerate seat-count and round-kind edge suite ───────────────
+//
+// Complements src/econ/botMatches.test.ts's degenerate-seat-count suite
+// (which exercises pickNextOpponent/resolveBotRound in isolation) by
+// exercising the same seat-count degeneracies through the completed
+// resolveRound — pairing, settlement, elimination, income deferral,
+// crawler rewards, bot re-planning order, the announced-matchup round trip,
+// and all three round kinds.
+
+describe('resolveRound — degenerate seat counts and round kinds', () => {
+  // Eliminates every seat NOT listed in `seats`, leaving exactly those living.
+  function keepOnly(run: RunState, seats: number[]): void {
+    for (let i = 0; i < run.players.length; i++) {
+      if (!seats.includes(i)) run.players[i].eliminated = true
+    }
+  }
+
+  describe('degenerate seat counts', () => {
+    it('zero living seats: resolveRound returns an empty RoundResult, does not throw, and does not advance state.round', () => {
+      const run = newRun(botSeats())
+      for (const p of run.players) p.eliminated = true
+      const roundBefore = run.round
+      let result: ReturnType<typeof resolveRound> | undefined
+      expect(() => { result = resolveRound(run, 1) }).not.toThrow()
+      expect(result!.pairings).toEqual([])
+      expect(result!.seats).toEqual([])
+      expect(result!.logs).toEqual([])
+      expect(result!.eliminated).toEqual([])
+      expect(result!.survivors).toEqual([])
+      expect(run.round).toBe(roundBefore)
+    })
+
+    it('exactly one living seat receives a bye: opponentSeat -1, draw true, hp unchanged, streak reset to 0, no logs, state.round advances', () => {
+      const run = newRun(botSeats())
+      run.round = 4   // first plain PvP round — round 1-3 are the creep/item opener
+      keepOnly(run, [0])
+      run.players[0].streak = 3
+      const hpBefore = run.players[0].hp
+      const roundBefore = run.round
+      const result = resolveRound(run, 2)
+      expect(result.logs).toEqual([])
+      expect(result.seats).toHaveLength(1)
+      expect(result.seats[0].opponentSeat).toBe(-1)
+      expect(result.seats[0].draw).toBe(true)
+      expect(run.players[0].hp).toBe(hpBefore)
+      expect(run.players[0].streak).toBe(0)
+      expect(run.round).toBe(roundBefore + 1)
+    })
+
+    for (const n of [3, 5]) {
+      it(`odd living count (${n}): exactly one pairings entry has b === -1, every other seat appears exactly once, no pair has a === b`, () => {
+        const run = newRun(botSeats())
+        run.round = 4
+        keepOnly(run, Array.from({ length: n }, (_, i) => i))
+        const result = resolveRound(run, 10 + n)
+        const byes = result.pairings.filter(p => p.b === -1)
+        expect(byes).toHaveLength(1)
+        const seen = new Set<number>()
+        for (const pair of result.pairings) {
+          expect(pair.a).not.toBe(pair.b)
+          seen.add(pair.a)
+          if (pair.b !== -1) seen.add(pair.b)
+        }
+        expect(seen).toEqual(new Set(Array.from({ length: n }, (_, i) => i)))
+      })
+    }
+
+    for (const n of [2, 4, 6]) {
+      it(`even living count (${n}): no bye, and the multiset of seats across all pairs equals the living-seat set exactly`, () => {
+        const run = newRun(botSeats())
+        run.round = 4
+        keepOnly(run, Array.from({ length: n }, (_, i) => i))
+        const result = resolveRound(run, 20 + n)
+        expect(result.pairings.some(p => p.b === -1)).toBe(false)
+        const seen: number[] = []
+        for (const pair of result.pairings) { seen.push(pair.a, pair.b) }
+        expect(seen.slice().sort((a, b) => a - b)).toEqual(Array.from({ length: n }, (_, i) => i))
+      })
+    }
+  })
+
+  describe('resolution paths', () => {
+    it('human-versus-human produces exactly ONE FightLog referenced by both seats\' logIndex, and the winner names the seat credited with the win', () => {
+      const run = newRun(botSeats())
+      run.round = 4
+      run.players[3].personaId = null   // seat 3 becomes a second human
+      keepOnly(run, [0, 3])
+      // Force the pairing deterministically via the announced-matchup path
+      // (Task 1's "honour the announcement" branch), rather than searching
+      // for a seed — the plan's explicitly preferred technique.
+      run.players[0].nextOpponent = 3
+      run.players[3].nextOpponent = 0
+      run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      run.players[3].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 } }]
+
+      const result = resolveRound(run, 55)
+      expect(result.logs).toHaveLength(1)
+      const seat0 = result.seats.find(s => s.seat === 0)!
+      const seat3 = result.seats.find(s => s.seat === 3)!
+      expect(seat0.logIndex).toBe(0)
+      expect(seat3.logIndex).toBe(0)
+
+      const log = result.logs[0]
+      if (log.winner === 'draw') {
+        expect(seat0.draw).toBe(true)
+        expect(seat3.draw).toBe(true)
+      } else {
+        const aWonLog = log.winner === 'player'
+        const resultForA = log.seatA === 0 ? seat0 : seat3
+        const resultForB = log.seatA === 0 ? seat3 : seat0
+        expect(resultForA.won).toBe(aWonLog)
+        expect(resultForB.won).toBe(!aWonLog)
+      }
+    })
+
+    it('human-versus-bot produces a recorded log referenced by both seats', () => {
+      const run = newRun(botSeats())
+      run.round = 4
+      keepOnly(run, [0, 1])
+      run.players[0].nextOpponent = 1
+      run.players[1].nextOpponent = 0
+      run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 } }]
+
+      const result = resolveRound(run, 56)
+      expect(result.logs).toHaveLength(1)
+      expect(result.seats.every(s => s.logIndex === 0)).toBe(true)
+    })
+
+    it('bot-versus-bot produces no log and logIndex null for both seats', () => {
+      const run = newRun(botSeats())
+      run.round = 4
+      keepOnly(run, [1, 2])   // both bot seats; neither is personaId === null
+      run.players[1].nextOpponent = 2
+      run.players[2].nextOpponent = 1
+      // Empty boards -> the abstract resolveBotFight path forfeits instantly.
+      const result = resolveRound(run, 57)
+      expect(result.logs).toEqual([])
+      for (const s of result.seats) expect(s.logIndex).toBeNull()
+    })
+  })
+
+  describe('settlement', () => {
+    it('income deferral: a human seat\'s gold is unchanged by settlement while pendingIncome grows; a bot seat\'s pendingIncome is never touched', () => {
+      const run = newRun(botSeats())
+      run.round = 4
+      keepOnly(run, [0, 1])
+      run.players[0].nextOpponent = 1
+      run.players[1].nextOpponent = 0
+      // Empty boards -> fast forfeit draw; the deferral asymmetry holds
+      // regardless of who "wins" the round.
+      const goldBefore0 = run.players[0].gold
+      const pendingBefore0 = run.players[0].pendingIncome
+      const pendingBefore1 = run.players[1].pendingIncome
+
+      resolveRound(run, 60)
+
+      expect(run.players[0].gold).toBe(goldBefore0)
+      expect(run.players[0].pendingIncome).toBeGreaterThan(pendingBefore0)
+      // A bot's income lands directly on gold, never on pendingIncome — even
+      // after this same call lets it spend/plan with that gold.
+      expect(run.players[1].pendingIncome).toBe(pendingBefore1)
+    })
+
+    it('elimination: a seat forced to hp 1 and forfeited against a stronger board ends eliminated, absent from survivors, with its inventory back in the pool', () => {
+      const run = newRun(botSeats())
+      run.round = 4
+      keepOnly(run, [0, 1])
+      run.players[0].nextOpponent = 1
+      run.players[1].nextOpponent = 0
+      run.players[0].hp = 1
+      run.players[0].board = []   // forfeits -> loses to seat 1's board
+      run.players[1].board = [{ definitionId: 'tangela', tier: 2, hexPos: { col: 0, row: 4 } }]
+      run.players[0].bench[0] = { definitionId: 'zubat', tier: 1 }
+      const poolBefore = run.pool['zubat']
+
+      const result = resolveRound(run, 61)
+
+      expect(result.eliminated).toContain(0)
+      expect(result.survivors).not.toContain(0)
+      const seat0 = result.seats.find(s => s.seat === 0)!
+      expect(seat0.eliminated).toBe(true)
+      expect(run.players[0].eliminated).toBe(true)
+      expect(run.players[0].board).toEqual([])
+      expect(run.players[0].bench.every(b => b === null)).toBe(true)
+      expect(run.pool['zubat']).toBe(poolBefore + 1)
+    })
+
+    it('integer discipline: every living seat\'s economy fields and every SeatFightResult\'s numeric fields are integers after resolveRound', () => {
+      const run = newRun(botSeats())
+      run.round = 4
+      run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 } }]
+
+      const result = resolveRound(run, 62)
+
+      for (const econ of run.players) {
+        if (econ.eliminated) continue
+        expect(Number.isInteger(econ.gold)).toBe(true)
+        expect(Number.isInteger(econ.hp)).toBe(true)
+        expect(Number.isInteger(econ.xp)).toBe(true)
+        expect(Number.isInteger(econ.level)).toBe(true)
+        expect(Number.isInteger(econ.streak)).toBe(true)
+        expect(Number.isInteger(econ.pendingIncome)).toBe(true)
+      }
+      for (const s of result.seats) {
+        expect(Number.isInteger(s.survivorStars)).toBe(true)
+        expect(Number.isInteger(s.hpLost)).toBe(true)
+      }
+    })
+  })
+
+  describe('bot planning order', () => {
+    it('with exactly one pool copy of a unit both bot seats want, the lower-indexed living seat is the one that ends up holding it', () => {
+      const run = newRun(botSeats())
+      run.round = 4
+      keepOnly(run, [1, 2])   // two bot seats, no living human seat
+      run.players[1].nextOpponent = 2
+      run.players[2].nextOpponent = 1
+      // Zero every pool entry except one contested 1-cost unit with a single
+      // remaining copy — an observation of the real ordering contract
+      // (ascending seat index), not a call-order spy.
+      for (const id of Object.keys(run.pool)) run.pool[id] = 0
+      run.pool['zubat'] = 1
+      run.players[1].gold = 10
+      run.players[2].gold = 10
+
+      resolveRound(run, 70)
+
+      const holds = (seat: number) =>
+        run.players[seat].bench.some(b => b?.definitionId === 'zubat') ||
+        run.players[seat].board.some(u => u.definitionId === 'zubat')
+      expect(holds(1)).toBe(true)
+      expect(holds(2)).toBe(false)
+    })
+  })
+
+  describe('pairing and announcement', () => {
+    it('announcement: after a PvP round every surviving seat\'s nextOpponent is -1 or a living non-self seat, mutually consistent; a second resolveRound honours it', () => {
+      const run = newRun(botSeats())
+      run.round = 4
+
+      const result = resolveRound(run, 80)
+      for (const seat of result.survivors) {
+        const opp = run.players[seat].nextOpponent
+        if (opp === undefined || opp === -1) continue
+        expect(opp).not.toBe(seat)
+        expect(run.players[opp].eliminated).toBe(false)
+        expect(run.players[opp].nextOpponent).toBe(seat)
+      }
+
+      // A second resolveRound call, with a DIFFERENT seed, must still pair
+      // seats exactly as announced — the stored announcement wins over a
+      // fresh pairSeats shuffle.
+      const announced = run.players.map(p => p.nextOpponent)
+      const result2 = resolveRound(run, 999)
+      for (const pair of result2.pairings) {
+        if (pair.b === -1) continue
+        expect(announced[pair.a]).toBe(pair.b)
+      }
+    })
+
+    it('anti-rematch: with four living seats where 0-1 and 2-3 just fought, at least one seed avoids re-pairing 0 and 1', () => {
+      const run = newRun(botSeats())
+      keepOnly(run, [0, 1, 2, 3])
+      run.players[0].nextOpponent = 1
+      run.players[1].nextOpponent = 0
+      run.players[2].nextOpponent = 3
+      run.players[3].nextOpponent = 2
+
+      let foundNonRematch = false
+      for (let seed = 0; seed < 40; seed++) {
+        const pairings = pairSeats(run, seed)
+        const rematch01 = pairings.some(p => (p.a === 0 && p.b === 1) || (p.a === 1 && p.b === 0))
+        if (!rematch01) { foundNonRematch = true; break }
+      }
+      expect(foundNonRematch).toBe(true)
+    })
+
+    it('termination: two living seats that just fought are paired again by pairSeats, which returns rather than looping', () => {
+      const run = newRun(botSeats())
+      keepOnly(run, [0, 1])
+      run.players[0].nextOpponent = 1
+      run.players[1].nextOpponent = 0
+
+      let pairings: Array<{ a: number; b: number }> | undefined
+      expect(() => { pairings = pairSeats(run, 5) }).not.toThrow()
+      expect(pairings).toHaveLength(1)
+      const pair = pairings![0]
+      expect(new Set([pair.a, pair.b])).toEqual(new Set([0, 1]))
+    })
+  })
+
+  describe('round kinds', () => {
+    it('item round (round 3): kind item, no logs, every living bot picks up exactly one item, no human itemBench change, hp unchanged', () => {
+      const run = newRun(botSeats())
+      run.round = 3
+      const humanItemBenchBefore = [...run.players[0].itemBench]
+      const ownedCountBefore = run.players.map(p => botOwnedItems(p).length)
+      const hpBefore = run.players.map(p => p.hp)
+
+      const result = resolveRound(run, 90)
+
+      expect(result.kind).toBe('item')
+      expect(result.logs).toEqual([])
+      expect(run.players[0].itemBench).toEqual(humanItemBenchBefore)
+      run.players.forEach((p, i) => {
+        if (p.personaId === null) {
+          expect(botOwnedItems(p).length).toBe(ownedCountBefore[i])
+        } else {
+          // Wherever equipBotItems (inside botPlanRound) lands the pick —
+          // itemBench or straight onto a board unit — the bot's TOTAL held
+          // items grows by exactly the one item chooseBotItem picked.
+          expect(botOwnedItems(p).length).toBe(ownedCountBefore[i] + 1)
+        }
+        expect(p.hp).toBe(hpBefore[i])
+      })
+    })
+
+    it('creep round (round 1): kind creep, one log per living human seat with seatB === -1, enemy frame-0 positions match CREEP_ROUNDS[1] verbatim (no mirror), hp unchanged', () => {
+      const run = newRun(botSeats())
+      run.round = 1
+      run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      const hpBefore = run.players.map(p => p.hp)
+
+      const result = resolveRound(run, 91)
+
+      expect(result.kind).toBe('creep')
+      expect(result.logs).toHaveLength(1)   // only seat 0 is human
+      const log = result.logs[0]
+      expect(log.seatB).toBe(-1)
+
+      const enemyUnits = log.frames[0].units.filter(u => u.team === 'enemy')
+      const spawns = CREEP_ROUNDS[1].spawns
+      expect(enemyUnits).toHaveLength(spawns.length)
+      for (const spawn of spawns) {
+        expect(enemyUnits.some(u => u.hexPos.col === spawn.col && u.hexPos.row === spawn.row)).toBe(true)
+      }
+
+      const humanSeatResult = result.seats.find(s => s.seat === 0)!
+      expect(humanSeatResult.opponentSeat).toBe(-1)
+      expect(humanSeatResult.logIndex).toBe(0)
+      const botSeatResult = result.seats.find(s => s.seat === 1)!
+      expect(botSeatResult.opponentSeat).toBe(-1)
+      expect(botSeatResult.logIndex).toBeNull()
+
+      run.players.forEach((p, i) => expect(p.hp).toBe(hpBefore[i]))
+    })
+
+    it('a creep or item round in a lobby with zero living human seats produces empty logs and still settles and plans every living bot', () => {
+      const run = newRun(botSeats())
+      run.round = 1
+      run.players[0].eliminated = true   // no living human seat
+      const hpBefore = run.players.map(p => p.hp)
+
+      const result = resolveRound(run, 92)
+
+      expect(result.kind).toBe('creep')
+      expect(result.logs).toEqual([])
+      for (let i = 1; i < run.players.length; i++) {
+        expect(run.players[i].hp).toBe(hpBefore[i])
+      }
     })
   })
 })
