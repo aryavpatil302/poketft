@@ -706,29 +706,45 @@ function resolvePvpRound(state: RunState, round: number, roundSeed: number, rng:
     const recorded = econA.personaId === null || econB.personaId === null
 
     if (recorded) {
-      const log = recordFight(state, pair.a, pair.b, stageOf(round))
+      // Record with the human seat as seatA ('player' team, unflipped onto
+      // rows 4-7) whenever exactly one side of the pairing is human, so
+      // playback (Plan 05) always shows the human's own board the same way
+      // every live fight did before this round engine existed, regardless of
+      // which side of the pairSeats shuffle they landed on. Without this, a
+      // human placed as pair.b would have their own board recorded flipped
+      // and colored 'enemy' — a real, frequently hit (~50% of pairings) "the
+      // rendered fight disagrees with which side is yours" bug, not a
+      // cosmetic one. A human-vs-human pairing (Phase 4) has no single
+      // correct seatA choice from inside this seat-agnostic function; that
+      // case is unchanged (pair.a stays seatA) and left to whatever
+      // per-viewer mirroring Phase 4 introduces.
+      const swapped = econB.personaId === null && econA.personaId !== null
+      const sa = swapped ? pair.b : pair.a
+      const sb = swapped ? pair.a : pair.b
+
+      const log = recordFight(state, sa, sb, stageOf(round))
       const logIndex = logs.push(log) - 1
 
-      const aWon = log.winner === 'player'
-      const bWon = log.winner === 'enemy'
+      const saWon = log.winner === 'player'
+      const sbWon = log.winner === 'enemy'
       const draw = log.winner === 'draw'
-      const starsForA = aWon ? 0 : log.survivorStarsB   // A lost → B's surviving stars
-      const starsForB = bWon ? 0 : log.survivorStarsA   // B lost → A's surviving stars
+      const starsForSa = saWon ? 0 : log.survivorStarsB   // sa lost → sb's surviving stars
+      const starsForSb = sbWon ? 0 : log.survivorStarsA   // sb lost → sa's surviving stars
 
-      const settlementA = settleSeat(state, pair.a, { won: aWon, draw, survivorStars: starsForA, round }, log.quakesA, rng)
-      const settlementB = settleSeat(state, pair.b, { won: bWon, draw, survivorStars: starsForB, round }, log.quakesB, rng)
+      const settlementSa = settleSeat(state, sa, { won: saWon, draw, survivorStars: starsForSa, round }, log.quakesA, rng)
+      const settlementSb = settleSeat(state, sb, { won: sbWon, draw, survivorStars: starsForSb, round }, log.quakesB, rng)
 
       seats.push({
-        seat: pair.a, opponentSeat: pair.b, won: aWon, draw, survivorStars: starsForA,
-        hpLost: settlementA.hpLost, eliminated: settlementA.eliminated, logIndex,
+        seat: sa, opponentSeat: sb, won: saWon, draw, survivorStars: starsForSa,
+        hpLost: settlementSa.hpLost, eliminated: settlementSa.eliminated, logIndex,
       })
       seats.push({
-        seat: pair.b, opponentSeat: pair.a, won: bWon, draw, survivorStars: starsForB,
-        hpLost: settlementB.hpLost, eliminated: settlementB.eliminated, logIndex,
+        seat: sb, opponentSeat: sa, won: sbWon, draw, survivorStars: starsForSb,
+        hpLost: settlementSb.hpLost, eliminated: settlementSb.eliminated, logIndex,
       })
 
-      if (settlementA.eliminated) eliminated.push(pair.a)
-      if (settlementB.eliminated) eliminated.push(pair.b)
+      if (settlementSa.eliminated) eliminated.push(sa)
+      if (settlementSb.eliminated) eliminated.push(sb)
     } else {
       const fight = resolveBotFight(econA, econB)
       const aWon = fight.winner === 'a'
