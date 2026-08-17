@@ -21,13 +21,14 @@ import { TRAIT_MAP } from './data/traits'
 import { loadRun, saveRun, clearRun, newRun, type RunState, type PlayerEcon } from './econ/runState'
 import { rollShop, reroll as shopReroll, buyUnit, sellFromBench, sellFromBoard } from './econ/shop'
 import { buyXp, xpToNext, boardCap } from './econ/xp'
-import { settleRound } from './econ/income'
-import type { RoundResult, Settlement } from './econ/income'
 import { botSeats, botPlanRound, econBoardPower, personaById } from './econ/bots'
-import { resolveBotRound, resolveBotCreepRound, pickNextOpponent, checkGameOver } from './econ/botMatches'
+import { pickNextOpponent, checkGameOver } from './econ/botMatches'
 import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices } from './econ/creeps'
-import { rollCrawlerEarthquakeRewards } from './econ/caveCrawlerSpawn'
-import { REROLL_COST, XP_BUY_COST, sellValue, copiesHeld, stageLabel, stageOf, SHOP_ODDS } from './econ/constants'
+import {
+  REROLL_COST, XP_BUY_COST, sellValue, copiesHeld, stageLabel, stageOf, SHOP_ODDS,
+  BASE_INCOME_BY_ROUND, BASE_INCOME_CAP, MAX_INTEREST, streakBonus, WIN_BONUS, XP_PER_ROUND,
+} from './econ/constants'
+import { startPlanning, resolveRound, pairSeats, type RoundResult } from './game/round'
 import { TRAIT_TOOLTIPS } from './data/traitTooltips'
 import { REPO_TESTS } from './repoTests'
 import type { CombatState, Unit, ItemDefinition } from './core/types'
@@ -1729,6 +1730,13 @@ let heldUnit: { definitionId: string; tier: 1 | 2 | 3; item?: string } | null = 
 let heldFrom: { kind: 'bench'; slot: number } | { kind: 'board'; hex: OffsetCoord } | null = null
 let currentOpponentIndex = -1        // captured at combat start for settlement
 let lastSettlementLine = ''
+// Snapshot of the human's gold/bench occupancy taken immediately before a
+// resolveRound() call — applyRoundResult diffs against these to derive the
+// quake-reward summary (crawler count, quake gold) without resolveRound
+// reporting rewards per seat. Set by snapshotPreRound(), read once by the
+// following applyRoundResult() call.
+let preRoundGold = 0
+let preRoundBenchOccupied = 0
 // The seat this client controls. Single-player leaves this at 0. Phase 3/4
 // (room server + client networking) will set this from the room's seat
 // assignment once a lobby can host more than one human.
@@ -1919,7 +1927,15 @@ function initFreshRun(): void {
   for (const p of run.players) {
     if (p.personaId !== null) botPlanRound(run, p, 0)
   }
-  run.nextOpponent = pickNextOpponent(run, localSeatIndex)
+  // Announce round 1's matchup per seat, the same pairing call resolveRound
+  // uses to announce every later round — so the Vs {name} indicator has
+  // something to read before the very first planning phase.
+  const pairings = pairSeats(run, roundSeedFor(run))
+  for (const p of run.players) p.nextOpponent = -1
+  for (const pair of pairings) {
+    run.players[pair.a].nextOpponent = pair.b
+    if (pair.b !== -1) run.players[pair.b].nextOpponent = pair.a
+  }
   saveRun(run)
 }
 
@@ -2805,27 +2821,12 @@ function renderEconBar(): void {
   })
 }
 
-// One Cave Crawler earthquake fired by the human's board: roll a single quake's
-// reward live. A spawned crawler lands on the bench and plays a jump+rumble
-// animation; gold pulses the gold HUD. Totals accumulate for the settlement line.
-function onLivePlayerQuake(): void {
-  const rw = rollCrawlerEarthquakeRewards(run, humanEcon(), 1)
-  if (rw.spawned.length === 0 && rw.gold === 0) return
-  quakeRewardCrawlers += rw.spawned.length
-  quakeRewardGold += rw.gold
-  renderEconUI()   // reflect the new bench unit + gold immediately (also pulses the gold HUD)
-  for (const slot of rw.spawnedSlots) animateBenchQuakeSpawn(slot)
-}
-
-// Play the jump/rumble spawn animation on the crawler that just landed in `slot`.
-// Runs after renderEconUI has rebuilt the row, so the cell exists.
-function animateBenchQuakeSpawn(slot: number): void {
-  const visual = document.querySelector<HTMLElement>(`.bench-cell[data-slot="${slot}"] .bench-unit-visual`)
-  if (!visual) return
-  visual.classList.remove('bench-quake-spawn')
-  void visual.offsetWidth   // restart the animation if the class is re-added
-  visual.classList.add('bench-quake-spawn')
-}
+// Cave Crawler earthquake rewards for the human are now rolled authoritatively
+// inside resolveRound at settlement time (src/game/round.ts's settleSeat),
+// not live per-quake during the fight. onLivePlayerQuake and its bench-spawn
+// animation hook are removed rather than kept alongside the authoritative
+// roll — running both would grant the reward twice. See applyRoundResult for
+// the settlement-time summary this replaces.
 
 function renderBenchRow(): void {
   const row = document.getElementById('bench-row')
@@ -2973,7 +2974,7 @@ function renderRoundIndicator(): void {
     ? "Delibird's Gift"                                     // non-combat round — no opponent
     : isCreepRound(run.round)
       ? `Vs ${creepRoundDef(run.round)?.name ?? 'Creeps'}`   // fixed PvE board, not a bot
-      : (() => { const opp = run.players[run.nextOpponent]; return opp ? `Vs ${opp.name}` : '' })()
+      : (() => { const opp = run.players[run.players[localSeatIndex].nextOpponent ?? -1]; return opp ? `Vs ${opp.name}` : '' })()
 
   // Built as elements with textContent (not innerHTML) so opponent names are
   // never interpreted as markup.
@@ -3000,7 +3001,7 @@ function renderLobby(): void {
     .map((p, i) => ({ p, i }))
     .sort((a, b) => (b.p.eliminated ? -1 : b.p.hp) - (a.p.eliminated ? -1 : a.p.hp))
     .map(({ p, i }) => {
-      const isOpp = i === run.nextOpponent && !p.eliminated && !isCreepRound(run.round) && !isItemRound(run.round)
+      const isOpp = i === run.players[localSeatIndex].nextOpponent && !p.eliminated && !isCreepRound(run.round) && !isItemRound(run.round)
       const hpPct = Math.max(0, p.hp)
       const hpColor = p.hp > 60 ? '#44cc44' : p.hp > 30 ? '#ffcc00' : '#ff4444'
       return `<div class="lobby-row" data-pi="${i}" style="
@@ -3165,32 +3166,103 @@ function updateEconVisibility(): void {
 
 // ─── Planning phase / game over transitions ──────────────────────────────────
 
-// Settle the HUMAN's round, but hold this round's gold income out of the bank —
-// it's paid in at the start of the next planning phase (with the shop refresh),
-// see startPlanningPhase. XP / HP / streak still apply immediately. Bots settle
-// through settleRound directly (no deferral — they have no planning UX).
-function settleHumanRound(result: RoundResult): Settlement {
-  const econ = humanEcon()
-  const s = settleRound(econ, result)   // adds s.total to gold…
-  econ.gold -= s.total                  // …hold it back…
-  econ.pendingIncome += s.total         // …to bank next planning.
-  return s
+// A per-run salt chosen once at boot, mixed with the round number, so each
+// round's economy randomness (pairing, bot planning, item and crawler rolls)
+// differs round to round without persisting a counter anywhere. Combat itself
+// stays on unseeded Math.random per this project's decision to stream
+// recorded fight logs rather than deterministically replay them — this seed
+// governs ONLY the economy side of resolveRound. Phase 3 replaces this with a
+// server-chosen seed derived from the room id and the round.
+const roundSeedSalt = Math.floor(Math.random() * 0x7fffffff)
+function roundSeedFor(state: RunState): number {
+  return (state.round * 2654435761 + roundSeedSalt) >>> 0
+}
+
+// Captures the human's gold and bench occupancy immediately before a
+// resolveRound() call, so applyRoundResult can diff against them afterward —
+// resolveRound settles every seat internally and does not report Cave Crawler
+// earthquake rewards per seat, so the summary line has to be reconstructed
+// from a before/after snapshot instead.
+function snapshotPreRound(): void {
+  const h = humanEcon()
+  preRoundGold = h.gold
+  preRoundBenchOccupied = h.bench.filter(b => b !== null).length
+}
+
+// Reads this seat's SeatFightResult out of a resolved round, sets the
+// opponent-preview index, builds the settlement summary line, resolves
+// game-over for this seat, and persists. Called once per resolveRound() call
+// (item round, creep round, and PvP round all funnel through here) — the
+// single settlement path, replacing the old inline combat-end block.
+//
+// The income figure comes from the seat's pendingIncome delta (pendingIncome
+// is banked to 0 by startPlanning at the start of every planning phase, so
+// its value here IS this round's total — no second settleRound call needed).
+// The base/interest/streak/win breakdown is recomputed from the same
+// read-only formulas settleRound itself uses, against the gold snapshot
+// snapshotPreRound captured just before resolveRound ran; hpLost comes
+// straight from the seat's SeatFightResult.
+function applyRoundResult(res: RoundResult): void {
+  const mine = res.seats.find(s => s.seat === localSeatIndex)
+  currentOpponentIndex = mine?.opponentSeat ?? -1
+
+  if (mine) {
+    const econ = humanEcon()
+    const total = econ.pendingIncome
+    const base = BASE_INCOME_BY_ROUND[res.round - 1] ?? BASE_INCOME_CAP
+    const interest = Math.min(MAX_INTEREST, Math.floor(preRoundGold / 10))
+    const streakGold = streakBonus(econ.streak)
+    const winGold = mine.won ? WIN_BONUS : 0
+
+    const prefix = res.kind === 'creep' ? `Cleared ${creepRoundDef(res.round)?.name ?? 'creeps'} · ` : ''
+    lastSettlementLine =
+      prefix +
+      `+${total}g · base ${base} · interest ${interest}` +
+      (streakGold ? ` · streak ${streakGold}` : '') +
+      (winGold ? ` · win ${winGold}` : '') +
+      ` | +${XP_PER_ROUND} XP` +
+      (mine.hpLost ? ` · −${mine.hpLost} HP` : '')
+
+    // Cave Crawler earthquake rewards for the human are now granted
+    // authoritatively inside resolveRound (superseding the removed live
+    // onLivePlayerQuake roll) — reconstruct the summary from the before/after
+    // snapshot rather than a per-seat report resolveRound doesn't produce.
+    const goldFromQuakes = Math.max(0, econ.gold - preRoundGold)
+    const crawlersSpawned = Math.max(0, econ.bench.filter(b => b !== null).length - preRoundBenchOccupied)
+    if (crawlersSpawned > 0 || goldFromQuakes > 0) {
+      const parts: string[] = []
+      if (crawlersSpawned > 0) parts.push(`+${crawlersSpawned} crawler${crawlersSpawned > 1 ? 's' : ''}`)
+      if (goldFromQuakes > 0) parts.push(`+${goldFromQuakes}g quake`)
+      lastSettlementLine += ` · ${parts.join(' · ')}`
+    }
+  }
+
+  run.gameOver = checkGameOver(run, localSeatIndex)
+  saveRun(run)
+  renderEconUI()
 }
 
 function startPlanningPhase(rollIfUnlocked: boolean): void {
   econPhase = 'planning'
   returnHeldUnitToBench()
   const h = humanEcon()
-  // Bank the income earned last round now that a new planning phase is starting.
-  if (h.pendingIncome) { h.gold += h.pendingIncome; h.pendingIncome = 0 }
-  if (rollIfUnlocked && !h.shopLocked) rollShop(h, run.pool)
-  if (h.shop.every(s => s === null)) rollShop(h, run.pool)
+  if (rollIfUnlocked) {
+    // Banks every living seat's pendingIncome then rolls each unlocked (or
+    // all-null) seat's shop — the round-engine's own planning step.
+    startPlanning(run)
+  } else {
+    // Resume: bank but never roll — the persisted shop is what the player
+    // left. Two callers want this: the boot path and the New Run button in
+    // enterGameOver, both of which pass rollIfUnlocked=false to resume a
+    // persisted/fresh shop without re-rolling it.
+    if (h.pendingIncome) { h.gold += h.pendingIncome; h.pendingIncome = 0 }
+  }
   syncRunToBoard()
   saveRun(run)
   updateEconVisibility()
   renderTraitDisplay()
   // Economy mode only — test mode is untimed free placement. Bots already
-  // planned their round in resolveBotRound right before this; this deadline
+  // planned their round inside resolveRound right before this; this deadline
   // only auto-starts the human's next combat, it never touches bot logic.
   planningTimerStartTs = econActive() ? performance.now() : null
 }
@@ -3321,16 +3393,13 @@ function finishItemRound(itemId: string | undefined): void {
 
   if (itemId) humanEcon().itemBench.push(itemId)
 
-  // Settle like a bye: income + XP, no HP loss / streak; bots take their bye + plan.
-  const s = settleHumanRound({ won: false, draw: true, survivorStars: 0, round: run.round })
+  // Settle like a bye: income + XP, no HP loss / streak; bots take their bye,
+  // pick an item, and plan — all inside resolveRound's item-round branch.
+  snapshotPreRound()
+  const res = resolveRound(run, roundSeedFor(run))
+  applyRoundResult(res)
   const picked = itemId ? ITEM_MAP.get(itemId)?.name ?? itemId : 'nothing'
-  lastSettlementLine =
-    `Delibird · took ${picked} · +${s.total}g · base ${s.base} · interest ${s.interest}` +
-    (s.streakGold ? ` · streak ${s.streakGold}` : '') + ` | +${s.xpGained} XP`
-  resolveBotCreepRound(run, localSeatIndex)
-  run.round++
-  run.gameOver = checkGameOver(run, localSeatIndex)
-  saveRun(run)
+  lastSettlementLine = `Delibird · took ${picked} · ${lastSettlementLine}`
 
   if (run.gameOver) { enterGameOver(run.gameOver); return }
   startPlanningPhase(true)
@@ -3469,16 +3538,12 @@ let preCombatSnapshot: UnitSnapshot[] = []
 let autoResetTimer: ReturnType<typeof setTimeout> | null = null
 let victoryCelebrationTs = 0   // performance.now() when combat ended; 0 = not celebrating
 let earthquakeFlashTs    = 0   // performance.now() of last earthquake VFX; 0 = none
-// Cave Crawler earthquake rewards the human earned live this combat (rolled
-// per player earthquake as it fires), summarised in the settlement line.
-let quakeRewardCrawlers  = 0
-let quakeRewardGold      = 0
 
 // Planning-phase deadline: economy mode only (never test mode) gives the
 // human a fixed window to shop/place before combat auto-starts. Bots don't
-// get any extra actions from this — they already plan exactly once per
-// round in resolveBotRound (combat-end), so ticking this countdown must
-// never itself call botPlanRound.
+// get any extra actions from this — they already plan exactly once per round
+// inside resolveRound (combat start, see startCombat), so ticking this
+// countdown must never itself call botPlanRound.
 const PLANNING_TIME_LIMIT_MS = 30000
 let planningTimerStartTs: number | null = null   // null = no countdown running
 
@@ -3538,7 +3603,7 @@ function startCombat(): void {
       pendingBattle = null   // creeps aren't calibration data — skip recording
     } else {
       // Resolve the opponent (fall back if the stored one died meanwhile)
-      let oppIdx = run.nextOpponent
+      let oppIdx = run.players[localSeatIndex].nextOpponent ?? -1
       if (oppIdx < 0 || oppIdx === localSeatIndex || run.players[oppIdx]?.eliminated) oppIdx = pickNextOpponent(run, localSeatIndex)
       if (oppIdx < 0) return   // no living opponent — the run should already be over
       currentOpponentIndex = oppIdx
@@ -3590,8 +3655,6 @@ function startCombat(): void {
   // stage; test-mode fights pass no stage and get full-strength values.
   const combatStage = (!testMode && econActive()) ? stageOf(run.round) : undefined
   combatState = createCombatState(playerUnits, enemyUnits, combatStage)
-  quakeRewardCrawlers = 0
-  quakeRewardGold = 0
   combatRunning = true
   accumulator = 0
   lastTs = 0
@@ -4196,10 +4259,11 @@ function frame(ts: number): void {
       for (const [id, u] of combatState.units) posCache.set(id, { ...u.visualPos })
       for (const ev of combatState.events) {
         if (ev.type === 'vfx' && ev.effectId === 'earthquake') {
+          // The screen flash is presentation and must still fire during
+          // playback. The crawler/gold reward itself is now rolled
+          // authoritatively at settlement (resolveRound), not live per quake
+          // — see applyRoundResult's quake-reward summary.
           earthquakeFlashTs = performance.now()
-          // The player's own quakes reward crawlers/gold live, one roll per quake,
-          // so a crawler visibly lands on the bench mid-fight (see onLiveQuakeReward).
-          if (!testMode && econActive() && ev.team === 'player') onLivePlayerQuake()
         }
         if (ev.type === 'vfx' && ev.effectId === 'cliff_fall') {
           unitLayer.addCliffFall({ x: ev.x, y: ev.y, direction: ev.direction, col: ev.col, isLeft: ev.isLeft })
@@ -4286,60 +4350,12 @@ function frame(ts: number): void {
         pendingBattle = null
       }
 
-      // Economy settlement: income/XP/HP for the human, then the bot lobby
-      // plays out its own round (fights, income, shopping) on the shared pool.
-      if (econActive() && econPhase === 'combat' && run.gameOver === null) {
-        // TFT damage: survivors deal their star level each
-        let enemyStars = 0, playerStars = 0
-        for (const u of combatState.units.values()) {
-          if (u.isDummy || u.state === 'dead') continue
-          if (u.team === 'enemy') enemyStars += u.tier
-          else playerStars += u.tier
-        }
-        // Creep (PvE) rounds settle like a bye: gold + XP, no HP loss, no streak,
-        // and the bots take their own creep round rather than fighting.
-        const creep = isCreepRound(run.round)
-        const s = settleHumanRound(creep
-          ? { won: false, draw: true, survivorStars: 0, round: run.round }
-          : { won: winner === 'player', draw: winner === 'draw', survivorStars: enemyStars, round: run.round })
-        lastSettlementLine =
-          (creep ? `Cleared ${creepRoundDef(run.round)?.name ?? 'creeps'} · ` : '') +
-          `+${s.total}g · base ${s.base} · interest ${s.interest}` +
-          (s.streakGold ? ` · streak ${s.streakGold}` : '') +
-          (s.winGold ? ` · win ${s.winGold}` : '') +
-          ` | +${s.xpGained} XP` +
-          (s.hpLost ? ` · −${s.hpLost} HP` : '')
-
-        // Cave Crawler earthquake rewards for the human were already granted live
-        // per quake during the fight (see onLivePlayerQuake) — just summarise them.
-        if (quakeRewardCrawlers > 0 || quakeRewardGold > 0) {
-          const parts: string[] = []
-          if (quakeRewardCrawlers > 0) parts.push(`+${quakeRewardCrawlers} crawler${quakeRewardCrawlers > 1 ? 's' : ''}`)
-          if (quakeRewardGold > 0) parts.push(`+${quakeRewardGold}g quake`)
-          lastSettlementLine += ` · ${parts.join(' · ')}`
-        }
-
-        if (creep) {
-          resolveBotCreepRound(run, localSeatIndex)
-          // TODO(round-3-items): on the final creep round, grant the player an item reward here.
-        } else {
-          resolveBotRound(run, {
-            seat: localSeatIndex,
-            opponentSeat: currentOpponentIndex,
-            opponentWon: winner === 'enemy',
-            draw: winner === 'draw',
-            survivorStars: playerStars,
-            // Exact quake count the opponent's crawlers fired this live fight.
-            opponentQuakes: combatState.earthquakeCounts.get('enemy') ?? 0,
-          })
-        }
-        run.round++
-        run.gameOver = checkGameOver(run, localSeatIndex)
-        saveRun(run)
-
-        box.innerHTML = `${box.textContent}<div style="font-size:10px;font-weight:normal;margin-top:4px;opacity:0.85;">${lastSettlementLine}</div>`
-        renderEconUI()   // bar stays visible post-combat — refresh gold/hp/lobby
-      }
+      // Economy settlement now happens at combat START (see startCombat /
+      // resolveRound + applyRoundResult) — Task 2 of this plan moves the
+      // playback wiring here. Between this task's commit and Task 2's, no
+      // economy round is settled at combat end; that is a deliberately
+      // broken intermediate state (see 02-05-PLAN.md Task 1's closing note),
+      // not a regression to fix here.
 
       if (autoResetTimer === null) {
         autoResetTimer = setTimeout(restorePlayerBoard, 5000)
