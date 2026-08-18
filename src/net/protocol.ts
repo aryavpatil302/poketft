@@ -10,6 +10,26 @@ import type { FightChunk } from './fightWire'
 export const PLANNING_MS = 30_000
 export const PROTOCOL_VERSION = 1
 
+// Per-room override for PLANNING_MS, read from partykit's `--var` binding
+// (Party.Room.env) — for automated verification only. scripts/roomRound.ts
+// spawns `partykit dev --var PLANNING_MS=2000` so a multi-round integration
+// run doesn't spend a real 30s per round; a deployed room is never given
+// this flag and always sees the real PLANNING_MS default above.
+//
+// Deliberately reads `env.PLANNING_MS`, NOT `process.env.PLANNING_MS`: the
+// plan that specified this override assumed the latter, but verified
+// empirically (spawning `partykit dev` with PLANNING_MS set in the host
+// process's environment) that the workerd sandbox's `process` is a
+// polyfill object whose `.env` never reflects the host environment or the
+// `--var` value — only the per-room `env` binding partykit actually injects
+// does. Using process.env here would silently always fall back to the 30s
+// default, defeating the whole point of this override.
+export function planningMsFor(env: Record<string, unknown> | undefined): number {
+  const raw = env?.PLANNING_MS
+  const n = Number(raw)
+  return raw !== undefined && Number.isFinite(n) && n > 0 ? n : PLANNING_MS
+}
+
 // A human clicking rerolls as fast as physically possible cannot approach
 // this within one planning phase — it bounds a message flood without ever
 // gating real play. Counted per connection id, reset at connect and at the

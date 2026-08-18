@@ -19,14 +19,25 @@ function healthcheckUrl(port: number): string {
 // it answers or 60s elapse, runs `fn`, and always kills the child with
 // SIGTERM in a finally block so a failing assertion never leaks a server
 // process.
-export async function withRoom<T>(fn: (ctx: { port: number; host: string }) => Promise<T>): Promise<T> {
+//
+// `vars` becomes one `--var KEY=VALUE` flag per entry, injected onto the
+// room's `env` binding (Party.Room.env) — NOT process.env inside the
+// workerd sandbox, which never reflects the host process's environment or
+// this flag (verified empirically; see src/net/protocol.ts's
+// planningMsFor comment). Defaults to none so roomSmoke.ts/roomSeats.ts
+// keep running with the real PLANNING_MS default.
+export async function withRoom<T>(
+  fn: (ctx: { port: number; host: string }) => Promise<T>,
+  vars: Record<string, string> = {},
+): Promise<T> {
   const port = ROOM_PORT
   const host = `127.0.0.1:${port}`
   let child: ChildProcess | null = null
   let stderr = ''
 
   try {
-    child = spawn('npx', ['partykit', 'dev', '--port', String(port)], { stdio: 'pipe' })
+    const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}=${v}`])
+    child = spawn('npx', ['partykit', 'dev', '--port', String(port), ...varArgs], { stdio: 'pipe' })
     child.stderr?.on('data', chunk => { stderr += String(chunk) })
     child.stdout?.on('data', () => { /* drain, not needed for readiness */ })
 
