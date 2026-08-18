@@ -20,6 +20,7 @@
     "room:dev": "partykit dev",
     "room:smoke": "tsx scripts/roomSmoke.ts",
     "room:seats": "tsx scripts/roomSeats.ts",
+    "room:round": "tsx scripts/roomRound.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

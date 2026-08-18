@@ -15,7 +15,7 @@ import {
 } from './seats'
 import {
   PROTOCOL_VERSION,
-  PLANNING_MS,
+  planningMsFor,
   MAX_ACTIONS_PER_PHASE,
   parseClientMessage,
   type RoomPhase,
@@ -124,9 +124,14 @@ export default class Lobby implements Party.Server {
   private async beginPlanning(): Promise<void> {
     startPlanning(this.run)
     this.phase = 'planning'
-    this.deadline = Date.now() + PLANNING_MS
+    // planningMsFor reads this room's --var PLANNING_MS override (test
+    // harnesses only) or falls back to the real gameplay default — see
+    // src/net/protocol.ts's comment on why this reads room.env and not
+    // process.env.
+    const planningMs = planningMsFor(this.room.env)
+    this.deadline = Date.now() + planningMs
     this.resetActionBudget()
-    this.timer = setTimeout(() => void this.onDeadline(), PLANNING_MS)
+    this.timer = setTimeout(() => void this.onDeadline(), planningMs)
 
     await this.persist()
     this.broadcastPhase()
