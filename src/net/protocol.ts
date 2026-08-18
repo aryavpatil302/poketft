@@ -3,8 +3,9 @@
 // engine (../game/round, ../econ/runState) so the wire vocabulary cannot
 // drift from the types it is carrying.
 
-import type { GameAction, ActionReason } from '../game/round'
+import type { GameAction, ActionReason, SeatFightResult } from '../game/round'
 import type { RunState } from '../econ/runState'
+import type { FightChunk } from './fightWire'
 
 export const PLANNING_MS = 30_000
 export const PROTOCOL_VERSION = 1
@@ -48,6 +49,21 @@ export type ServerMessage =
   | { t: 'rejected'; reason: RejectReason }
   | { t: 'seat-taken'; seat: number; name: string }
   | { t: 'seat-freed'; seat: number; name: string }
+  // `deadline` is an absolute epoch-milliseconds timestamp, paired with
+  // `serverNow` (Date.now() at send time) rather than a bare
+  // remaining-milliseconds number — a client subtracts the two to correct
+  // for its own clock skew instead of trusting its local wall clock, and can
+  // recompute the remaining time at any point after receipt without drift.
+  | { t: 'phase'; phase: RoomPhase; round: number; deadline: number | null; serverNow: number }
+  // `seat` is this connection's own SeatFightResult only (or null for a
+  // connection holding no seat) — never any other seat's. `fightId` is null
+  // exactly when this seat has no recorded fight (a bye, an abstractly-
+  // resolved bot-vs-bot pairing, or an item round). A client must correlate
+  // incoming `fight-chunk` messages to this resolve by `fightId`, never by
+  // arrival adjacency — broadcast ordering across distinct connections is
+  // unspecified (only per-connection order is FIFO).
+  | { t: 'resolve'; round: number; kind: 'pvp' | 'creep' | 'item'; snapshot: RunState; seat: SeatFightResult | null; fightId: string | null; eliminated: number[]; survivors: number[] }
+  | { t: 'fight-chunk'; chunk: FightChunk }
 
 // Narrow parse — never throws. Returns null for non-JSON input, a parsed
 // value that is not a plain object, or any `t` other than 'action'. Does NOT
