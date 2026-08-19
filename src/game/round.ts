@@ -40,15 +40,29 @@ export function seededRng(seed: number): Rng {
 
 // Full union declared now so downstream plans can't invent divergent variants;
 // only 'buy' is wired for real in this plan.
+//
+// The union covers every economy interaction the solo UI in src/main.ts
+// supports, so a networked lobby is never visibly poorer than solo play:
+// moveBoard accepts a bench destination (the board-to-bench drop), placeItem
+// accepts a bench slot (equipping a benched unit), and removeItem expresses
+// the `r`-key item pull.
 export type GameAction =
   | { t: 'buy'; slot: number }
   | { t: 'sell'; from: 'bench' | 'board'; index: number }
   | { t: 'reroll' }
   | { t: 'buyXp' }
   | { t: 'lock'; locked: boolean }
-  | { t: 'moveBoard'; from: { col: number; row: number }; to: { col: number; row: number } }
+  // `to` takes the same shape moveBench.to already uses, so the two move
+  // actions share one target vocabulary rather than each inventing its own.
+  | { t: 'moveBoard'; from: { col: number; row: number }; to: { col: number; row: number } | { bench: number } }
   | { t: 'moveBench'; benchIndex: number; to: { col: number; row: number } | { bench: number } }
+  // A discriminated target, spelled as two members rather than a `target:`
+  // wrapper so every existing onHex call site keeps compiling unchanged.
   | { t: 'placeItem'; itemIndex: number; onHex: { col: number; row: number } }
+  | { t: 'placeItem'; itemIndex: number; onBench: number }
+  // Mirrors `sell`'s from/index addressing, so the two removal-shaped actions
+  // read alike.
+  | { t: 'removeItem'; from: 'bench' | 'board'; index: number }
 
 export type ActionReason =
   | 'bad-seat' | 'eliminated' | 'empty-slot' | 'no-gold' | 'bench-full'
@@ -128,10 +142,38 @@ export function applyAction(
         e => e.hexPos.col === action.from.col && e.hexPos.row === action.from.row,
       )
       if (sourceIdx === -1) return { ok: false, reason: 'no-unit' }
+
+      if ('bench' in action.to) {
+        // Board -> bench. Fielding drops by one, so no cap check applies —
+        // the cap only ever gates a move that ADDS a fielded unit.
+        const sourceEntry = econ.board[sourceIdx]
+        // Ascender pillars never leave the board, matching the `sell` case's
+        // guard and src/main.ts's own bench-drop rejection.
+        if (isPillar(sourceEntry.definitionId)) return { ok: false, reason: 'unsellable' }
+        const slot = action.to.bench
+        if (!Number.isInteger(slot) || slot < 0 || slot >= econ.bench.length) {
+          return { ok: false, reason: 'no-unit' }
+        }
+        if (econ.bench[slot]) return { ok: false, reason: 'occupied' }
+
+        // Validation is done — every write below is safe to perform. The unit
+        // moves, it is never copied and never returned to the pool: the same
+        // definitionId/tier pair leaves the board exactly as it enters the
+        // bench, so shared-pool accounting is untouched.
+        const benched: BenchedUnit = { definitionId: sourceEntry.definitionId, tier: sourceEntry.tier }
+        if (sourceEntry.item) benched.item = sourceEntry.item
+        econ.bench[slot] = benched
+        econ.board.splice(sourceIdx, 1)
+        return { ok: true }
+      }
+
       if (!isPlayerHex(action.to)) return { ok: false, reason: 'not-player-hex' }
+      // Captured into a local so TS's narrowing survives into the closure
+      // below — same reason moveBench captures its own `to`.
+      const to = action.to
 
       const destIdx = econ.board.findIndex(
-        e => e.hexPos.col === action.to.col && e.hexPos.row === action.to.row,
+        e => e.hexPos.col === to.col && e.hexPos.row === to.row,
       )
       // econ.board.length is unchanged either way (swap or relocate), so no
       // cap check applies here — the cap only gates a move that ADDS a
@@ -143,7 +185,7 @@ export function applyAction(
         sourceEntry.hexPos = destEntry.hexPos
         destEntry.hexPos = tmp
       } else {
-        econ.board[sourceIdx].hexPos = { col: action.to.col, row: action.to.row }
+        econ.board[sourceIdx].hexPos = { col: to.col, row: to.row }
       }
       return { ok: true }
     }
@@ -205,17 +247,52 @@ export function applyAction(
 
     case 'placeItem': {
       if (action.itemIndex < 0 || action.itemIndex >= econ.itemBench.length) return { ok: false, reason: 'no-item' }
-      const entry = econ.board.find(
-        e => e.hexPos.col === action.onHex.col && e.hexPos.row === action.onHex.row,
-      )
-      if (!entry) return { ok: false, reason: 'no-unit' }
 
-      // Validation is done — every write below is safe to perform.
+      // Resolve the target — a board unit or a benched one — before touching
+      // anything, so both targets share one validated write below and neither
+      // can half-apply.
+      let holder: BoardEntry | BenchedUnit | undefined
+      if ('onBench' in action) {
+        const slot = action.onBench
+        if (!Number.isInteger(slot) || slot < 0 || slot >= econ.bench.length) {
+          return { ok: false, reason: 'no-unit' }
+        }
+        holder = econ.bench[slot] ?? undefined
+      } else {
+        const onHex = action.onHex
+        holder = econ.board.find(
+          e => e.hexPos.col === onHex.col && e.hexPos.row === onHex.row,
+        )
+      }
+      if (!holder) return { ok: false, reason: 'no-unit' }
+
+      // Validation is done — every write below is safe to perform. The item
+      // leaves itemBench exactly as it lands on the unit, and any displaced
+      // item goes straight back: an item is in one place at a time.
       const item = econ.itemBench[action.itemIndex]
-      const prevItem = entry.item
+      const prevItem = holder.item
       econ.itemBench.splice(action.itemIndex, 1)
       if (prevItem) econ.itemBench.push(prevItem)
-      entry.item = item
+      holder.item = item
+      return { ok: true }
+    }
+
+    case 'removeItem': {
+      let holder: BoardEntry | BenchedUnit | undefined
+      if (action.from === 'bench') {
+        holder = econ.bench[action.index] ?? undefined
+      } else {
+        holder = econ.board[action.index]
+      }
+      if (!holder) return { ok: false, reason: 'no-unit' }
+      if (!holder.item) return { ok: false, reason: 'no-item' }
+
+      // Validation is done — every write below is safe to perform. `delete`
+      // rather than `= undefined`: an explicit-undefined key survives a
+      // shallow spread and then vanishes across JSON, which is exactly the
+      // capture-time bug captureFrame documents below.
+      econ.itemBench.push(holder.item)
+      delete holder.item
       return { ok: true }
     }
 
