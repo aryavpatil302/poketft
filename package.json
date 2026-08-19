@@ -21,6 +21,7 @@
     "room:smoke": "tsx scripts/roomSmoke.ts",
     "room:seats": "tsx scripts/roomSeats.ts",
     "room:round": "tsx scripts/roomRound.ts",
+    "net:client": "tsx scripts/netClient.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
