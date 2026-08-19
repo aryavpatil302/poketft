@@ -250,6 +250,49 @@ describe('mirrorFightLogForSeat — events', () => {
 
 // ─── Presentational invariants, on a real recorded fight ─────────────────────
 
+// Deep equality with one concession: a pixel coordinate may differ by at most
+// PIXEL_EPSILON. Reflecting a float about a midline and back is NOT bit-exact
+// — `fl(C - fl(C - y))` re-rounds, and measured against a real recorded fight
+// the double mirror drifts by at most ~6e-14 px on the y of a mid-move unit
+// or an in-flight projectile. That is a thousandth of a millionth of a pixel;
+// it is unobservable, and no reformulation of the transform removes it (both
+// the anchored form and the single-rounding affine form were measured).
+//
+// Everything else is compared EXACTLY: strings, booleans, nulls, array
+// lengths and key sets. So a team that failed to swap back, a row that
+// flipped wrong, a dropped event, a reordered frame or a mutated HP value all
+// still fail this assertion — only sub-nanopixel float noise is forgiven.
+const PIXEL_EPSILON = 1e-9
+
+function expectInvolution(actual: unknown, expected: unknown, path = 'log'): void {
+  if (typeof expected === 'number' && typeof actual === 'number') {
+    if (Number.isNaN(expected) && Number.isNaN(actual)) return
+    expect(Math.abs(actual - expected), `${path}: ${actual} vs ${expected}`)
+      .toBeLessThanOrEqual(PIXEL_EPSILON)
+    return
+  }
+  if (Array.isArray(expected)) {
+    expect(Array.isArray(actual), `${path} should be an array`).toBe(true)
+    const actualArray = actual as unknown[]
+    expect(actualArray.length, `${path}.length`).toBe(expected.length)
+    for (let i = 0; i < expected.length; i++) {
+      expectInvolution(actualArray[i], expected[i], `${path}[${i}]`)
+    }
+    return
+  }
+  if (expected !== null && typeof expected === 'object') {
+    expect(actual !== null && typeof actual === 'object', `${path} should be an object`).toBe(true)
+    const expectedRecord = expected as Record<string, unknown>
+    const actualRecord = actual as Record<string, unknown>
+    expect(Object.keys(actualRecord).sort(), `${path} key set`).toEqual(Object.keys(expectedRecord).sort())
+    for (const key of Object.keys(expectedRecord)) {
+      expectInvolution(actualRecord[key], expectedRecord[key], `${path}.${key}`)
+    }
+    return
+  }
+  expect(actual, path).toBe(expected)
+}
+
 describe('mirrorFightLogForSeat — presentational invariants', () => {
   it('adds, drops and reorders nothing: frame count, every tick, and every events array length and order are unchanged', () => {
     const mirrored = mirrorFightLogForSeat(realLog, realLog.seatB)
@@ -270,11 +313,16 @@ describe('mirrorFightLogForSeat — presentational invariants', () => {
   })
 
   it('is an involution on a real recorded fight: mirroring twice deep-equals the original', () => {
-    const twice = mirrorFightLogForSeat(mirrorFightLogForSeat(realLog, realLog.seatB), realLog.seatB)
+    // Mirroring swaps the seats, so the second application must target the
+    // mirrored log's OWN seatB (the original seatA) — re-passing the original
+    // seatB would hit the seatA identity branch and prove nothing.
+    const once = mirrorFightLogForSeat(realLog, realLog.seatB)
+    expect(once.seatB).toBe(realLog.seatA)
+    const twice = mirrorFightLogForSeat(once, once.seatB)
     expect(twice.winner).toBe(realLog.winner)
     expect(twice.seatA).toBe(realLog.seatA)
     expect(twice.seatB).toBe(realLog.seatB)
-    expect(twice).toEqual(realLog)
+    expectInvolution(twice, realLog)
   })
 
   it('does not mutate the input log', () => {
