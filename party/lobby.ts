@@ -49,6 +49,15 @@ export default class Lobby implements Party.Server {
   table!: SeatTable
   phase: RoomPhase = 'idle'
 
+  // Whether this room has EVER left the lobby, i.e. whether beginPlanning()
+  // has run at least once. Persisted alongside `run` (see persist()) rather
+  // than inferred from object freshness, because onStart runs on every
+  // rehydration — hibernation, a `partykit dev` restart, a Cloudflare
+  // eviction in Phase 5 — not only on the room's first ever start. Inferring
+  // "fresh object means lobby" would send a mid-game room back to the lobby
+  // screen and stall its round loop until someone pressed Start again.
+  started = false
+
   // Absolute epoch-ms deadline for the current planning phase, and the
   // scheduled timer that fires onDeadline() when it arrives. Both null
   // outside 'planning' (or, transiently, right after a fresh onStart before
@@ -79,7 +88,12 @@ export default class Lobby implements Party.Server {
     for (let i = 0; i < this.run.players.length; i++) {
       this.run.players[i].personaId = this.table.roster[i].personaId
     }
-    this.phase = 'idle'
+    this.started = (await this.room.storage.get<boolean>('started')) ?? false
+    // A started room comes back 'idle' — the clock is stopped but the game is
+    // live, and onConnect's resume branch reopens planning on the next
+    // connection with no second Start. A never-started room comes back
+    // 'lobby' and waits for its host.
+    this.phase = this.started ? 'idle' : 'lobby'
   }
 
   private async persist(): Promise<void> {
@@ -89,7 +103,13 @@ export default class Lobby implements Party.Server {
     // fight log is 19-34 MiB against a 128 KiB per-value limit, so a log
     // must never reach this call — it would fail at runtime, not build
     // time. broadcastResolve() streams logs over the wire only, never here.
+    //
+    // `started` is the room's only other key: a single boolean, so the
+    // oversized-value reasoning above is untouched by it (see
+    // scripts/roomRound.ts scenario 6, which asserts storage holds exactly
+    // these two keys and nothing log-shaped).
     await this.room.storage.put('run', this.run)
+    await this.room.storage.put('started', this.started)
   }
 
   // Called with a connId on connect (a fresh connection starts unpenalized).
@@ -124,6 +144,10 @@ export default class Lobby implements Party.Server {
   private async beginPlanning(): Promise<void> {
     startPlanning(this.run)
     this.phase = 'planning'
+    // Set BEFORE the persist() below so the flag and the run it belongs to
+    // are written in the same call — a room cannot come back from storage
+    // holding a mid-game run while still claiming it never started.
+    this.started = true
     // planningMsFor reads this room's --var PLANNING_MS override (test
     // harnesses only) or falls back to the real gameplay default — see
     // src/net/protocol.ts's comment on why this reads room.env and not
@@ -249,10 +273,15 @@ export default class Lobby implements Party.Server {
     this.resetActionBudget(conn.id)
 
     if (this.phase === 'idle') {
-      // The first human seat of a fresh (or emptied-out) room opens the
-      // round loop; beginPlanning() itself persists and broadcasts.
+      // A STARTED room whose clock is stopped — everyone left (onClose), or
+      // it just rehydrated (onStart) — reopens its round loop on the next
+      // connection with no second Start required; beginPlanning() itself
+      // persists and broadcasts. This is what scripts/roomRound.ts scenario
+      // 7's resume behaviour rides on.
       await this.beginPlanning()
     } else {
+      // 'lobby' lands here too: seats fill and the welcome/lobby broadcasts
+      // below run, but no timer starts until the host sends `start`.
       await this.persist()
     }
 
@@ -327,6 +356,22 @@ export default class Lobby implements Party.Server {
     const seat = seatOf(this.table, sender.id)
     if (seat === null) {
       sender.send(JSON.stringify({ t: 'rejected', reason: 'not-seated' } satisfies ServerMessage))
+      return
+    }
+
+    if (msg.t === 'start') {
+      // Handled BEFORE the planning-phase guard below, which exists for
+      // actions only — a `start` is by definition sent while the room is
+      // NOT in 'planning'.
+      if (seat !== 0) {
+        sender.send(JSON.stringify({ t: 'rejected', reason: 'not-host' } satisfies ServerMessage))
+        return
+      }
+      if (this.phase !== 'lobby') {
+        sender.send(JSON.stringify({ t: 'rejected', reason: 'already-started' } satisfies ServerMessage))
+        return
+      }
+      await this.beginPlanning()
       return
     }
 

@@ -18,7 +18,7 @@ import { makeUnit, computeStats } from './core/unitFactory'
 import { ALL_UNITS, UNIT_MAP } from './data/units'
 import { ITEM_MAP } from './data/items'
 import { TRAIT_MAP } from './data/traits'
-import { loadRun, saveRun, clearRun, newRun, type RunState, type PlayerEcon, type BoardEntry } from './econ/runState'
+import { loadRun, saveRun as persistRunToStorage, clearRun, newRun, type RunState, type PlayerEcon, type BoardEntry } from './econ/runState'
 import { rollShop, reroll as shopReroll, buyUnit, sellFromBench, sellFromBoard } from './econ/shop'
 import { buyXp, xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
@@ -30,6 +30,8 @@ import {
 } from './econ/constants'
 import { startPlanning, resolveRound, pairSeats, type RoundResult, type FightLog } from './game/round'
 import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from './game/playback'
+import { RoomClient } from './net/roomClient'
+import { parseLobbyCode, partyHost } from './net/lobbyUrl'
 import { TRAIT_TOOLTIPS } from './data/traitTooltips'
 import { REPO_TESTS } from './repoTests'
 import type { CombatState, Unit, ItemDefinition } from './core/types'
@@ -1309,6 +1311,16 @@ function renderPlanningTimer(): void {
   const fill  = document.getElementById('planning-timer-fill')!
   const label = document.getElementById('planning-timer-label')!
 
+  // In a lobby the ROOM owns the countdown and fires resolution itself. A
+  // local timer here would run its own startCombat() and fork this client's
+  // game state away from the server's. Plan 04-05 replaces this guard with
+  // the real server-driven countdown rendered from the `phase` message's
+  // absolute deadline.
+  if (isNetworked()) {
+    bar.style.display = 'none'
+    return
+  }
+
   if (planningTimerStartTs === null || combatState || econPhase !== 'planning') {
     bar.style.display = 'none'
     return
@@ -1974,6 +1986,123 @@ let preRoundBenchOccupied = 0
 // (room server + client networking) will set this from the room's seat
 // assignment once a lobby can host more than one human.
 let localSeatIndex = 0
+
+// ─── Networked lobby (Phase 4) ────────────────────────────────────────────────
+
+// Non-null exactly when this tab was opened at `/?lobby=<code>`. Everything
+// that must behave differently in a lobby branches on isNetworked(), and the
+// solo path is byte-for-byte unchanged whenever this stays null.
+let net: RoomClient | null = null
+
+function isNetworked(): boolean { return net !== null }
+
+// True once the socket has dropped or been refused. Input stops here rather
+// than silently doing nothing: RoomClient already no-ops a send outside
+// 'open', but a click that looks accepted and then never changes anything is
+// worse than a click that visibly does nothing behind an explanatory banner.
+let netDropped = false
+
+// The connection-status banner. Deliberately appended to document.body and
+// NOT to #app: renderEconUI() and updateEconVisibility() rebuild subtrees
+// inside #app wholesale, and a banner living in there would be wiped by the
+// next re-render — exactly when the player most needs to still see it.
+let netStatusEl: HTMLDivElement | null = null
+
+function setNetStatusBanner(text: string | null): void {
+  if (netStatusEl === null) {
+    if (text === null) return
+    const el = document.createElement('div')
+    el.id = 'net-status-banner'
+    el.style.cssText = [
+      'position: fixed', 'top: 12px', 'left: 50%', 'transform: translateX(-50%)',
+      'z-index: 9999', 'padding: 8px 16px', 'border-radius: 6px',
+      'background: #0a0e1a', 'border: 1px solid #ff6666', 'color: #ff6666',
+      'font-family: monospace', 'font-size: 12px', 'letter-spacing: 0.5px',
+      'box-shadow: 0 2px 12px rgba(0,0,0,0.6)', 'pointer-events: none',
+      'transition: opacity 0.3s ease',
+    ].join('; ')
+    document.body.appendChild(el)
+    netStatusEl = el
+  }
+  if (text === null) {
+    netStatusEl.style.opacity = '0'
+    netStatusEl.style.display = 'none'
+    return
+  }
+  netStatusEl.textContent = text
+  netStatusEl.style.display = 'block'
+  netStatusEl.style.opacity = '1'
+}
+
+// Every saveRun call site in this file funnels through this wrapper rather
+// than the imported one. In a networked session the RunState on screen is the
+// SERVER's, and writing it to localStorage would overwrite the player's own
+// solo save — so the write is skipped wholesale here, once, instead of being
+// audited across ~24 call sites (a count plans 04-03/04-04 only grow).
+function saveRun(state: RunState): void {
+  if (isNetworked()) return
+  persistRunToStorage(state)
+}
+
+// Adopts a server-owned RunState wholesale and re-renders from it.
+//
+// Deliberately does NOT call saveRun: this state belongs to the room, not to
+// this browser, and persisting it would clobber the player's solo run. (The
+// wrapper above would refuse the write anyway — this is the second lock on
+// the same door, and the reason the function body has no persistence step at
+// all.)
+function applyServerSnapshot(snapshot: RunState): void {
+  run = snapshot
+  syncRunToBoard()
+  renderEconUI()
+  renderTraitDisplay()
+}
+
+function bootNetworked(code: string): void {
+  const client = new RoomClient({
+    host: partyHost(),
+    // Already validated against LOBBY_CODE_ALPHABET by parseLobbyCode before
+    // reaching here (T-04-02), so it is safe as a room name.
+    room: code,
+    // Placeholder: plan 04-02 replaces this with the real guest-name pool
+    // behind the Lobby Screen's name field.
+    name: 'Player',
+  })
+  net = client
+
+  client.onMessage(m => {
+    if (m.t === 'welcome') {
+      // The server is the sole seat authority — this client renders whatever
+      // seat it was given, it never picks one.
+      localSeatIndex = m.seat
+      econPhase = 'planning'
+      applyServerSnapshot(m.snapshot)
+      updateEconVisibility()
+      // Tracer only: the host starts the round the instant it seats, so this
+      // plan can prove the whole path without a Lobby Screen existing yet.
+      // Plan 04-02 moves this behind the Start button and deletes it here.
+      if (m.seat === 0) client.sendStart()
+    } else if (m.t === 'snapshot') {
+      applyServerSnapshot(m.snapshot)
+    }
+  })
+
+  client.onStatus((status, reason) => {
+    if (status === 'closed') {
+      netDropped = true
+      setNetStatusBanner('Lobby connection lost — reload the page to rejoin.')
+    } else if (status === 'rejected' && reason === 'not-seated') {
+      netDropped = true
+      setNetStatusBanner('This lobby is full — every seat is already taken.')
+    }
+    // Critically, neither branch clears `run`, clears placedUnits, or
+    // re-renders from an empty state. The LAST SERVER SNAPSHOT stays exactly
+    // as it is on screen: a frozen but correct board is the right failure
+    // mode, and reconnect/resync is explicitly v2 (HARD-01).
+  })
+
+  client.connect()
+}
 
 function econActive(): boolean {
   const chk = document.getElementById('chk-test-mode') as HTMLInputElement | null
@@ -2898,6 +3027,18 @@ function performBuyXp(): void {
 
 function performReroll(): void {
   if (econPhase === 'gameOver') return
+  if (net !== null) {
+    // Input stops at a drop. Every dispatch plans 04-03 and 04-04 add inherits
+    // this gate by construction, since they all sit behind the same branch.
+    if (netDropped) return
+    // Send the intent and wait. The gold/shop change becomes visible only
+    // when the server's own `snapshot` broadcast comes back — applying it
+    // locally first would fork this client's economy from the room's for as
+    // long as the round lasts. The flash is the immediate feedback instead.
+    net.sendAction({ t: 'reroll' })
+    flashEconButton('btn-reroll')
+    return
+  }
   if (shopReroll(humanEcon(), run.pool)) {
     saveRun(run); renderEconUI()
     flashEconButton('btn-reroll')
@@ -3789,6 +3930,12 @@ const PLANNING_TIME_LIMIT_MS = 30000
 let planningTimerStartTs: number | null = null   // null = no countdown running
 
 function startCombat(): void {
+  // In a lobby the server resolves the round and streams back the fight it
+  // recorded; re-simulating locally would produce a DIFFERENT outcome from
+  // the one the server settled against (COMBAT-02). Plan 04-06 replaces this
+  // guard with playback of the server's log.
+  if (isNetworked()) return
+
   const testMode = (document.getElementById('chk-test-mode') as HTMLInputElement).checked
 
   // Delibird item round (economy mode only): no combat — the player picks one of
@@ -4797,9 +4944,17 @@ function frame(ts: number): void {
   }
 }
 
-// ─── Boot: enter economy mode (default) or test mode ─────────────────────────
+// ─── Boot: join a lobby by link, or enter economy/test mode ──────────────────
 
-if (econActive()) {
+// The single switch between the solo path and the networked path — everything
+// downstream branches on isNetworked(). A `?lobby=` that is absent, malformed,
+// or outside the code alphabet falls straight through to the solo boot below,
+// which is unchanged from before Phase 4.
+const bootLobbyCode = parseLobbyCode(location.search)
+
+if (bootLobbyCode !== null) {
+  bootNetworked(bootLobbyCode)
+} else if (econActive()) {
   if (isFreshRun()) initFreshRun()
   if (run.gameOver) enterGameOver(run.gameOver)
   else startPlanningPhase(false)   // resume persisted shop; roll only if empty

@@ -51,6 +51,12 @@ async function main(): Promise<void> {
     const a = connect(host, roomId, 'Host')
     const welcomeA = await nextMessage<any>(a, m => m.t === 'welcome')
     assert(welcomeA.seat === 0, 'client A (Host) takes seat 0')
+
+    // A room now waits in phase 'lobby' until its host starts it — every
+    // action this script sends would otherwise be rejected 'wrong-phase'.
+    a.send(JSON.stringify({ t: 'start' }))
+    const startedA = await nextMessage<any>(a, m => m.t === 'phase' && m.phase === 'planning')
+    assert(startedA.phase === 'planning', "seat 0's start moves the room to planning")
     const originalSeat1PersonaId = welcomeA.snapshot.players[1].personaId
     const originalSeat1Name = welcomeA.snapshot.players[1].name
 

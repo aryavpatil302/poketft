@@ -4,3 +4,8 @@ training_runs/
 # `partykit dev` restarts) — never committed, purely local dev state.
 .partykit/
 .planning/
+
+# miniflare's local cache/state directory, written by `partykit dev` under
+# node_modules (which this repo otherwise tracks) — purely local dev state,
+# same class as .partykit/ above.
+node_modules/.mf/

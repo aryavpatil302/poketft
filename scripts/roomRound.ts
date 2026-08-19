@@ -112,14 +112,18 @@ async function main(): Promise<void> {
     attach(b, s => { snapB = s }, chunksB)
 
     // ─── Scenario 1: shared deadline ───────────────────────────────────────
-    const [firstPhaseA, welcomeA] = await Promise.all([
-      nextMessage<any>(a, m => m.t === 'phase'),
-      nextMessage<any>(a, m => m.t === 'welcome'),
+    // The room now waits in phase 'lobby' until its host starts it, so the
+    // welcomes arrive first and the phase burst only after seat 0's `start`.
+    // Both phase-waits are registered BEFORE that start is sent, so neither
+    // client's broadcast can be missed to a listener attached too late.
+    const welcomeA = await nextMessage<any>(a, m => m.t === 'welcome')
+    const welcomeB = await nextMessage<any>(b, m => m.t === 'welcome')
+    const firstPhaseBoth = Promise.all([
+      nextMessage<any>(a, m => m.t === 'phase' && m.phase === 'planning'),
+      nextMessage<any>(b, m => m.t === 'phase' && m.phase === 'planning'),
     ])
-    const [firstPhaseB, welcomeB] = await Promise.all([
-      nextMessage<any>(b, m => m.t === 'phase'),
-      nextMessage<any>(b, m => m.t === 'welcome'),
-    ])
+    a.send(JSON.stringify({ t: 'start' }))
+    const [firstPhaseA, firstPhaseB] = await firstPhaseBoth
     assert(welcomeA.seat === 0, 'client A (Host) takes seat 0')
     assert(welcomeB.seat === 1, 'client B (Friend) takes seat 1')
     assert(firstPhaseA.phase === 'planning' && firstPhaseB.phase === 'planning', 'both clients observe phase: planning')
@@ -364,7 +368,11 @@ async function main(): Promise<void> {
     // ─── Scenario 6: nothing oversized was persisted ───────────────────────
     const statusRes = await fetch(`http://${host}/parties/main/${roomId}`)
     const status = await statusRes.json() as { storageKeys: string[] }
-    assert(JSON.stringify(status.storageKeys) === JSON.stringify(['run']), `storageKeys is exactly ["run"] after the PvP resolve (got ${JSON.stringify(status.storageKeys)})`)
+    // Still exactly the assertion it always was — proving no oversized fight
+    // log ever reaches storage — now listing the room's second legitimate
+    // key, the `started` boolean party/lobby.ts persists alongside the run.
+    // The endpoint returns the list sorted, hence run before started.
+    assert(JSON.stringify(status.storageKeys) === JSON.stringify(['run', 'started']), `storageKeys is exactly ["run", "started"] after the PvP resolve (got ${JSON.stringify(status.storageKeys)})`)
     console.log('PASS: nothing oversized was persisted')
 
     // ─── Scenario 7: zero-connection pause ─────────────────────────────────
