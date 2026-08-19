@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { RunState } from '../econ/runState'
+import type { RunState, PlayerEcon } from '../econ/runState'
 import { newRun } from '../econ/runState'
 import { botSeats } from '../econ/bots'
 import { copiesHeld, MAX_LEVEL, BENCH_SLOTS } from '../econ/constants'
@@ -307,6 +307,41 @@ function heldCopies(state: RunState, definitionId: string): number {
   return total
 }
 
+// One action per `t` tag in the GameAction union, including the three
+// variants the networked UI needs. Adding a tenth tag without adding a row
+// here leaves the seat-authority guards below untested for it.
+const EVERY_ACTION_TAG: GameAction[] = [
+  { t: 'buy', slot: 0 },
+  { t: 'sell', from: 'bench', index: 0 },
+  { t: 'reroll' },
+  { t: 'buyXp' },
+  { t: 'lock', locked: true },
+  { t: 'moveBoard', from: { col: 0, row: 4 }, to: { col: 1, row: 4 } },
+  { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 0 } },
+  { t: 'moveBench', benchIndex: 0, to: { bench: 1 } },
+  { t: 'placeItem', itemIndex: 0, onHex: { col: 0, row: 4 } },
+  { t: 'placeItem', itemIndex: 0, onBench: 0 },
+  { t: 'removeItem', from: 'board', index: 0 },
+  { t: 'removeItem', from: 'bench', index: 0 },
+]
+
+// Counts every place `itemId` currently sits for this seat: the item bench,
+// a benched unit's hand, or a board unit's hand. The conservation invariant
+// is that this stays exactly 1 for an owned item — never 0 (vanished) and
+// never 2 (duplicated).
+function itemPlacements(econ: PlayerEcon, itemId: string): number {
+  let total = 0
+  for (const held of econ.itemBench) if (held === itemId) total++
+  for (const b of econ.bench) if (b && b.item === itemId) total++
+  for (const u of econ.board) if (u.item === itemId) total++
+  return total
+}
+
+// Units held by this seat across both storage areas — unchanged by any move.
+function totalUnitsHeld(econ: PlayerEcon): number {
+  return econ.board.length + econ.bench.filter(b => b !== null).length
+}
+
 describe('applyAction', () => {
   describe('rejection & atomicity', () => {
     interface RejectionCase {
@@ -492,21 +527,19 @@ describe('applyAction', () => {
       })
     }
 
-    it('eliminated seat rejects all eight action tags with "eliminated" before any per-action validation', () => {
+    it('eliminated seat rejects all nine action tags with "eliminated" before any per-action validation', () => {
       const state = newRun(botSeats())
       state.players[2].eliminated = true
-      const actions: GameAction[] = [
-        { t: 'buy', slot: 0 },
-        { t: 'sell', from: 'bench', index: 0 },
-        { t: 'reroll' },
-        { t: 'buyXp' },
-        { t: 'lock', locked: true },
-        { t: 'moveBoard', from: { col: 0, row: 4 }, to: { col: 1, row: 4 } },
-        { t: 'moveBench', benchIndex: 0, to: { bench: 1 } },
-        { t: 'placeItem', itemIndex: 0, onHex: { col: 0, row: 4 } },
-      ]
-      for (const action of actions) {
+      for (const action of EVERY_ACTION_TAG) {
         expectRejected(state, 2, action, 'eliminated')
+      }
+    })
+
+    it('every action tag rejects an out-of-range seat with "bad-seat" before any per-action validation', () => {
+      const state = newRun(botSeats())
+      for (const action of EVERY_ACTION_TAG) {
+        expectRejected(state, -1, action, 'bad-seat')
+        expectRejected(state, state.players.length, action, 'bad-seat')
       }
     })
   })
@@ -637,6 +670,225 @@ describe('applyAction', () => {
       expect(result).toEqual({ ok: true })
       expect(state.players[0].itemBench.length).toBe(0)
       expect(state.players[0].board[0].item).toBe('expert_belt')
+    })
+  })
+})
+
+// ─── The three variants the networked UI needs (plan 04-00, Task 4) ────────
+//
+// Each of these is an interaction the solo UI in src/main.ts already supports
+// (a board-to-bench drop, an item equipped onto a benched unit, the `r`-key
+// item pull) but which GameAction could not express. Plan 04-04 routes every
+// one of them onto this dispatch path.
+
+describe('applyAction — board-to-bench moves, bench item equips, item removal', () => {
+  describe('moveBoard with a bench destination', () => {
+    it('moves the board entry into the bench slot and removes it from the board', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 2, hexPos: { col: 0, row: 4 } }]
+      const result = applyAction(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 3 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].board).toEqual([])
+      expect(state.players[0].bench[3]).toEqual({ definitionId: 'zubat', tier: 2 })
+    })
+
+    it('carries the unit\'s equipped item with it, without touching itemBench', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 1, row: 5 }, item: 'charcoal' }]
+      state.players[0].itemBench = ['expert_belt']
+      const result = applyAction(state, 0, { t: 'moveBoard', from: { col: 1, row: 5 }, to: { bench: 0 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].bench[0]).toEqual({ definitionId: 'zubat', tier: 1, item: 'charcoal' })
+      expect(state.players[0].itemBench).toEqual(['expert_belt'])
+    })
+
+    it('fails occupied when the bench slot is already taken', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      state.players[0].bench[2] = { definitionId: 'tangela', tier: 1 }
+      expectRejected(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 2 } }, 'occupied')
+    })
+
+    it('fails no-unit when the from hex holds nothing', () => {
+      const state = newRun(botSeats())
+      expectRejected(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 0 } }, 'no-unit')
+    })
+
+    it('fails unsellable for an Ascender pillar — pillars never leave the board', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'cliff_l', tier: 1, hexPos: { col: 0, row: 4 } }]
+      expectRejected(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 0 } }, 'unsellable')
+    })
+
+    it('fails no-unit for an out-of-range bench slot', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      expectRejected(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: -1 } }, 'no-unit')
+      expectRejected(state, 0, {
+        t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: state.players[0].bench.length },
+      }, 'no-unit')
+    })
+  })
+
+  describe('placeItem with an onBench target', () => {
+    it('equips the item onto the benched unit and removes it from itemBench', () => {
+      const state = newRun(botSeats())
+      state.players[0].bench[1] = { definitionId: 'zubat', tier: 1 }
+      state.players[0].itemBench = ['expert_belt']
+      const result = applyAction(state, 0, { t: 'placeItem', itemIndex: 0, onBench: 1 })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].bench[1]!.item).toBe('expert_belt')
+      expect(state.players[0].itemBench).toEqual([])
+    })
+
+    it('returns the item the benched unit already held to itemBench, leaving its length unchanged', () => {
+      const state = newRun(botSeats())
+      state.players[0].bench[1] = { definitionId: 'zubat', tier: 1, item: 'charcoal' }
+      state.players[0].itemBench = ['expert_belt']
+      const result = applyAction(state, 0, { t: 'placeItem', itemIndex: 0, onBench: 1 })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].bench[1]!.item).toBe('expert_belt')
+      expect(state.players[0].itemBench).toEqual(['charcoal'])
+    })
+
+    it('fails no-unit on an empty bench slot and on an out-of-range slot', () => {
+      const state = newRun(botSeats())
+      state.players[0].itemBench = ['expert_belt']
+      expectRejected(state, 0, { t: 'placeItem', itemIndex: 0, onBench: 2 }, 'no-unit')
+      expectRejected(state, 0, { t: 'placeItem', itemIndex: 0, onBench: -1 }, 'no-unit')
+      expectRejected(state, 0, {
+        t: 'placeItem', itemIndex: 0, onBench: state.players[0].bench.length,
+      }, 'no-unit')
+    })
+
+    it('fails no-item on an out-of-range itemIndex', () => {
+      const state = newRun(botSeats())
+      state.players[0].bench[1] = { definitionId: 'zubat', tier: 1 }
+      expectRejected(state, 0, { t: 'placeItem', itemIndex: 0, onBench: 1 }, 'no-item')
+      state.players[0].itemBench = ['expert_belt']
+      expectRejected(state, 0, { t: 'placeItem', itemIndex: 3, onBench: 1 }, 'no-item')
+    })
+  })
+
+  describe('removeItem', () => {
+    it('pulls an item off a board unit and returns it to itemBench', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, item: 'charcoal' }]
+      const result = applyAction(state, 0, { t: 'removeItem', from: 'board', index: 0 })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].board[0].item).toBeUndefined()
+      expect(state.players[0].itemBench).toEqual(['charcoal'])
+      // The unit itself stays exactly where it was.
+      expect(state.players[0].board[0].hexPos).toEqual({ col: 0, row: 4 })
+    })
+
+    it('pulls an item off a benched unit and returns it to itemBench', () => {
+      const state = newRun(botSeats())
+      state.players[0].bench[4] = { definitionId: 'zubat', tier: 1, item: 'charcoal' }
+      const result = applyAction(state, 0, { t: 'removeItem', from: 'bench', index: 4 })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].bench[4]!.item).toBeUndefined()
+      expect(state.players[0].itemBench).toEqual(['charcoal'])
+    })
+
+    it('fails no-item when the target holds none', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      state.players[0].bench[0] = { definitionId: 'tangela', tier: 1 }
+      expectRejected(state, 0, { t: 'removeItem', from: 'board', index: 0 }, 'no-item')
+      expectRejected(state, 0, { t: 'removeItem', from: 'bench', index: 0 }, 'no-item')
+    })
+
+    it('fails no-unit when the target does not exist', () => {
+      const state = newRun(botSeats())
+      expectRejected(state, 0, { t: 'removeItem', from: 'board', index: 0 }, 'no-unit')
+      expectRejected(state, 0, { t: 'removeItem', from: 'bench', index: 0 }, 'no-unit')
+      expectRejected(state, 0, { t: 'removeItem', from: 'board', index: -1 }, 'no-unit')
+      expectRejected(state, 0, { t: 'removeItem', from: 'bench', index: 99 }, 'no-unit')
+    })
+  })
+
+  describe('seat isolation for the new variants', () => {
+    it('a successful board-to-bench move on seat 3 never touches seat 0', () => {
+      const state = newRun(botSeats())
+      state.players[3].personaId = null   // seat 3 becomes a second human
+      state.players[3].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      const before0 = JSON.parse(JSON.stringify(state.players[0]))
+      const result = applyAction(state, 3, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 0 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0]).toEqual(before0)
+    })
+
+    it('a successful removeItem on seat 3 never touches seat 0', () => {
+      const state = newRun(botSeats())
+      state.players[3].personaId = null
+      state.players[3].bench[0] = { definitionId: 'zubat', tier: 1, item: 'charcoal' }
+      state.players[0].bench[0] = { definitionId: 'zubat', tier: 1, item: 'charcoal' }
+      const before0 = JSON.parse(JSON.stringify(state.players[0]))
+      const result = applyAction(state, 3, { t: 'removeItem', from: 'bench', index: 0 })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0]).toEqual(before0)
+    })
+  })
+
+  describe('conservation', () => {
+    it('pool conservation: a unit moved between board and bench is never duplicated, never returned to the pool, and never changes the held total', () => {
+      const state = newRun(botSeats())
+      const econ = state.players[0]
+      econ.board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      econ.bench[0] = { definitionId: 'tangela', tier: 1 }
+
+      const poolBefore = JSON.parse(JSON.stringify(state.pool))
+      const totalBefore = totalUnitsHeld(econ)
+      const zubatCopiesBefore = heldCopies(state, 'zubat')
+
+      // Board -> bench, then bench -> board, then board -> a different bench
+      // slot. Every step is checked, so a mid-sequence leak that a later step
+      // happens to cancel out cannot hide.
+      const steps: GameAction[] = [
+        { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 1 } },
+        { t: 'moveBench', benchIndex: 1, to: { col: 2, row: 6 } },
+        { t: 'moveBoard', from: { col: 2, row: 6 }, to: { bench: 5 } },
+      ]
+      for (const action of steps) {
+        expect(applyAction(state, 0, action)).toEqual({ ok: true })
+        expect(state.pool).toEqual(poolBefore)
+        expect(totalUnitsHeld(econ)).toBe(totalBefore)
+        expect(heldCopies(state, 'zubat')).toBe(zubatCopiesBefore)
+        // Never in both places at once.
+        const onBoard = econ.board.filter(u => u.definitionId === 'zubat').length
+        const onBench = econ.bench.filter(b => b?.definitionId === 'zubat').length
+        expect(onBoard + onBench).toBe(1)
+      }
+    })
+
+    it('itemBench conservation: an item sits in exactly one place across a place/remove/move sequence, never both and never neither', () => {
+      const state = newRun(botSeats())
+      const econ = state.players[0]
+      econ.board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      econ.bench[0] = { definitionId: 'tangela', tier: 1 }
+      econ.itemBench = ['charcoal', 'expert_belt']
+
+      const steps: GameAction[] = [
+        { t: 'placeItem', itemIndex: 0, onHex: { col: 0, row: 4 } },   // charcoal -> board unit
+        { t: 'placeItem', itemIndex: 0, onBench: 0 },                   // expert_belt -> benched unit
+        { t: 'removeItem', from: 'board', index: 0 },                   // charcoal -> itemBench
+        { t: 'placeItem', itemIndex: 0, onBench: 0 },                   // charcoal -> benched unit, belt returns
+        { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 3 } }, // board unit benched
+        { t: 'removeItem', from: 'bench', index: 0 },                   // charcoal -> itemBench
+      ]
+
+      for (const action of steps) {
+        expect(applyAction(state, 0, action)).toEqual({ ok: true })
+        for (const itemId of ['charcoal', 'expert_belt']) {
+          expect(itemPlacements(econ, itemId), `${itemId} after ${action.t}`).toBe(1)
+        }
+      }
+
+      // Both items still accounted for at the end.
+      expect(itemPlacements(econ, 'charcoal')).toBe(1)
+      expect(itemPlacements(econ, 'expert_belt')).toBe(1)
     })
   })
 })
