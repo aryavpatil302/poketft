@@ -1975,6 +1975,44 @@ let net: RoomClient | null = null
 
 function isNetworked(): boolean { return net !== null }
 
+// True once the socket has dropped or been refused. Input stops here rather
+// than silently doing nothing: RoomClient already no-ops a send outside
+// 'open', but a click that looks accepted and then never changes anything is
+// worse than a click that visibly does nothing behind an explanatory banner.
+let netDropped = false
+
+// The connection-status banner. Deliberately appended to document.body and
+// NOT to #app: renderEconUI() and updateEconVisibility() rebuild subtrees
+// inside #app wholesale, and a banner living in there would be wiped by the
+// next re-render — exactly when the player most needs to still see it.
+let netStatusEl: HTMLDivElement | null = null
+
+function setNetStatusBanner(text: string | null): void {
+  if (netStatusEl === null) {
+    if (text === null) return
+    const el = document.createElement('div')
+    el.id = 'net-status-banner'
+    el.style.cssText = [
+      'position: fixed', 'top: 12px', 'left: 50%', 'transform: translateX(-50%)',
+      'z-index: 9999', 'padding: 8px 16px', 'border-radius: 6px',
+      'background: #0a0e1a', 'border: 1px solid #ff6666', 'color: #ff6666',
+      'font-family: monospace', 'font-size: 12px', 'letter-spacing: 0.5px',
+      'box-shadow: 0 2px 12px rgba(0,0,0,0.6)', 'pointer-events: none',
+      'transition: opacity 0.3s ease',
+    ].join('; ')
+    document.body.appendChild(el)
+    netStatusEl = el
+  }
+  if (text === null) {
+    netStatusEl.style.opacity = '0'
+    netStatusEl.style.display = 'none'
+    return
+  }
+  netStatusEl.textContent = text
+  netStatusEl.style.display = 'block'
+  netStatusEl.style.opacity = '1'
+}
+
 // Every saveRun call site in this file funnels through this wrapper rather
 // than the imported one. In a networked session the RunState on screen is the
 // SERVER's, and writing it to localStorage would overwrite the player's own
@@ -2026,6 +2064,20 @@ function bootNetworked(code: string): void {
     } else if (m.t === 'snapshot') {
       applyServerSnapshot(m.snapshot)
     }
+  })
+
+  client.onStatus((status, reason) => {
+    if (status === 'closed') {
+      netDropped = true
+      setNetStatusBanner('Lobby connection lost — reload the page to rejoin.')
+    } else if (status === 'rejected' && reason === 'not-seated') {
+      netDropped = true
+      setNetStatusBanner('This lobby is full — every seat is already taken.')
+    }
+    // Critically, neither branch clears `run`, clears placedUnits, or
+    // re-renders from an empty state. The LAST SERVER SNAPSHOT stays exactly
+    // as it is on screen: a frozen but correct board is the right failure
+    // mode, and reconnect/resync is explicitly v2 (HARD-01).
   })
 
   client.connect()
@@ -2955,6 +3007,9 @@ function performBuyXp(): void {
 function performReroll(): void {
   if (econPhase === 'gameOver') return
   if (net !== null) {
+    // Input stops at a drop. Every dispatch plans 04-03 and 04-04 add inherits
+    // this gate by construction, since they all sit behind the same branch.
+    if (netDropped) return
     // Send the intent and wait. The gold/shop change becomes visible only
     // when the server's own `snapshot` broadcast comes back — applying it
     // locally first would fork this client's economy from the room's for as

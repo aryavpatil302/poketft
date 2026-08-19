@@ -9,9 +9,9 @@
 // Run as: `npm run net:client`
 
 import { withRoom, ROOM_PORT } from './roomHarness'
-import { RoomClient } from '../src/net/roomClient'
-import { PROTOCOL_VERSION, type ServerMessage } from '../src/net/protocol'
-import { REROLL_COST } from '../src/econ/constants'
+import { RoomClient, type RoomClientStatus } from '../src/net/roomClient'
+import { PROTOCOL_VERSION, type RejectReason, type ServerMessage } from '../src/net/protocol'
+import { REROLL_COST, PLAYER_COUNT } from '../src/econ/constants'
 
 // Shortens the room's planning window so a multi-round run doesn't spend a
 // real 30s per round (partykit --var, surfaced on Party.Room.env — see
@@ -66,9 +66,16 @@ interface Waiter {
   timer: ReturnType<typeof setTimeout>
 }
 
+interface StatusEvent {
+  status: RoomClientStatus
+  reason?: RejectReason
+}
+
 function probeClient(client: RoomClient) {
   const seen: ServerMessage[] = []
   const waiters = new Set<Waiter>()
+  const statuses: StatusEvent[] = []
+  const statusListeners = new Set<(e: StatusEvent) => void>()
 
   client.onMessage(m => {
     seen.push(m)
@@ -80,7 +87,33 @@ function probeClient(client: RoomClient) {
     }
   })
 
+  client.onStatus((status, reason) => {
+    const event: StatusEvent = { status, reason }
+    statuses.push(event)
+    for (const listener of Array.from(statusListeners)) listener(event)
+  })
+
   return {
+    // Resolves on a matching status transition, replaying any already seen —
+    // a rejection can land before the caller gets a chance to await it.
+    nextStatus(predicate: (e: StatusEvent) => boolean, timeoutMs = 10_000): Promise<StatusEvent> {
+      const already = statuses.find(predicate)
+      if (already) return Promise.resolve(already)
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          statusListeners.delete(listener)
+          reject(new Error(`netClient: timed out after ${timeoutMs}ms waiting on a status transition. Seen: ${statuses.map(e => e.status).join(', ')}`))
+        }, timeoutMs)
+        const listener = (event: StatusEvent): void => {
+          if (!predicate(event)) return
+          clearTimeout(timer)
+          statusListeners.delete(listener)
+          resolve(event)
+        }
+        statusListeners.add(listener)
+      })
+    },
+
     // The number of times a registered message handler has actually fired —
     // scenario 4 asserts this does NOT move when garbage is fed in.
     get handled(): number { return seen.length },
@@ -292,7 +325,75 @@ async function afterRestart(host: string, roomId: string, roundBefore: number): 
   )
   scenarioPassed('a started room survives a restart')
 
+  // ─── 6. Drop ────────────────────────────────────────────────────────────
+  const s6 = scenario('drop')
+  const closedWait = probe.nextStatus(e => e.status === 'closed')
   client.close()
+  const closed = await closedWait
+  s6(closed.status === 'closed', "the status callback fires 'closed' when the socket goes away")
+  s6(client.status === 'closed', "RoomClient.status reports 'closed' after the drop")
+
+  // Take the baseline only once the room is provably quiesced (nobody
+  // connected, no timer scheduled). Reading it while a 2s deadline is still
+  // armed would let a legitimate round transition masquerade as a
+  // server-side effect of the send below.
+  const quiesceDeadline = Date.now() + 10_000
+  let quiesced: RoomStatus | null = null
+  while (Date.now() < quiesceDeadline) {
+    const status = await roomStatus(host, roomId)
+    if (status.connections === 0 && status.timerScheduled === false) { quiesced = status; break }
+    await sleep(150)
+  }
+  s6(quiesced !== null, 'the room stops its timer once the dropped client is gone')
+  const roundAtDrop = quiesced!.round
+
+  let sendThrew = false
+  try {
+    // Must be inert, not buffered: a queued intent replayed into a socket that
+    // reopens minutes later would spend gold against a round long since
+    // settled (T-04-05).
+    client.sendAction({ t: 'reroll' })
+  } catch {
+    sendThrew = true
+  }
+  s6(!sendThrew, 'sendAction after a drop does not throw')
+
+  await sleep(600)
+  const afterDrop = await roomStatus(host, roomId)
+  s6(
+    afterDrop.round === roundAtDrop,
+    `sendAction after a drop had no server-side effect (round stayed at ${roundAtDrop})`,
+  )
+  scenarioPassed('drop')
+
+  // ─── 7. Full lobby ──────────────────────────────────────────────────────
+  const s7 = scenario('full lobby')
+  const occupants: RoomClient[] = []
+  for (let seat = 0; seat < PLAYER_COUNT; seat++) {
+    const filler = new RoomClient({ host, room: roomId, name: `Filler${seat}` })
+    const fillerProbe = probeClient(filler)
+    const welcomeWait = fillerProbe.next(m => m.t === 'welcome', 15_000)
+    filler.connect()
+    await welcomeWait
+    occupants.push(filler)
+  }
+  s7(occupants.length === PLAYER_COUNT, `all ${PLAYER_COUNT} seats are occupied (PLAYER_COUNT, not a hardcoded count)`)
+
+  const overflow = new RoomClient({ host, room: roomId, name: 'Overflow' })
+  const overflowProbe = probeClient(overflow)
+  const refusedWait = overflowProbe.nextStatus(e => e.status === 'rejected', 15_000)
+  overflow.connect()
+  const refused = await refusedWait
+  s7(refused.status === 'rejected', 'a connection to a full lobby is reported rejected rather than hanging')
+  s7(
+    refused.reason === 'not-seated',
+    `the rejection carries reason 'not-seated' (got '${refused.reason}')`,
+  )
+  s7(overflow.status === 'rejected', "RoomClient.status is 'rejected', never flattened to 'closed'")
+  scenarioPassed('full lobby')
+
+  overflow.close()
+  for (const filler of occupants) filler.close()
   await sleep(200)
 }
 
