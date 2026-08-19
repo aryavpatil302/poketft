@@ -31,7 +31,8 @@ import {
 import { startPlanning, resolveRound, pairSeats, type RoundResult, type FightLog } from './game/round'
 import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from './game/playback'
 import { RoomClient } from './net/roomClient'
-import { parseLobbyCode, partyHost } from './net/lobbyUrl'
+import { parseLobbyCode, partyHost, newLobbyCode, shareableLobbyUrl } from './net/lobbyUrl'
+import { showTitleScreen, hideTitleScreen } from './ui/titleScreen'
 import { TRAIT_TOOLTIPS } from './data/traitTooltips'
 import { REPO_TESTS } from './repoTests'
 import type { CombatState, Unit, ItemDefinition } from './core/types'
@@ -4944,22 +4945,59 @@ function frame(ts: number): void {
   }
 }
 
-// ─── Boot: join a lobby by link, or enter economy/test mode ──────────────────
+// ─── Boot: Title Screen, or straight into a lobby by link ────────────────────
+
+// Today's solo boot, lifted verbatim out of the old module-scope boot block
+// and given a name. The statements are byte-for-byte what ran before the
+// Title Screen existed — this is a move, not a rewrite, because
+// 04-UI-SPEC.md requires Start Solo Game to reach the CURRENT solo game with
+// no behavioural change.
+//
+// Nothing between the old boot block and here depended on it having already
+// run: `run` is initialised at module scope and `econPhase` already defaults
+// from `run.gameOver`, so deferring these statements behind a button changes
+// only WHEN they run, never what they do.
+function bootSolo(): void {
+  if (econActive()) {
+    if (isFreshRun()) initFreshRun()
+    if (run.gameOver) enterGameOver(run.gameOver)
+    else startPlanningPhase(false)   // resume persisted shop; roll only if empty
+  } else {
+    updateEconVisibility()
+  }
+}
+
+// Creates a room and becomes its host. 04-UI-SPEC.md Flow step 4.
+//
+// Once set, the URL's lobby code is the SOLE source of truth for which room
+// this tab belongs to — the boot router below reads it before anything else,
+// so a refresh after creation reconnects to the same room rather than minting
+// a second orphan one, and a second click on an already-created lobby is a
+// no-op rather than an abandoned room (T-04-11).
+function onMultiplayer(): void {
+  if (net !== null) return
+  if (parseLobbyCode(location.search) !== null) return
+
+  const code = newLobbyCode()
+  history.replaceState(null, '', shareableLobbyUrl(location.origin, code))
+  hideTitleScreen()
+  bootNetworked(code)
+}
 
 // The single switch between the solo path and the networked path — everything
 // downstream branches on isNetworked(). A `?lobby=` that is absent, malformed,
-// or outside the code alphabet falls straight through to the solo boot below,
-// which is unchanged from before Phase 4.
+// or outside the code alphabet falls through to the Title Screen, whose Start
+// Solo Game button reaches the solo boot unchanged from before Phase 4.
 const bootLobbyCode = parseLobbyCode(location.search)
 
 if (bootLobbyCode !== null) {
+  // Flow step 1: a link-opened tab never sees the Title Screen.
   bootNetworked(bootLobbyCode)
-} else if (econActive()) {
-  if (isFreshRun()) initFreshRun()
-  if (run.gameOver) enterGameOver(run.gameOver)
-  else startPlanningPhase(false)   // resume persisted shop; roll only if empty
 } else {
-  updateEconVisibility()
+  showTitleScreen({ onSolo: () => { hideTitleScreen(); bootSolo() }, onMultiplayer })
 }
 
+// Starts unconditionally in both branches, so the canvas is already warm
+// behind the overlay and dismissing a screen reveals a live board rather than
+// a first frame.
 requestAnimationFrame(frame)
