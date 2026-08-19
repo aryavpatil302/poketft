@@ -18,10 +18,10 @@ import { makeUnit, computeStats } from './core/unitFactory'
 import { ALL_UNITS, UNIT_MAP } from './data/units'
 import { ITEM_MAP } from './data/items'
 import { TRAIT_MAP } from './data/traits'
-import { loadRun, saveRun, clearRun, newRun, type RunState, type PlayerEcon } from './econ/runState'
+import { loadRun, saveRun, clearRun, newRun, type RunState, type PlayerEcon, type BoardEntry } from './econ/runState'
 import { rollShop, reroll as shopReroll, buyUnit, sellFromBench, sellFromBoard } from './econ/shop'
 import { buyXp, xpToNext, boardCap } from './econ/xp'
-import { botSeats, botPlanRound, econBoardPower, personaById } from './econ/bots'
+import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
 import { checkGameOver } from './econ/botMatches'
 import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices } from './econ/creeps'
 import {
@@ -1143,6 +1143,27 @@ document.addEventListener('mouseover', (e) => {
 })
 
 // Scouting tooltip: hover a lobby row to see that player's current board
+// Traits actually active on a board right now — unique species per trait,
+// filtered to traits that clear their first activation threshold. This is
+// deliberately NOT persona.lines (a bot's target-comp preference/identity,
+// which can differ from what's actually fielded at any given moment).
+function activeTraitsOnBoard(board: BoardEntry[]): Array<[string, number]> {
+  const counts = new Map<string, number>()
+  const seenDefs = new Set<string>()
+  for (const entry of board) {
+    if (seenDefs.has(entry.definitionId)) continue
+    seenDefs.add(entry.definitionId)
+    const def = UNIT_MAP.get(entry.definitionId)
+    if (!def) continue
+    for (const t of def.types) {
+      if (NON_DISPLAY_TRAITS.has(t)) continue
+      counts.set(t, (counts.get(t) ?? 0) + 1)
+    }
+  }
+  const active = [...counts.entries()].filter(([trait, count]) => getThresholds(trait).some(t => count >= t))
+  return sortTraitEntries(new Map(active))
+}
+
 function showLobbyTooltip(row: HTMLElement): void {
   const pi = Number(row.dataset.pi)
   const p = run.players[pi]
@@ -1150,10 +1171,10 @@ function showLobbyTooltip(row: HTMLElement): void {
   ensureTooltipShown(`lobby:${pi}`)
   tooltipEl.style.width = `${TOOLTIP_WIDTH}px`
 
-  const persona = personaById(p.personaId)
-  const lineLabel = persona
-    ? persona.lines.map(t => traitDisplayName(t)).join(' · ')
-    : 'That’s you'
+  const activeTraits = activeTraitsOnBoard(p.board)
+  const lineLabel = activeTraits.length > 0
+    ? activeTraits.map(([t]) => traitDisplayName(t)).join(' · ')
+    : (p.personaId === null ? 'That’s you' : 'No active traits')
   const power = Math.round(econBoardPower(p) * 10) / 10
 
   const cells = p.board.map(u => {
