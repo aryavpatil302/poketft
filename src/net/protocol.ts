@@ -37,9 +37,22 @@ export function planningMsFor(env: Record<string, unknown> | undefined): number 
 // resetActionBudget()).
 export const MAX_ACTIONS_PER_PHASE = 600
 
-export type RoomPhase = 'idle' | 'planning' | 'resolving' | 'over'
+// 'lobby' means the room exists and seats can be taken, but no round has
+// started and no timer is running — only the seat-0 host can move it to
+// 'planning' (see party/lobby.ts's `start` handling). Deliberately distinct
+// from 'idle', which means an ALREADY-STARTED room whose clock is stopped
+// because nobody is connected. The distinction is load-bearing across a room
+// restart: a rehydrated mid-game room must come back 'idle' (resume on the
+// next connect) and never 'lobby' (wait for a second Start that will never
+// come).
+export type RoomPhase = 'idle' | 'lobby' | 'planning' | 'resolving' | 'over'
 
-export type RejectReason = ActionReason | 'not-seated' | 'wrong-phase' | 'malformed' | 'too-large' | 'rate-limited'
+export type RejectReason =
+  | ActionReason
+  | 'not-seated' | 'wrong-phase' | 'malformed' | 'too-large' | 'rate-limited'
+  // A `start` from a seat other than 0, and a `start` for a room that has
+  // already left the 'lobby' phase, respectively.
+  | 'not-host' | 'already-started'
 
 export interface LobbySeatView {
   seat: number
@@ -61,6 +74,11 @@ export interface LobbySeatView {
 //     from its own newRoomRun() or its own storage.
 export type ClientMessage =
   | { t: 'action'; action: GameAction }
+  // Host-only request to leave the 'lobby' phase and open the first planning
+  // round. Note it upholds both properties above: no seat field (the room
+  // resolves the sender's seat from its own occupants table and rejects
+  // 'not-host' for anything but seat 0) and no state field.
+  | { t: 'start' }
 
 export type ServerMessage =
   | { t: 'welcome'; protocol: number; seat: number; snapshot: RunState; lobby: LobbySeatView[]; phase: RoomPhase; round: number }
@@ -86,10 +104,10 @@ export type ServerMessage =
   | { t: 'fight-chunk'; chunk: FightChunk }
 
 // Narrow parse — never throws. Returns null for non-JSON input, a parsed
-// value that is not a plain object, or any `t` other than 'action'. Does NOT
-// deeply validate the GameAction payload: applyAction is already a
-// validate-before-mutate function and is the sole authority on whether an
-// action is legal.
+// value that is not a plain object, or any `t` outside the ClientMessage
+// union ('action', 'start'). Does NOT deeply validate the GameAction
+// payload: applyAction is already a validate-before-mutate function and is
+// the sole authority on whether an action is legal.
 export function parseClientMessage(raw: string): ClientMessage | null {
   let parsed: unknown
   try {
@@ -99,6 +117,38 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
   const candidate = parsed as { t?: unknown; action?: unknown }
+  if (candidate.t === 'start') return { t: 'start' }
   if (candidate.t !== 'action') return null
   return { t: 'action', action: candidate.action as GameAction }
+}
+
+// Every `t` the server is allowed to send. A frame carrying anything else is
+// from a future protocol version, a proxy, or an attacker, and is dropped.
+const SERVER_MESSAGE_TYPES = new Set<string>([
+  'welcome', 'snapshot', 'lobby', 'rejected', 'seat-taken', 'seat-freed',
+  'phase', 'resolve', 'fight-chunk',
+])
+
+// The client-side mirror of parseClientMessage — never throws. Returns null
+// for non-JSON input, a parsed value that is not a plain non-array object,
+// any unknown `t`, and a `welcome` whose `protocol` is not PROTOCOL_VERSION
+// (a version-skewed server's payload shapes are not ours to interpret).
+//
+// Deliberately does NOT deep-validate payload bodies: the server is the sole
+// authority on content — it owns the RunState and recorded every fight it
+// sends. This parse exists only so an UNRECOGNISED frame cannot reach render
+// code, which is exactly the reasoning parseClientMessage already carries on
+// its own side of the wire.
+export function parseServerMessage(raw: unknown): ServerMessage | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(typeof raw === 'string' ? raw : String(raw))
+  } catch {
+    return null
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+  const candidate = parsed as { t?: unknown; protocol?: unknown }
+  if (typeof candidate.t !== 'string' || !SERVER_MESSAGE_TYPES.has(candidate.t)) return null
+  if (candidate.t === 'welcome' && candidate.protocol !== PROTOCOL_VERSION) return null
+  return parsed as ServerMessage
 }

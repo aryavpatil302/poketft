@@ -31,12 +31,27 @@ async function main(): Promise<void> {
       'every other seat is bot-held (non-null personaId)',
     )
 
-    const seat0 = welcome.snapshot.players[0]
+    // A room now waits in phase 'lobby' until its host starts it — the buy
+    // below would otherwise be rejected 'wrong-phase'. Register both waits
+    // before sending, since beginPlanning() broadcasts phase and snapshot
+    // back to back.
+    const startedBoth = Promise.all([
+      nextMessage<any>(sock, m => m.t === 'phase' && m.phase === 'planning'),
+      nextMessage<any>(sock, m => m.t === 'snapshot'),
+    ])
+    sock.send(JSON.stringify({ t: 'start' }))
+    const [started, opening] = await startedBoth
+    assert(started.phase === 'planning', "seat 0's start moves the room to planning")
+
+    // Read the shop from the OPENING snapshot, not the welcome: beginPlanning
+    // runs startPlanning(), which rolls every unlocked seat's shop, so the
+    // welcome's slots are already stale by the time this buy is sent.
+    const seat0 = opening.snapshot.players[0]
     const slot = seat0.shop.findIndex((s: string | null) => s !== null)
     assert(slot !== -1, 'seat 0 shop has at least one non-null slot')
     const definitionId = seat0.shop[slot]
     const goldBefore = seat0.gold
-    const poolBefore = welcome.snapshot.pool[definitionId]
+    const poolBefore = opening.snapshot.pool[definitionId]
 
     sock.send(JSON.stringify({ t: 'action', action: { t: 'buy', slot } }))
     const afterBuy = await nextMessage<any>(sock, m => m.t === 'snapshot')
