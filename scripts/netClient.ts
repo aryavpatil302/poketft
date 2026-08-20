@@ -11,6 +11,11 @@
 import { withRoom, ROOM_PORT } from './roomHarness'
 import { RoomClient, type RoomClientStatus } from '../src/net/roomClient'
 import { PROTOCOL_VERSION, type RejectReason, type ServerMessage } from '../src/net/protocol'
+// The REAL countdown module the browser runs, not a re-implementation of its
+// arithmetic: scenario 13 below feeds it two clients' actual `phase` frames so
+// the clock-skew property is asserted against a live server rather than only
+// in roomClock.test.ts's unit tests.
+import { captureDeadline, remainingMs } from '../src/net/roomClock'
 import { REROLL_COST, PLAYER_COUNT } from '../src/econ/constants'
 import { UNIT_MAP } from '../src/data/units'
 import type { RunState } from '../src/econ/runState'
@@ -462,7 +467,12 @@ async function lobbyScreenFlow(host: string, roomId: string): Promise<void> {
     JSON.stringify(humansIn(shrunk.lobby)) === JSON.stringify([0]),
     `a disconnect drops the seat back out of the list with no client-side polling (got ${JSON.stringify(humansIn(shrunk.lobby))})`,
   )
-  scenarioPassed('seat list liveness')
+  // NOTE: scenarioPassed('seat list liveness') is deliberately NOT called here.
+  // Scenario 8 has one more property to prove — that the hp the seat list
+  // renders is the room's shared authoritative number — and hp is only
+  // interesting once a round has actually settled, which needs the running
+  // round loop that only scenario 9's Start opens. The PASS line is therefore
+  // held back to the end of this function so it reports the whole property.
 
   // ─── 9. Host-gated dismissal ────────────────────────────────────────────
   const s9 = scenario('host-gated dismissal')
@@ -489,8 +499,130 @@ async function lobbyScreenFlow(host: string, roomId: string): Promise<void> {
   )
   scenarioPassed('host-gated dismissal')
 
+  // ─── 8 (concluded). The seat list's HP is the room's, not a local tally ──
+  // The in-game seat list (src/main.ts's renderLobby) renders `hp` straight
+  // out of these views. If two clients could disagree about a seat's hp, the
+  // list would be showing a locally-derived number dressed up as shared
+  // state — so both sides are compared against ONE post-resolve view each.
+  const resolveA = probeA.next(m => m.t === 'resolve', 20_000)
+  const resolveC = probeC.next(m => m.t === 'resolve', 20_000)
+  await Promise.all([resolveA, resolveC])
+
+  // A `lobby` view is broadcast on connect and close ONLY, so a third client
+  // joining is what makes the post-resolve view observable on both sides.
+  // Both waiters are registered before the connect, the same cross-connection
+  // ordering rule the rest of this file follows.
+  const lobbyAfterA = probeA.next(m => m.t === 'lobby', 15_000)
+  const lobbyAfterC = probeC.next(m => m.t === 'lobby', 15_000)
+  const clientD = new RoomClient({ host, room: roomId, name: 'Dusk' })
+  const probeD = probeClient(clientD)
+  const welcomeWaitD = probeD.next(m => m.t === 'welcome', 15_000)
+  clientD.connect()
+  await welcomeWaitD
+  const [viewA, viewC] = await Promise.all([lobbyAfterA, lobbyAfterC])
+
+  const hpOf = (lobby: Array<{ seat: number; hp: number }>): number[] =>
+    lobby.slice().sort((x, y) => x.seat - y.seat).map(s => s.hp)
+
+  s8(
+    viewA.lobby.length === PLAYER_COUNT,
+    `a lobby view covers every seat in the room (${viewA.lobby.length} of ${PLAYER_COUNT})`,
+  )
+  s8(
+    JSON.stringify(hpOf(viewA.lobby)) === JSON.stringify(hpOf(viewC.lobby)),
+    `after a resolve both clients' lobby views report identical per-seat hp (${JSON.stringify(hpOf(viewA.lobby))})`,
+  )
+  scenarioPassed('seat list liveness')
+
   clientA.close()
   clientC.close()
+  clientD.close()
+  await sleep(200)
+}
+
+// ─── Scenario 13: two clients, one deadline ───────────────────────────────────
+
+// NET-05's clock property, asserted against a real room: two tabs must show
+// the SAME remaining seconds at the same wall-clock moment even when their
+// system clocks disagree.
+//
+// The room sends an absolute `deadline` paired with its own `serverNow`
+// precisely so a client can subtract the two into a DURATION and track that
+// against its own monotonic clock — src/net/roomClock.ts is the single place
+// that subtraction happens, and this scenario drives THAT module rather than
+// restating its arithmetic, so a regression in it fails here too.
+async function deadlineAgreement(host: string, roomId: string): Promise<void> {
+  const s13 = scenario('deadline agreement')
+
+  const clientA = new RoomClient({ host, room: roomId, name: 'ClockA' })
+  const probeA = probeClient(clientA)
+  const welcomeWaitA = probeA.next(m => m.t === 'welcome', 15_000)
+  clientA.connect()
+  const welcomeA = await welcomeWaitA
+  s13(welcomeA.phase === 'lobby', `the clock room has never been started (phase '${welcomeA.phase}')`)
+
+  const clientB = new RoomClient({ host, room: roomId, name: 'ClockB' })
+  const probeB = probeClient(clientB)
+  const welcomeWaitB = probeB.next(m => m.t === 'welcome', 15_000)
+  clientB.connect()
+  await welcomeWaitB
+
+  // Registered before the Start, for the usual cross-connection reason.
+  const planningA = probeA.next(m => m.t === 'phase' && m.phase === 'planning', 15_000)
+  const planningB = probeB.next(m => m.t === 'phase' && m.phase === 'planning', 15_000)
+  clientA.sendStart()
+  const [phaseA, phaseB] = await Promise.all([planningA, planningB])
+
+  s13(
+    phaseA.round === phaseB.round,
+    `both clients open the SAME round (${phaseA.round} and ${phaseB.round})`,
+  )
+  s13(
+    phaseA.deadline !== null && phaseA.deadline === phaseB.deadline,
+    `both clients receive one identical absolute deadline (${phaseA.deadline} and ${phaseB.deadline})`,
+  )
+  // beginPlanning builds ONE JSON string and broadcasts it, so this is exact
+  // rather than merely close — asserted with a tolerance anyway, because the
+  // property NET-05 needs is "close enough to agree on a second", and pinning
+  // it to byte-identity would make this fail the day the room sends the two
+  // frames separately for an unrelated reason.
+  const SERVER_NOW_TOLERANCE_MS = 250
+  s13(
+    Math.abs(phaseA.serverNow - phaseB.serverNow) <= SERVER_NOW_TOLERANCE_MS,
+    `both clients' serverNow agree within ${SERVER_NOW_TOLERANCE_MS}ms (${Math.abs(phaseA.serverNow - phaseB.serverNow)}ms apart)`,
+  )
+
+  // DELIBERATELY different monotonic origins: performance.now() has a
+  // different epoch in every process (and every browser tab), which is the
+  // whole reason roomClock stores a duration plus a local reference instead of
+  // the server's absolute timestamp. If either client compared `deadline`
+  // against its own wall clock, these two would diverge by the origin gap.
+  const ORIGIN_A = 0
+  const ORIGIN_B = 1_000_000
+  const clockA = captureDeadline(phaseA, ORIGIN_A)
+  const clockB = captureDeadline(phaseB, ORIGIN_B)
+  s13(
+    clockA !== null && clockB !== null,
+    'captureDeadline accepts both clients\' planning frames',
+  )
+
+  // Read at the same simulated instant on each client's own monotonic scale.
+  const ELAPSED_MS = 500
+  const leftA = remainingMs(clockA, ORIGIN_A + ELAPSED_MS)
+  const leftB = remainingMs(clockB, ORIGIN_B + ELAPSED_MS)
+  const AGREEMENT_TOLERANCE_MS = 100
+  s13(
+    leftA > 0 && leftB > 0,
+    `both clocks still have time on them ${ELAPSED_MS}ms in (${Math.round(leftA)}ms and ${Math.round(leftB)}ms)`,
+  )
+  s13(
+    Math.abs(leftA - leftB) <= AGREEMENT_TOLERANCE_MS,
+    `two monotonic origins ${ORIGIN_B - ORIGIN_A}ms apart still agree on the remaining time within ${AGREEMENT_TOLERANCE_MS}ms (${Math.round(Math.abs(leftA - leftB))}ms apart)`,
+  )
+  scenarioPassed('deadline agreement')
+
+  clientA.close()
+  clientB.close()
   await sleep(200)
 }
 
@@ -867,6 +999,11 @@ async function main(): Promise<void> {
       // scenarios 10-11 deliberately leave seat 0 broke. Fresh room id, same
       // process, exactly the trick scenarios 8-9 use.
       await sharedPoolConservation(host, `${roomId}-pool`)
+      // Scenario 13 wants a fresh never-started room (it asserts on the FIRST
+      // planning frame) and the long window, so its 500ms simulated read lands
+      // comfortably inside the budget rather than against an about-to-expire
+      // 2s one. Fresh room id, same process — the scenarios 8-9 trick again.
+      await deadlineAgreement(host, `${roomId}-clock`)
     },
     { PLANNING_MS: String(PLANNING_MS_ACTIONS) },
   )
