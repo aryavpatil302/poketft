@@ -179,3 +179,34 @@ Base commit `081571e`, worktree `worktree-agent-a1cdfb5d18c88517b`:
   to the same `.gitignore` decision as `dist/`.
 - **Room port 1999 hazard did not reproduce.** `npm run net:client` passed all
   13 scenarios on the default port in a single run.
+
+## `scripts/roomRound.ts` can fail to force a 0-vs-1 pairing (flaky), found in 04-06
+
+`npm run room:round` failed once with `ASSERTION FAILED: a 0-vs-1 pairing was
+forced within 20 rounds (took 20 rounds)` and passed on an immediate re-run
+with no code change in between. Matchmaking is random (`pairSeats`), and the
+script's loop caps at `MAX_ROUNDS = 20`; with six seats, some of which get
+eliminated mid-run, 20 rounds is not a guaranteed window. `scripts/roomRound.ts`
+is Phase 3 surface and untouched by any Phase 4 plan (`git diff --name-only
+master...HEAD` for 04-06 lists only `src/main.ts` and `scripts/netClient.ts`),
+so this is a pre-existing property of the script, not a regression.
+
+The same pairing-forcing loop was copied into `netClient.ts`'s scenario 14
+(also `MAX_ROUNDS = 20`), so it inherits the same flakiness. Candidate fix for
+both: raise the cap, or force the pairing deterministically instead of polling
+`nextOpponent` — but `pairSeats` currently offers no seat-pinning hook, which
+makes that an engine change rather than a script change.
+
+## `npm run build` cannot verify the bundle, so 04-06 built to a throwaway outDir
+
+`npm run build` is `tsc && vite build`, and `tsc` exits non-zero on the 16
+pre-existing errors above — so `vite build` never runs and the bundle is never
+actually exercised. That is fine for keeping `dist/` clean, but it also means
+no plan in this phase has proven its new imports resolve in a real bundle.
+
+04-06 added three new module imports to `src/main.ts` (`fightBuffer`,
+`fightWire`, `playbackPerspective`) and checked them with
+`npx vite build --outDir dist-check --emptyOutDir`, then deleted `dist-check/`.
+That worked (418 modules transformed, clean) but it is a manual dance. Rolling
+it into a `npm run build:check` script would make bundle verification routine
+without touching the tracked `dist/`.
