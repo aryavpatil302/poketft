@@ -153,3 +153,29 @@ advisory, with `applyAction` as the authority), so the discrepancy is
 unchanged rather than introduced. The fix is to make the advisory count
 skip `isCliffId` entries — but that also changes the `n/level` board
 watermark, which is a gameplay-readability decision rather than a bug fix.
+
+## Re-confirmed during 04-05
+
+Base commit `081571e`, worktree `worktree-agent-a1cdfb5d18c88517b`:
+
+- **16 pre-existing `tsc --noEmit` errors** — identical list to 04-01/04-03.
+  Verified pre-existing by reading the offending lines out of `git show
+  HEAD:<file>` rather than assuming. `src/main.ts` and `scripts/netClient.ts`
+  are both clean (`npx tsc --noEmit 2>&1 | grep -E "src/main.ts|scripts/netClient.ts"`
+  returns nothing), so this plan neither added nor removed any.
+- **23 failing tests across 8 files** — identical to 04-03's re-confirmation.
+  `git diff --name-only master...HEAD` shows this plan touched only
+  `src/main.ts` and `scripts/netClient.ts`, neither of which any failing suite
+  imports.
+- **`dist/` was NOT dirtied by this plan.** `npm run build` is `tsc && vite
+  build`, and `tsc` exits non-zero on the pre-existing errors above, so
+  `vite build` never runs and no bundle output is emitted. `git status
+  --short` was empty after the build attempt. No `git checkout -- dist` was
+  needed.
+- **`node_modules/.vite/vitest/results.json` is tracked** and is rewritten by
+  every `npx vitest run`. Same hazard class as the tracked `dist/`: it must be
+  reverted (`git checkout -- node_modules/.vite/vitest/results.json`) before
+  staging, or a vitest cache blob rides along in a source commit. Worth adding
+  to the same `.gitignore` decision as `dist/`.
+- **Room port 1999 hazard did not reproduce.** `npm run net:client` passed all
+  13 scenarios on the default port in a single run.
