@@ -48,6 +48,7 @@ import {
   captureDeadline, remainingSeconds, fractionRemaining, type RoomClock,
 } from './net/roomClock'
 import { parseLobbyCode, partyHost, newLobbyCode, shareableLobbyUrl } from './net/lobbyUrl'
+import { escapeHtml } from './ui/escapeHtml'
 import { showTitleScreen, hideTitleScreen } from './ui/titleScreen'
 import { showLobbyScreen, updateLobbyScreen, setLobbyMessage, hideLobbyScreen } from './ui/lobbyScreen'
 import { pickGuestName } from './net/guestNames'
@@ -3812,19 +3813,56 @@ function renderRoundIndicator(): void {
   }
 }
 
+// Is this seat held by a live human right now?
+//
+// NETWORKED: read straight off the room's last `lobby` broadcast, whose
+// `human` flag party/seats.ts's lobbyView derives from live `table.occupants`
+// (never from `personaId`, which is a persisted roster value) — that is what
+// makes this a trustworthy PRESENCE indicator rather than a stale label. A
+// seat with no matching view entry falls back to bot, so a short, empty or
+// not-yet-arrived netLobby renders rather than throwing.
+//
+// SOLO: exactly one seat is human, this client's own.
+function seatIsHuman(seat: number): boolean {
+  if (netLobby === null) return seat === localSeatIndex
+  return netLobby.find(s => s.seat === seat)?.human ?? false
+}
+
+// The in-game seat list: every seat's name, HP, level and whether a human or a
+// bot is holding it, refreshed from the room's own broadcasts.
+//
+// ORDERING — deliberately different from the pre-game Lobby Screen's "Current
+// players" list, which is strict ascending seat index (04-UI-SPEC.md, plan
+// 04-02). The two answer different questions: that one is "who is in this
+// room", this one is a mid-run LEADERBOARD, so HP descending is what a player
+// wants. The seat-index tiebreak below makes that order TOTAL, so two seats on
+// equal HP never swap places between renders.
+//
+// The row count is bounded by run.players.length and each row looks its view
+// entry up BY SEAT, so a longer-than-expected netLobby cannot inflate the DOM
+// (T-04-21).
 function renderLobby(): void {
   const panel = document.getElementById('lobby-panel')
   if (!panel) return
   if (!econActive()) { panel.style.display = 'none'; return }
   panel.style.display = 'block'
 
+  // Eliminated seats rank below every living one, regardless of the hp value
+  // they were carrying when they died.
+  const rank = (p: PlayerEcon): number => (p.eliminated ? -1 : p.hp)
+
   const rows = run.players
     .map((p, i) => ({ p, i }))
-    .sort((a, b) => (b.p.eliminated ? -1 : b.p.hp) - (a.p.eliminated ? -1 : a.p.hp))
+    .sort((a, b) => rank(b.p) - rank(a.p) || a.i - b.i)
     .map(({ p, i }) => {
       const isOpp = i === run.players[localSeatIndex].nextOpponent && !p.eliminated && !isCreepRound(run.round) && !isItemRound(run.round)
       const hpPct = Math.max(0, p.hp)
       const hpColor = p.hp > 60 ? '#44cc44' : p.hp > 30 ? '#ffcc00' : '#ff4444'
+      const isHuman = seatIsHuman(i)
+      const badgeColor = isHuman ? '#66dd88' : '#5a6377'
+      const badge = `<span style="font-size:8px;font-weight:normal;letter-spacing:0.5px;padding:0 3px;`
+        + `border-radius:3px;border:1px solid ${badgeColor};color:${badgeColor};">`
+        + `${isHuman ? 'HUMAN' : 'BOT'}</span>`
       return `<div class="lobby-row" data-pi="${i}" style="
         padding:5px 7px;margin-bottom:4px;border-radius:6px;
         border:1px solid ${isOpp ? '#cc4444' : '#223'};
@@ -3833,7 +3871,7 @@ function renderLobby(): void {
       ">
         <div style="display:flex;justify-content:space-between;font-size:11px;color:#cde;">
           <span style="${p.eliminated ? 'text-decoration:line-through;color:#667;' : ''}font-weight:bold;">
-            ${isOpp ? '⚔ ' : ''}${p.name}</span>
+            ${isOpp ? '⚔ ' : ''}${escapeHtml(p.name)} ${badge}</span>
           <span style="color:#88aaff;">Lv ${p.level}</span>
         </div>
         <div style="display:flex;align-items:center;gap:5px;margin-top:3px;">
