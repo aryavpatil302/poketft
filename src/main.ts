@@ -19,8 +19,11 @@ import { ALL_UNITS, UNIT_MAP } from './data/units'
 import { ITEM_MAP } from './data/items'
 import { TRAIT_MAP } from './data/traits'
 import { loadRun, saveRun as persistRunToStorage, clearRun, newRun, type RunState, type PlayerEcon, type BoardEntry } from './econ/runState'
-import { rollShop, reroll as shopReroll, buyUnit, sellFromBench, sellFromBoard } from './econ/shop'
-import { buyXp, xpToNext, boardCap } from './econ/xp'
+// buyUnit / reroll / sellFromBench are deliberately NOT imported any more:
+// every shop mutation now travels through dispatchAction -> applyAction, the
+// same function the room server calls. sellFromBoard is plan 04-04's to move.
+import { rollShop, sellFromBoard } from './econ/shop'
+import { xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
 import { checkGameOver } from './econ/botMatches'
 import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices } from './econ/creeps'
@@ -28,9 +31,13 @@ import {
   REROLL_COST, XP_BUY_COST, sellValue, copiesHeld, stageLabel, SHOP_ODDS,
   BASE_INCOME_BY_ROUND, BASE_INCOME_CAP, MAX_INTEREST, streakBonus, WIN_BONUS, XP_PER_ROUND,
 } from './econ/constants'
-import { startPlanning, resolveRound, pairSeats, type RoundResult, type FightLog } from './game/round'
+import {
+  startPlanning, resolveRound, pairSeats, applyAction,
+  type RoundResult, type FightLog, type GameAction, type ActionReason,
+} from './game/round'
 import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from './game/playback'
 import { RoomClient } from './net/roomClient'
+import type { RejectReason } from './net/protocol'
 import { parseLobbyCode, partyHost, newLobbyCode, shareableLobbyUrl } from './net/lobbyUrl'
 import { showTitleScreen, hideTitleScreen } from './ui/titleScreen'
 import { showLobbyScreen, updateLobbyScreen, setLobbyMessage, hideLobbyScreen } from './ui/lobbyScreen'
@@ -2054,11 +2061,211 @@ function saveRun(state: RunState): void {
 // wrapper above would refuse the write anyway — this is the second lock on
 // the same door, and the reason the function body has no persistence step at
 // all.)
+//
+// False until this session has adopted its first server snapshot. The FIRST
+// one is an ADOPTION, not a transition: diffing the player's own solo save
+// against the room's state would fire a burst of star-up flashes for units
+// this client never bought (most visibly on a host refresh into a mid-game
+// room). Reset by bootNetworked and leaveLobby so a second lobby starts clean.
+let seenServerSnapshot = false
+
 function applyServerSnapshot(snapshot: RunState): void {
+  // Read the OUTGOING composition before `run` is replaced — the star-up
+  // flash is the one piece of buy feedback no message on the wire carries
+  // (a `snapshot` is just the new state), so it has to be derived by diff.
+  const before = localTierComposition()
   run = snapshot
   syncRunToBoard()
   renderEconUI()
   renderTraitDisplay()
+  if (seenServerSnapshot) flashStarUps(detectStarUps(before, localTierComposition()))
+  seenServerSnapshot = true
+}
+
+// ─── The dispatch seam ────────────────────────────────────────────────────────
+
+// THE single seam between input handling and economy mutation. Every shop and
+// (from plan 04-04) board interaction is expressed as a GameAction and handed
+// to this function; no handler in this file calls buyUnit/reroll/buyXp/
+// sellFromBench directly any more. The local and networked cases share this
+// one body rather than each keeping a copy of the handler logic.
+//
+// Returns true when the action was accepted (local) or sent (networked), so a
+// caller can fire its own immediate UI feedback — never as a promise that the
+// state has already changed on screen.
+function dispatchAction(action: GameAction): boolean {
+  // Input is dead until reload once the socket is gone (plan 04-01's rule).
+  // Every dispatch inherits the gate by construction because they all pass
+  // through here.
+  if (netDropped) return false
+
+  if (net !== null) {
+    // Send the intent and wait. NOTHING is applied locally, deliberately: the
+    // server owns the RunState, and the same no-client-side-re-derivation
+    // principle that governs combat playback (COMBAT-02) governs the economy
+    // too. Two clients buying against ONE shared pool are serialised by the
+    // room; a speculative local apply would fork this client's economy from
+    // the room's the moment the orders disagree, and reconciling that
+    // divergence is strictly harder than waiting one round trip. The visible
+    // change arrives with the server's `snapshot` broadcast, and perceived
+    // responsiveness comes from an immediate button flash at the call site.
+    net.sendAction(action)
+    return true
+  }
+
+  // Solo: the very same validate-before-mutate function the room server
+  // calls, so a locally-applied action and a server-applied one produce
+  // identical state transitions by construction.
+  const before = localTierComposition()
+  const result = applyAction(run, localSeatIndex, action)
+  if (!result.ok) {
+    reportActionRejected(result.reason)
+    return false
+  }
+  saveRun(run)
+
+  const ups = detectStarUps(before, localTierComposition())
+  // A combine may have upgraded a FIELDED unit — rebuild placedUnits before
+  // the render so the board shows the upgraded copy (and so flashStarUps can
+  // find it to flash).
+  if (econPhase === 'planning' && ups.some(up => heldOnBoard(up))) syncRunToBoard()
+  // The ONE place the local branch re-renders, rather than the same two lines
+  // copy-pasted into every handler. Trait badges are refreshed unconditionally
+  // because a buy, a sell and a combine can all change the active set, and the
+  // render is cheap next to getting it wrong in one branch. The networked
+  // branch has no equivalent here on purpose — applyServerSnapshot renders
+  // when the snapshot lands.
+  renderEconUI()
+  renderTraitDisplay()
+  // After the render: the bench cell / board unit the flash targets is a fresh
+  // DOM node (or a fresh placedUnits entry) on every render.
+  flashStarUps(ups)
+  return true
+}
+
+// ─── Rejection reporting ──────────────────────────────────────────────────────
+
+// Both modes route refusals here — local ones from applyAction's ActionResult,
+// networked ones from the `rejected` ServerMessage — so a refused action is
+// never indistinguishable from a dead click (T-04-13, T-04-14).
+const REJECT_TEXT: Record<ActionReason | RejectReason, string> = {
+  'bad-seat': 'That seat is not yours.',
+  'eliminated': 'You have been eliminated.',
+  'empty-slot': 'That shop slot is empty.',
+  'no-gold': 'Not enough gold.',
+  'bench-full': 'Your bench is full.',
+  'pool-empty': 'No copies of that unit are left in the pool.',
+  'board-full': 'Board is full — level up to field more.',
+  'occupied': 'That hex is already taken.',
+  'not-player-hex': 'You can only place units on your own half.',
+  'no-unit': 'There is no unit there.',
+  'no-item': 'There is no item there.',
+  'max-level': 'You are already at max level.',
+  'not-implemented': 'That is not available yet.',
+  'unsellable': "That unit can't be sold.",
+  'not-seated': 'You hold no seat in this lobby.',
+  'wrong-phase': 'Too late — that planning phase has closed.',
+  'malformed': 'The room refused that action.',
+  'too-large': 'The room refused that action.',
+  'rate-limited': 'Slow down — too many actions at once.',
+  'not-host': 'Only the host can start the game.',
+  'already-started': 'The game has already started.',
+}
+
+const REJECT_NOTICE_MS = 2000
+
+// Its own element rather than setNetStatusBanner's: the banner is a STICKY
+// terminal state ("connection lost — reload"), this is a transient amber
+// notice, and one clobbering the other would hide the more serious message.
+let rejectNoticeEl: HTMLDivElement | null = null
+let rejectNoticeTimer: ReturnType<typeof setTimeout> | null = null
+
+function reportActionRejected(reason: ActionReason | RejectReason): void {
+  if (rejectNoticeEl === null) {
+    const el = document.createElement('div')
+    el.id = 'action-reject-notice'
+    // Same shape and fade convention as setNetStatusBanner's element, in a
+    // neutral amber rather than the red reserved for connection failure — a
+    // refused buy is ordinary play, not a broken session. Sits below the
+    // banner so both can be readable at once.
+    el.style.cssText = [
+      'position: fixed', 'top: 56px', 'left: 50%', 'transform: translateX(-50%)',
+      'z-index: 9998', 'padding: 8px 16px', 'border-radius: 6px',
+      'background: #0a0e1a', 'border: 1px solid #e0a13a', 'color: #e0a13a',
+      'font-family: monospace', 'font-size: 12px', 'letter-spacing: 0.5px',
+      'box-shadow: 0 2px 12px rgba(0,0,0,0.6)', 'pointer-events: none',
+      'transition: opacity 0.3s ease', 'display: none', 'opacity: 0',
+    ].join('; ')
+    // document.body, not #app: renderEconUI() rebuilds subtrees inside #app
+    // wholesale and would wipe this on the very next render.
+    document.body.appendChild(el)
+    rejectNoticeEl = el
+  }
+  rejectNoticeEl.textContent = REJECT_TEXT[reason] ?? 'That action was refused.'
+  rejectNoticeEl.style.display = 'block'
+  rejectNoticeEl.style.opacity = '1'
+  if (rejectNoticeTimer !== null) clearTimeout(rejectNoticeTimer)
+  rejectNoticeTimer = setTimeout(() => {
+    rejectNoticeTimer = null
+    if (!rejectNoticeEl) return
+    rejectNoticeEl.style.opacity = '0'
+  }, REJECT_NOTICE_MS)
+}
+
+// ─── Star-up detection ────────────────────────────────────────────────────────
+
+// The highest tier this seat holds of each definitionId, across bench AND
+// board. A combine is exactly "some definitionId's highest held tier went up",
+// which is derivable from state — unlike buyUnit's CombineResult, which
+// applyAction's ActionResult does not carry and a server `snapshot` never
+// could.
+function localTierComposition(): Map<string, number> {
+  const composition = new Map<string, number>()
+  const econ = run.players[localSeatIndex] as PlayerEcon | undefined
+  if (!econ) return composition
+  for (const b of econ.bench) {
+    if (!b) continue
+    composition.set(b.definitionId, Math.max(composition.get(b.definitionId) ?? 0, b.tier))
+  }
+  for (const e of econ.board) {
+    composition.set(e.definitionId, Math.max(composition.get(e.definitionId) ?? 0, e.tier))
+  }
+  return composition
+}
+
+// Pure diff, shared by the local dispatch path and applyServerSnapshot so both
+// modes celebrate a star-up identically.
+function detectStarUps(
+  before: Map<string, number>,
+  after: Map<string, number>,
+): Array<{ definitionId: string; tier: number }> {
+  const ups: Array<{ definitionId: string; tier: number }> = []
+  for (const [definitionId, tier] of after) {
+    if (tier > (before.get(definitionId) ?? 0)) ups.push({ definitionId, tier })
+  }
+  return ups
+}
+
+function heldOnBoard(up: { definitionId: string; tier: number }): boolean {
+  return humanEcon().board.some(e => e.definitionId === up.definitionId && e.tier === up.tier)
+}
+
+function flashStarUps(ups: Array<{ definitionId: string; tier: number }>): void {
+  for (const up of ups) {
+    const boardEntry = humanEcon().board.find(
+      e => e.definitionId === up.definitionId && e.tier === up.tier,
+    )
+    if (boardEntry) {
+      // Fielded copies only exist as live units during planning; mid-combat
+      // the fighting copies are snapshots and the upgrade shows up when the
+      // next planning phase rebuilds the board.
+      if (econPhase !== 'planning') continue
+      const unit = placedUnits.get(hexId(boardEntry.hexPos))
+      if (unit) unitLayer.flashStarUp(unit.id)
+    } else {
+      triggerBenchStarFlash(up.definitionId, up.tier)
+    }
+  }
 }
 
 // Bails out of a lobby back to the Title Screen — available to host and
@@ -2071,6 +2278,7 @@ function leaveLobby(): void {
   net?.close()
   net = null
   netDropped = false
+  seenServerSnapshot = false
   setNetStatusBanner(null)
   localSeatIndex = 0
   run = loadRun() ?? newRun(botSeats())
@@ -2088,6 +2296,7 @@ function leaveLobby(): void {
 function bootNetworked(code: string, opts: { isHost: boolean }): void {
   const shareUrl = shareableLobbyUrl(location.origin, code)
   let isHost = opts.isHost
+  seenServerSnapshot = false
 
   // Shown BEFORE connecting, so the host has a link to copy during the
   // handshake rather than after it, and a guest opening a link never sees a
@@ -2134,6 +2343,13 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
       }
     } else if (m.t === 'snapshot') {
       applyServerSnapshot(m.snapshot)
+    } else if (m.t === 'rejected') {
+      // The networked half of reportActionRejected: without this a buy the
+      // room refuses looks to the player exactly like a click that did
+      // nothing. 'not-seated' is excluded because the status handler below
+      // already renders it as a sticky terminal banner plus a Lobby Screen
+      // message — a 2s amber toast on top would only bury it.
+      if (m.reason !== 'not-seated') reportActionRejected(m.reason)
     } else if (m.t === 'lobby') {
       // The live "Current players" list. party/lobby.ts broadcasts a fresh
       // view on BOTH connect and close, and lobbyView derives `human` from
@@ -3087,35 +3303,20 @@ function flashEconButton(id: string): void {
 }
 
 // Shared by the button click handlers and the (d)/(f) keyboard shortcuts.
-// The flash has to fire AFTER renderEconUI() rebuilds the bar's HTML (the
-// button is a fresh DOM node each render), otherwise the class gets wiped
-// before the animation ever plays.
+// The flash fires on DISPATCH, not on a state change: locally dispatchAction
+// has already re-rendered the bar by the time it returns (the button is a
+// fresh DOM node each render, so flashing earlier would be wiped before the
+// animation played), and in a lobby there is no local state change to hang it
+// off at all — the button answering on the same frame as the click is what
+// stands in for the round trip.
 function performBuyXp(): void {
   if (econPhase === 'gameOver') return
-  if (buyXp(humanEcon())) {
-    saveRun(run); renderEconUI()
-    flashEconButton('btn-buy-xp')
-  }
+  if (dispatchAction({ t: 'buyXp' })) flashEconButton('btn-buy-xp')
 }
 
 function performReroll(): void {
   if (econPhase === 'gameOver') return
-  if (net !== null) {
-    // Input stops at a drop. Every dispatch plans 04-03 and 04-04 add inherits
-    // this gate by construction, since they all sit behind the same branch.
-    if (netDropped) return
-    // Send the intent and wait. The gold/shop change becomes visible only
-    // when the server's own `snapshot` broadcast comes back — applying it
-    // locally first would fork this client's economy from the room's for as
-    // long as the round lasts. The flash is the immediate feedback instead.
-    net.sendAction({ t: 'reroll' })
-    flashEconButton('btn-reroll')
-    return
-  }
-  if (shopReroll(humanEcon(), run.pool)) {
-    saveRun(run); renderEconUI()
-    flashEconButton('btn-reroll')
-  }
+  if (dispatchAction({ t: 'reroll' })) flashEconButton('btn-reroll')
 }
 
 // Sells whatever bench/board unit is currently hover-tooltipped (see
@@ -3125,7 +3326,7 @@ function sellHoveredUnit(): void {
   if (!src) return
   if (src.startsWith('bench:') && (econPhase === 'planning' || econPhase === 'combat')) {
     const slot = Number(src.split(':')[1])
-    if (sellFromBench(run, humanEcon(), slot)) { saveRun(run); renderEconUI() }
+    dispatchAction({ t: 'sell', from: 'bench', index: slot })
   } else if (src.startsWith('board:') && econPhase === 'planning') {
     const key = src.slice('board:'.length)
     const unit = placedUnits.get(key)
@@ -3240,30 +3441,16 @@ function renderEconBar(): void {
   document.getElementById('btn-reroll')?.addEventListener('click', performReroll)
   document.getElementById('btn-shop-lock')?.addEventListener('click', () => {
     if (econPhase === 'gameOver') return
-    humanEcon().shopLocked = !humanEcon().shopLocked
-    saveRun(run); renderEconUI()
+    dispatchAction({ t: 'lock', locked: !humanEcon().shopLocked })
   })
   bar.querySelectorAll<HTMLElement>('.shop-card').forEach(card => {
     card.addEventListener('click', () => {
       if (econPhase === 'gameOver') return
-      const slot = Number(card.dataset.slot)
-      const res = buyUnit(run, humanEcon(), slot)
-      if (res.ok) {
-        // A combine may have upgraded a board unit — refresh placed units
-        // (during combat the fighting copies are snapshots; the upgrade shows
-        // up when the next planning phase rebuilds the board)
-        if (res.combined?.upgrades.some(u => u.placedOnBoard) && econPhase === 'planning') syncRunToBoard()
-        saveRun(run); renderEconUI(); renderTraitDisplay()
-        for (const up of res.combined?.upgrades ?? []) {
-          if (up.placedOnBoard && econPhase === 'planning') {
-            const boardEntry = humanEcon().board.find(u => u.definitionId === up.definitionId && u.tier === up.to)
-            const unit = boardEntry ? placedUnits.get(hexId(boardEntry.hexPos)) : undefined
-            if (unit) unitLayer.flashStarUp(unit.id)
-          } else if (!up.placedOnBoard) {
-            triggerBenchStarFlash(up.definitionId, up.to)
-          }
-        }
-      }
+      // The star-up flash a completed combine used to read off buyUnit's
+      // CombineResult is now derived by dispatchAction's own before/after tier
+      // diff (see detectStarUps) — the result shape does not survive either
+      // applyAction or the wire, so the feedback is read off state instead.
+      dispatchAction({ t: 'buy', slot: Number(card.dataset.slot) })
     })
   })
 }
@@ -3331,9 +3518,7 @@ function renderBenchRow(): void {
     cell.addEventListener('contextmenu', e => {
       e.preventDefault()
       if (econPhase === 'gameOver') return   // bench sells allowed mid-combat
-      if (sellFromBench(run, humanEcon(), slot)) {
-        saveRun(run); renderEconUI()
-      }
+      dispatchAction({ t: 'sell', from: 'bench', index: slot })
     })
     // Track bench hover so `r` can pull the item off a benched unit.
     cell.addEventListener('mouseenter', () => { hoverUnitRef = { kind: 'bench', slot } })

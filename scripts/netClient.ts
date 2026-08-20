@@ -12,12 +12,19 @@ import { withRoom, ROOM_PORT } from './roomHarness'
 import { RoomClient, type RoomClientStatus } from '../src/net/roomClient'
 import { PROTOCOL_VERSION, type RejectReason, type ServerMessage } from '../src/net/protocol'
 import { REROLL_COST, PLAYER_COUNT } from '../src/econ/constants'
+import type { RunState } from '../src/econ/runState'
 
 // Shortens the room's planning window so a multi-round run doesn't spend a
 // real 30s per round (partykit --var, surfaced on Party.Room.env — see
 // src/net/protocol.ts's planningMsFor comment for why NOT process.env).
 const PLANNING_MS_TEST = 2000
-const OUTER_TIMEOUT_MS = 5 * 60_000
+// Scenarios 10-11 need the OPPOSITE trade-off: their assertions (a burst plus
+// a quiescence wait, then a spend-down to broke) all have to land inside ONE
+// planning phase, and a 2s window would settle the round out from under them
+// and turn a real assertion into a flaky 'wrong-phase'. PLANNING_MS is a
+// per-PROCESS `--var`, so those two get their own server process.
+const PLANNING_MS_ACTIONS = 20000
+const OUTER_TIMEOUT_MS = 8 * 60_000
 
 let scenariosRun = 0
 
@@ -486,6 +493,121 @@ async function lobbyScreenFlow(host: string, roomId: string): Promise<void> {
   await sleep(200)
 }
 
+// ─── Scenarios 10-11: serial application and visible rejection ────────────────
+
+// The two properties plan 04-03's `dispatchAction` is built on, proven against
+// a real room rather than argued for:
+//   - the client NEVER optimistically applies what it sent, so a burst of
+//     clicks has to come back as a burst of server snapshots that each applied
+//     exactly once — no lost update, no double-apply;
+//   - a refusal arrives as a `rejected` frame carrying a REASON, which is the
+//     only thing reportActionRejected has to render. Without this scenario
+//     that UI would be rendering a frame nobody had ever observed.
+//
+// Runs against a FRESH room id (never started) on its own long-window server
+// process — see PLANNING_MS_ACTIONS.
+async function actionSemantics(host: string, roomId: string): Promise<void> {
+  // ─── 10. Rapid-fire actions apply serially, with no lost update ─────────
+  const s10 = scenario('rapid-fire actions apply serially')
+
+  const client = new RoomClient({ host, room: roomId, name: 'Burst' })
+  const probe = probeClient(client)
+  const welcomeWait = probe.next(m => m.t === 'welcome', 15_000)
+  client.connect()
+  const welcome = await welcomeWait
+  s10(welcome.phase === 'lobby', `the burst room has never been started (phase '${welcome.phase}')`)
+
+  // Registered before the send: beginPlanning broadcasts phase and the opening
+  // snapshot back to back.
+  const planningWait = probe.next(m => m.t === 'phase' && m.phase === 'planning', 15_000)
+  const openingWait = probe.next(m => m.t === 'snapshot', 15_000)
+  client.sendStart()
+  await planningWait
+  const opening = await openingWait
+
+  // Every snapshot from here on, counted and kept — the burst's OWN evidence.
+  // A second onMessage handler alongside the probe's, deliberately: what this
+  // scenario needs is a running count and a last-changed timestamp, not a
+  // one-shot waiter.
+  let snapshotsObserved = 0
+  let latest: RunState = opening.snapshot
+  let lastSnapshotAt = Date.now()
+  client.onMessage(m => {
+    if (m.t !== 'snapshot') return
+    snapshotsObserved++
+    latest = m.snapshot
+    lastSnapshotAt = Date.now()
+  })
+
+  const BURST = 5
+  const goldBefore: number = opening.snapshot.players[0].gold
+  // Computed, never assumed: the room's opening stake is not this script's to
+  // own, and a burst longer than the seat can afford is the interesting case
+  // (the tail comes back 'no-gold' and must leave gold untouched). Rerolls are
+  // applied in sequence, so exactly floor(gold / REROLL_COST) of them land.
+  const affordable = Math.min(BURST, Math.floor(goldBefore / REROLL_COST))
+  const expectedGold = goldBefore - affordable * REROLL_COST
+
+  // Fired back to back with no await between them — the whole point.
+  for (let i = 0; i < BURST; i++) client.sendAction({ t: 'reroll' })
+
+  // Wait, don't guess: hold until the client's latest snapshot has stopped
+  // changing for QUIESCE_MS. Sleeping a fixed duration would make the
+  // assertion below a race against the room rather than a statement about it.
+  const QUIESCE_MS = 500
+  const burstDeadline = Date.now() + 15_000
+  while (Date.now() < burstDeadline && Date.now() - lastSnapshotAt < QUIESCE_MS) await sleep(50)
+
+  console.log(`    (burst: ${BURST} rerolls sent, ${snapshotsObserved} intermediate snapshot(s) observed before quiescence)`)
+  s10(
+    snapshotsObserved === affordable,
+    `exactly ${affordable} of the ${BURST} rapid rerolls produced a snapshot — none applied twice, none silently dropped (observed ${snapshotsObserved})`,
+  )
+  s10(
+    latest.players[0].gold === expectedGold,
+    `gold moved by exactly ${affordable} * REROLL_COST: ${goldBefore} -> ${latest.players[0].gold} (expected ${expectedGold})`,
+  )
+  scenarioPassed('rapid-fire actions apply serially')
+
+  // ─── 11. Rejections are reported, not swallowed ─────────────────────────
+  const s11 = scenario('rejections are reported, not swallowed')
+
+  // Written as a spend-down LOOP rather than assuming scenario 10 left this
+  // seat broke, so a change to the room's opening stake cannot quietly turn
+  // this scenario vacuous.
+  let gold: number = latest.players[0].gold
+  while (gold >= REROLL_COST) {
+    const spendWait = probe.next(m => m.t === 'snapshot', 15_000)
+    client.sendAction({ t: 'reroll' })
+    gold = (await spendWait).snapshot.players[0].gold
+  }
+  s11(gold < REROLL_COST, `seat 0 is spent down below REROLL_COST (${gold} < ${REROLL_COST})`)
+
+  const noGoldWait = probe.next(m => m.t === 'rejected', 15_000)
+  client.sendAction({ t: 'reroll' })
+  const noGold = await noGoldWait
+  s11(
+    noGold.reason === 'no-gold',
+    `an unaffordable reroll comes back as a rejected frame carrying reason 'no-gold' (got '${noGold.reason}')`,
+  )
+
+  // Not a typo: the shop has SHOP_SLOTS entries, so 99 is out of range. The
+  // room does NOT deep-validate a GameAction payload on parse (by design —
+  // applyAction is the sole authority), so this asserts the authority actually
+  // refuses it rather than indexing past the end and accepting.
+  const badSlotWait = probe.next(m => m.t === 'rejected', 15_000)
+  client.sendAction({ t: 'buy', slot: 99 })
+  const badSlot = await badSlotWait
+  s11(
+    badSlot.reason === 'empty-slot',
+    `an out-of-range shop slot is refused with reason 'empty-slot' rather than accepted (got '${badSlot.reason}')`,
+  )
+  scenarioPassed('rejections are reported, not swallowed')
+
+  client.close()
+  await sleep(200)
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -513,6 +635,17 @@ async function main(): Promise<void> {
     // cost of a third `partykit dev` spawn.
     await lobbyScreenFlow(host, `${roomId}-lobby`)
   }, vars)
+
+  // A THIRD process, unlike scenarios 8-9's fresh-room-same-process trick:
+  // PLANNING_MS is a `--var` bound at process start, and scenarios 10-11 need
+  // a planning window an order of magnitude longer than the one above.
+  console.log('--- restarting the room process with a long planning window ---')
+  await waitForRoomDown(ROOM_PORT)
+
+  await withRoom(
+    ({ host }) => actionSemantics(host, `${roomId}-actions`),
+    { PLANNING_MS: String(PLANNING_MS_ACTIONS) },
+  )
 }
 
 const timeout = new Promise((_resolve, reject) => {
