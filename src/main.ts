@@ -19,16 +19,18 @@ import { ALL_UNITS, UNIT_MAP } from './data/units'
 import { ITEM_MAP } from './data/items'
 import { TRAIT_MAP } from './data/traits'
 import { loadRun, saveRun as persistRunToStorage, clearRun, newRun, type RunState, type PlayerEcon, type BoardEntry } from './econ/runState'
-// buyUnit / reroll / sellFromBench are deliberately NOT imported any more:
-// every shop mutation now travels through dispatchAction -> applyAction, the
-// same function the room server calls. sellFromBoard is plan 04-04's to move.
-import { rollShop, sellFromBoard } from './econ/shop'
+// buyUnit / reroll / sellFromBench / sellFromBoard are deliberately NOT
+// imported any more: every economy mutation — shop AND board/bench/item —
+// travels through dispatchAction -> applyAction, the same function the room
+// server calls. rollShop survives only because initFreshRun seeds a brand-new
+// solo run's shops before any action can be dispatched against it.
+import { rollShop } from './econ/shop'
 import { xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
 import { checkGameOver } from './econ/botMatches'
 import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices } from './econ/creeps'
 import {
-  REROLL_COST, XP_BUY_COST, sellValue, copiesHeld, stageLabel, SHOP_ODDS,
+  REROLL_COST, XP_BUY_COST, sellValue, stageLabel, SHOP_ODDS,
   BASE_INCOME_BY_ROUND, BASE_INCOME_CAP, MAX_INTEREST, streakBonus, WIN_BONUS, XP_PER_ROUND,
 } from './econ/constants'
 import {
@@ -1976,13 +1978,21 @@ let run: RunState = loadRun() ?? newRun(botSeats())
 // near boardOffsetY. Set its real starting value here now that `run` exists.
 econPhase = run.gameOver ? 'gameOver' : 'planning'
 // The unit currently "picked up" and attached to the cursor (from bench or
-// board) — cleared from its source slot immediately on pickup, so the source
-// slot renders empty until it's placed somewhere. See heldUnitEl below.
+// board). Picking a unit up is a PURELY VISUAL gesture: nothing leaves its
+// bench slot or board hex, no GameAction is dispatched, and no state changes
+// until the drop. The source slot only *renders* empty, via the two lift
+// markers below. See heldUnitEl below.
 let heldUnit: { definitionId: string; tier: 1 | 2 | 3; item?: string } | null = null
-// Where heldUnit was picked up from — if it's placed on top of an occupied
-// slot, the displaced unit goes here (a true swap) instead of being attached
-// to the cursor itself.
+// Where heldUnit was picked up from — the `from` half of the move action the
+// drop dispatches, and the reason a drop onto an occupied slot can be
+// expressed as a swap (applyAction's moveBoard/moveBench do the swapping).
 let heldFrom: { kind: 'bench'; slot: number } | { kind: 'board'; hex: OffsetCoord } | null = null
+// Render-only "this slot is in the air" markers, the visual half of a
+// visual-only pick-up. They are read by the board preview (see render's
+// `preview` map) and benchCellHTML, and by nothing else — no engine, no
+// action, no persistence ever sees them. Cleared by dropHeldUnit.
+let liftedBoardHexKey: string | null = null
+let liftedBenchSlot: number | null = null
 let currentOpponentIndex = -1        // captured at combat start for settlement
 let lastSettlementLine = ''
 // Snapshot of the human's gold/bench occupancy taken immediately before a
@@ -2084,11 +2094,27 @@ function applyServerSnapshot(snapshot: RunState): void {
 
 // ─── The dispatch seam ────────────────────────────────────────────────────────
 
-// THE single seam between input handling and economy mutation. Every shop and
-// (from plan 04-04) board interaction is expressed as a GameAction and handed
-// to this function; no handler in this file calls buyUnit/reroll/buyXp/
-// sellFromBench directly any more. The local and networked cases share this
+// THE single seam between input handling and economy mutation. Every shop AND
+// board/bench/item interaction is expressed as a GameAction and handed to this
+// function; no handler in this file calls buyUnit/reroll/buyXp/sellFromBench/
+// sellFromBoard directly any more. The local and networked cases share this
 // one body rather than each keeping a copy of the handler logic.
+//
+// ─── The placedUnits ownership rule (plan 04-04) ──────────────────────────────
+//
+// SOLO: placedUnits stays the working surface exactly as it always was, but it
+// is no longer the thing input handlers WRITE. applyAction mutates run.board
+// synchronously against the same `run` object, and syncRunToBoard() below
+// rebuilds placedUnits from it before anything renders — so the live board and
+// the serialized board can never disagree across a dispatch.
+//
+// NETWORKED: placedUnits is DERIVED STATE ONLY. No input handler may add,
+// delete or move an entry in it; it is rebuilt exclusively by syncRunToBoard()
+// inside applyServerSnapshot. An optimistic board edit would put a unit on a
+// hex the server may refuse (board-full, occupied, not-player-hex, or simply
+// another seat winning the race for a pool copy), and unwinding a wrong local
+// board is strictly worse than one round trip of latency. That is why the
+// networked branch below returns BEFORE the rebuild.
 //
 // Returns true when the action was accepted (local) or sent (networked), so a
 // caller can fire its own immediate UI feedback — never as a promise that the
@@ -2116,6 +2142,21 @@ function dispatchAction(action: GameAction): boolean {
   // Solo: the very same validate-before-mutate function the room server
   // calls, so a locally-applied action and a server-applied one produce
   // identical state transitions by construction.
+  //
+  // Board-addressing actions name a hex or a run.board index, and run.board is
+  // deliberately NOT re-derived from placedUnits first: the caller computed its
+  // index against the very array applyAction is about to read, so the two agree
+  // by construction. A syncBoardToRun() here would inject placedUnits-only
+  // entries (Ascender pillars, which reconcileAscenderPillars spawns straight
+  // into the live map) between those two steps and shift the meaning of the
+  // index out from under the caller.
+  const boardAddressing = action.t === 'moveBoard' || action.t === 'moveBench' ||
+    action.t === 'placeItem' || action.t === 'removeItem' ||
+    (action.t === 'sell' && action.from === 'board')
+  // Only during planning is placedUnits the live board at all; during combat it
+  // holds playback units and must never be rebuilt from the run mid-fight.
+  const planningBoardLive = econPhase === 'planning'
+
   const before = localTierComposition()
   const result = applyAction(run, localSeatIndex, action)
   if (!result.ok) {
@@ -2125,10 +2166,11 @@ function dispatchAction(action: GameAction): boolean {
   saveRun(run)
 
   const ups = detectStarUps(before, localTierComposition())
-  // A combine may have upgraded a FIELDED unit — rebuild placedUnits before
-  // the render so the board shows the upgraded copy (and so flashStarUps can
-  // find it to flash).
-  if (econPhase === 'planning' && ups.some(up => heldOnBoard(up))) syncRunToBoard()
+  // Rebuild placedUnits from the just-mutated run.board whenever the board
+  // could have changed — either because the action addressed it, or because a
+  // combine upgraded a FIELDED unit (so the board shows the upgraded copy and
+  // flashStarUps can find it to flash).
+  if (planningBoardLive && (boardAddressing || ups.some(up => heldOnBoard(up)))) syncRunToBoard()
   // The ONE place the local branch re-renders, rather than the same two lines
   // copy-pasted into every handler. Trait badges are refreshed unconditionally
   // because a buy, a sell and a combine can all change the active set, and the
@@ -2418,6 +2460,14 @@ function playerBoardUnitCount(): number {
   return n
 }
 
+// The `index` a board-addressed GameAction (sell / removeItem) carries: this
+// seat's own position in run.board for the unit standing on `hex`. -1 when
+// run.board holds nothing there — which is exactly when the action must not
+// be dispatched at all.
+function boardIndexAtHex(hex: OffsetCoord): number {
+  return humanEcon().board.findIndex(e => e.hexPos.col === hex.col && e.hexPos.row === hex.row)
+}
+
 // placedUnits is the live source of truth during planning; run.board is the
 // serialized form. Sync both ways at the phase boundaries.
 function syncBoardToRun(): void {
@@ -2652,19 +2702,38 @@ function pickUpUnit(definitionId: string, tier: 1 | 2 | 3, from: { kind: 'bench'
   heldUnitEl.style.display = 'block'
 }
 
+// Ends the gesture: puts the cursor sprite away and lets the source slot
+// render normally again. Because the pick-up never removed anything, this on
+// its own is a complete no-op cancel — the unit is exactly where it was.
 function dropHeldUnit(): void {
+  const wasHolding = heldUnit !== null
   heldUnit = null
   heldFrom = null
+  liftedBoardHexKey = null
+  liftedBenchSlot = null
   heldUnitEl.classList.remove('held-unit-rejected', 'held-unit-sell-mode')
   heldUnitEl.style.display = 'none'
   hoveringShopToSell = false
   hideShopSellOverlay()
+  // The board redraws itself every animation frame, so clearing the lift marker
+  // is enough there. The bench is DOM and only repaints when told to — it has
+  // both the lifted slot AND every empty cell's drop-target highlight to undo,
+  // and neither a refused action (dispatchAction returns without rendering) nor
+  // a networked one (the snapshot renders, eventually) would repaint it here.
+  if (wasHolding) renderBenchRow()
 }
 
 // ─── Held item (cursor) ────────────────────────────────────────────────────
-// A bare item picked up from the item bench or removed from a unit (via `r`),
-// attached to the cursor until dropped on a unit or back on the item bench.
+// An item picked up from the item bench, attached to the cursor until dropped
+// on a unit or back on the item bench. Like a held unit this is a purely
+// visual gesture: the item stays in itemBench the whole time and only the
+// `placeItem` dispatch moves it. Pulling it out at pick-up time and letting
+// applyAction's placeItem branch splice it out again would remove it twice.
 let heldItem: string | null = null
+// Where heldItem sits in the local seat's itemBench — the `itemIndex` the
+// placeItem dispatch carries, and the slot renderItemBench draws as empty
+// while the item is in the air.
+let heldItemIndex: number | null = null
 // The unit the cursor is currently hovering (board or bench), for the `r` remove key.
 let hoverUnitRef: { kind: 'board'; hex: OffsetCoord } | { kind: 'bench'; slot: number } | null = null
 
@@ -2677,8 +2746,9 @@ heldItemEl.style.cssText = `
 `
 document.body.appendChild(heldItemEl)
 
-function pickUpItem(itemId: string): void {
+function pickUpItem(itemId: string, index: number): void {
   heldItem = itemId
+  heldItemIndex = index
   heldItemEl.src = ITEM_MAP.get(itemId)?.iconPath ?? ''
   heldItemEl.style.left = `${lastMouseX}px`
   heldItemEl.style.top = `${lastMouseY}px`
@@ -2687,18 +2757,24 @@ function pickUpItem(itemId: string): void {
 
 function dropHeldItem(): void {
   heldItem = null
+  heldItemIndex = null
   heldItemEl.style.display = 'none'
 }
 
-// Attach the held item to a unit; any item it already had returns to the item
-// bench (one item per unit). Returns true if an item was actually placed.
-function equipHeldItemOn(unit: Unit): boolean {
-  if (!heldItem) return false
-  const prev = unit.items[0]
-  unit.items = [heldItem]
-  if (prev) humanEcon().itemBench.push(prev)
-  dropHeldItem()
-  return true
+// The itemBench index to dispatch, re-resolved at drop time. The index taken
+// at pick-up can go stale between the two: in a lobby a server snapshot may
+// have landed in between (another of this seat's own actions, or a round
+// settling an item in) and re-ordered itemBench underneath the cursor. So the
+// remembered slot is trusted only while it still holds the same item id;
+// otherwise the id is looked up afresh. Returns null when the item is gone
+// entirely, which is the one case where dispatching would equip the WRONG
+// item — T-04-43's client half, on top of applyAction's own range check.
+function resolveHeldItemIndex(): number | null {
+  if (heldItem === null) return null
+  const itemBench = humanEcon().itemBench
+  if (heldItemIndex !== null && itemBench[heldItemIndex] === heldItem) return heldItemIndex
+  const found = itemBench.indexOf(heldItem)
+  return found === -1 ? null : found
 }
 
 // ─── Drag-to-sell over the shop bar ────────────────────────────────────────
@@ -2760,37 +2836,21 @@ function updateShopSellHover(): void {
   }
 }
 
-// Sells the currently-held unit directly (it isn't in any bench/board slot
-// while held, so this can't reuse sellFromBench/sellFromBoard).
+// Drag-to-shop-bar sell. The held unit never left its slot (pick-up is
+// visual only), so this is an ordinary `sell` addressed at the slot it is
+// still sitting in — not the hand-rolled gold/pool/item accounting it used to
+// be, which would now credit a unit twice over.
 function sellHeldUnit(): void {
-  if (!heldUnit) return
-  const def = UNIT_MAP.get(heldUnit.definitionId)
-  if (def) {
-    const h = humanEcon()
-    h.gold += sellValue(def.cost, heldUnit.tier)
-    run.pool[heldUnit.definitionId] = (run.pool[heldUnit.definitionId] ?? 0) + copiesHeld(heldUnit.tier)
-    if (heldUnit.item) h.itemBench.push(heldUnit.item)   // sold-while-held: item returns to the item bench
-  }
+  if (!heldUnit || !heldFrom) return
+  const origin = heldFrom
   dropHeldUnit()
-  saveRun(run)
-  renderEconUI()
-}
-
-// A unit displaced by placing the held unit on top of it goes back to
-// wherever the held unit was originally picked up from (a true swap) —
-// creates a live board Unit if that origin was a hex, or a plain bench entry.
-function placeDisplacedUnitAtOrigin(occupant: { definitionId: string; tier: 1 | 2 | 3; item?: string }, origin: { kind: 'bench'; slot: number } | { kind: 'board'; hex: OffsetCoord }): void {
-  const h = humanEcon()
   if (origin.kind === 'bench') {
-    h.bench[origin.slot] = { ...occupant }
-  } else {
-    const unit = makeUnit(occupant.definitionId, 'player', occupant.tier)
-    unit.hexPos = { ...origin.hex }
-    unit.visualPos = hexToPixel(origin.hex, HEX_SIZE)
-    unit.placedAt = ++placementCounter
-    if (occupant.item) unit.items = [occupant.item]
-    placedUnits.set(hexId(origin.hex), unit)
+    dispatchAction({ t: 'sell', from: 'bench', index: origin.slot })
+    return
   }
+  const index = boardIndexAtHex(origin.hex)
+  if (index === -1) return
+  dispatchAction({ t: 'sell', from: 'board', index })
 }
 
 // Rejection feedback: clicked a board hex to place the held unit, but the
@@ -2803,17 +2863,12 @@ function flashHeldUnitRejected(): void {
 }
 
 // Safety net: if planning ends (combat starts, phase transitions, mode swap)
-// while a unit is still attached to the cursor, put it back rather than
-// silently losing it.
-function returnHeldUnitToBench(): void {
+// while a unit is still attached to the cursor, end the gesture. There is
+// nothing to "put back" any more — a pick-up never removed the unit from its
+// slot, so cancelling is just clearing the cursor. The old version rehomed the
+// held unit onto the first free bench slot; doing that now would DUPLICATE it.
+function cancelHeldUnit(): void {
   if (!heldUnit) return
-  const h = humanEcon()
-  // Pillars can't go on the bench — just drop it; reconcile respawns it next
-  // time the board is read (e.g. entering the next planning phase).
-  if (!isCliffId(heldUnit.definitionId)) {
-    const emptyIdx = h.bench.findIndex(b => b === null)
-    if (emptyIdx !== -1) h.bench[emptyIdx] = { ...heldUnit }
-  }
   dropHeldUnit()
 }
 
@@ -2835,7 +2890,9 @@ function triggerBenchStarFlash(definitionId: string, tier: number): void {
 }
 
 function benchCellHTML(slot: number): string {
-  const b = humanEcon().bench[slot]
+  // A lifted slot renders as if it were empty (including as a drop target) —
+  // the unit is still THERE in state, it is just drawn on the cursor instead.
+  const b = slot === liftedBenchSlot ? null : humanEcon().bench[slot]
   const def = b ? UNIT_MAP.get(b.definitionId) : undefined
   // While a unit is attached to the cursor, highlight empty slots as valid drop targets.
   const isDropTarget = heldUnit !== null && !b
@@ -3344,22 +3401,24 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'r' || e.key === 'R') removeHoveredItem()
 })
 
-// `r` over a unit (board or bench) that holds an item pulls the item onto the
-// cursor (planning only), to be re-placed on another unit or the item bench.
+// `r` over a unit (board or bench) that holds an item pulls the item back off
+// it (planning only). The item lands in the item bench, NOT on the cursor:
+// applyAction's removeItem branch is what moves it, and also calling
+// pickUpItem here would show the same item in two places at once — in the
+// bench the server (or the local apply) just put it in, and on the cursor.
+// Pick it back up off the item bench to re-place it.
 function removeHoveredItem(): void {
-  if (econPhase !== 'planning' || heldItem || !hoverUnitRef) return
+  if (econPhase !== 'planning' || heldItem !== null || !hoverUnitRef) return
   if (hoverUnitRef.kind === 'board') {
     const u = placedUnits.get(hexId(hoverUnitRef.hex))
     if (!u || !u.items[0]) return
-    const id = u.items[0]
-    u.items = []
-    pickUpItem(id); syncBoardToRun(); saveRun(run); renderEconUI()
+    const index = boardIndexAtHex(hoverUnitRef.hex)
+    if (index === -1) return
+    dispatchAction({ t: 'removeItem', from: 'board', index })
   } else {
     const b = humanEcon().bench[hoverUnitRef.slot]
     if (!b || !b.item) return
-    const id = b.item
-    b.item = undefined
-    pickUpItem(id); saveRun(run); renderEconUI()
+    dispatchAction({ t: 'removeItem', from: 'bench', index: hoverUnitRef.slot })
   }
 }
 
@@ -3477,41 +3536,62 @@ function renderBenchRow(): void {
       if (econPhase !== 'planning' && econPhase !== 'combat') return
       const h = humanEcon()
 
-      // Holding an item: click a benched unit to equip it (displaced item → bench).
-      if (heldItem) {
-        const b = h.bench[slot]
-        if (b) {
-          const prev = b.item
-          b.item = heldItem
-          if (prev) h.itemBench.push(prev)
-          dropHeldItem()
-          saveRun(run); renderEconUI()
-        }
+      // Holding an item: click a benched unit to equip it (displaced item →
+      // bench). The `onBench` target plan 04-00 added is what makes this
+      // expressible as an action at all — before it, equipping a BENCHED unit
+      // was the one item interaction with no GameAction behind it.
+      if (heldItem !== null) {
+        if (!h.bench[slot]) return   // empty slot — missed; keep holding
+        const itemIndex = resolveHeldItemIndex()
+        dropHeldItem()
+        if (itemIndex !== null) dispatchAction({ t: 'placeItem', itemIndex, onBench: slot })
+        // Unconditional: dispatchAction renders on a LOCAL SUCCESS only, and
+        // the slot this gesture drew empty has to be filled back in on the
+        // refused and networked paths too — otherwise the item bench keeps a
+        // hole where the item still is.
+        renderItemBench()
         return
       }
 
-      if (heldUnit) {
+      if (heldUnit && heldFrom) {
         // Ascender pillars can't be benched — reject and keep holding so the
-        // player can drop it back on a board hex.
+        // player can drop it back on a board hex. Advisory only: applyAction
+        // refuses a pillar bench-drop with 'unsellable' regardless.
         if (isCliffId(heldUnit.definitionId)) { flashHeldUnitRejected(); return }
-        // Place the held unit here — if occupied, the occupant swaps back to
-        // wherever the held unit came from, and holding ends.
-        const occupant = h.bench[slot]
-        h.bench[slot] = { ...heldUnit }
-        if (occupant && heldFrom) placeDisplacedUnitAtOrigin(occupant, heldFrom)
+        const origin = heldFrom
+        const occupied = h.bench[slot] !== null && !(origin.kind === 'bench' && origin.slot === slot)
+        // Three shapes, one dispatch each:
+        //   bench → bench : moveBench with a bench target (moves, or swaps)
+        //   board → empty : moveBoard with a bench target — plan 04-00's new
+        //                   variant, the interaction that previously had no
+        //                   action to express it
+        //   board → taken : moveBench addressed at the OCCUPANT and sent to
+        //                   the held unit's own hex. That IS the swap (occupant
+        //                   onto the hex, held unit into the slot), so the
+        //                   board-onto-occupied-bench drop keeps working
+        //                   without needing a fourth engine variant.
+        const action: GameAction = origin.kind === 'bench'
+          ? { t: 'moveBench', benchIndex: origin.slot, to: { bench: slot } }
+          : occupied
+            ? { t: 'moveBench', benchIndex: slot, to: { col: origin.hex.col, row: origin.hex.row } }
+            : { t: 'moveBoard', from: { col: origin.hex.col, row: origin.hex.row }, to: { bench: slot } }
+        // Ends the gesture BEFORE the dispatch so the drop reads as final in
+        // both modes. Nothing is lost if the engine refuses — the unit never
+        // left its slot, so a rejection leaves it exactly where it was, with
+        // reportActionRejected saying why.
         dropHeldUnit()
-        saveRun(run)
-        renderEconUI(); renderTraitDisplay()
+        dispatchAction(action)
         return
       }
 
-      // Nothing held — only a direct click on the unit's own sprite picks it up
+      // Nothing held — only a direct click on the unit's own sprite picks it
+      // up, and picking up mutates NOTHING: the entry stays in the bench and
+      // only liftedBenchSlot makes the cell render empty.
       const target = e.target as HTMLElement
       const b = h.bench[slot]
       if (b && target.classList.contains('bench-unit-sprite')) {
-        h.bench[slot] = null
+        liftedBenchSlot = slot
         pickUpUnit(b.definitionId, b.tier, { kind: 'bench', slot }, b.item)
-        saveRun(run)
         renderBenchRow()
       }
     })
@@ -3685,6 +3765,10 @@ function renderItemBench(): void {
   itemBenchPage = Math.max(0, Math.min(itemBenchPage, maxPage))   // clamp (items may have been removed)
   const start = itemBenchPage * ITEM_BENCH_PAGE_SIZE
   const shown = items.slice(start, start + ITEM_BENCH_PAGE_SIZE)
+  // Resolved rather than read straight off heldItemIndex, so the slot drawn
+  // empty is the slot the drop will actually dispatch against even if a
+  // snapshot re-ordered itemBench while the item was in the air.
+  const liftedIdx = resolveHeldItemIndex()
 
   // Fixed-width 2-column grid, centered — so the right column can never be clipped.
   const grid = `<div style="display:grid;grid-template-columns:${ITEM_SLOT_PX}px ${ITEM_SLOT_PX}px;gap:5px;justify-content:center;">${
@@ -3692,10 +3776,16 @@ function renderItemBench(): void {
       const def = ITEM_MAP.get(id)
       const absIdx = start + i
       const icon = Math.round(ITEM_SLOT_PX * 0.8)
+      // A held item is still IN itemBench — only the placeItem dispatch moves
+      // it — so its slot draws empty while it rides the cursor. Keeping the
+      // entry (rather than splicing it out at pick-up) is what makes the
+      // remembered itemIndex mean the same thing at drop time as it did at
+      // pick-up time, and stops applyAction from removing it a second time.
+      const lifted = absIdx === liftedIdx
       return `<div class="item-slot" data-item-idx="${absIdx}" style="
         width:${ITEM_SLOT_PX}px;height:${ITEM_SLOT_PX}px;border:1px solid #335;border-radius:6px;background:#0e1a2a;
         display:flex;align-items:center;justify-content:center;cursor:pointer;">
-        <img class="item-slot-visual" src="${def?.iconPath ?? ''}" style="width:${icon}px;height:${icon}px;object-fit:contain;image-rendering:pixelated;pointer-events:none;" onerror="this.style.display='none'">
+        ${lifted ? '' : `<img class="item-slot-visual" src="${def?.iconPath ?? ''}" style="width:${icon}px;height:${icon}px;object-fit:contain;image-rendering:pixelated;pointer-events:none;" onerror="this.style.display='none'">`}
       </div>`
     }).join('')
   }</div>`
@@ -3725,10 +3815,12 @@ function renderItemBench(): void {
       const idx = Number(el.dataset.itemIdx)
       const id = humanEcon().itemBench[idx]
       if (!id) return
-      humanEcon().itemBench.splice(idx, 1)
+      // Records the index and leaves itemBench alone — the pick-up is a
+      // gesture, `placeItem` is the state change. Splicing here would double-
+      // remove the item once applyAction's placeItem branch ran too.
       tooltipHiddenReset()   // slot is about to be re-rendered away — drop its hover card
-      pickUpItem(id)
-      saveRun(run); renderItemBench()
+      pickUpItem(id, idx)
+      renderItemBench()
     })
     // Hover card (name / stats / effect), like a unit hover — not while carrying an
     // item. mousemove too, so the card still shows if a slot re-renders under a
@@ -3764,12 +3856,14 @@ function alignItemBench(): void {
   if (h > 0) box.style.height = `${h}px`
 }
 
-// Drop a held item back onto the item bench (click anywhere in the box while holding).
+// Drop a held item back onto the item bench (click anywhere in the box while
+// holding). A pure cancel now: the item never left itemBench, so putting it
+// "back" is only ending the gesture and repainting its slot. Pushing it here
+// would give the seat a second copy of it.
 document.getElementById('item-bench')!.addEventListener('click', () => {
-  if (!heldItem) return
-  humanEcon().itemBench.push(heldItem)
+  if (heldItem === null) return
   dropHeldItem()
-  saveRun(run); renderItemBench()
+  renderItemBench()
 })
 
 // Show/hide all economy vs test-tools UI based on the mode checkbox.
@@ -3877,7 +3971,7 @@ function applyRoundResult(res: RoundResult): void {
 
 function startPlanningPhase(rollIfUnlocked: boolean): void {
   econPhase = 'planning'
-  returnHeldUnitToBench()
+  cancelHeldUnit()
   const h = humanEcon()
   if (rollIfUnlocked) {
     // Banks every living seat's pendingIncome then rolls each unlocked (or
@@ -3944,7 +4038,7 @@ function humanOwnedItems(): string[] {
 function startItemRound(): void {
   econPhase = 'itemRound'
   planningTimerStartTs = null
-  returnHeldUnitToBench()
+  cancelHeldUnit()
   unitLayer.setHoveredUnit(null)
   updateEconVisibility()
   renderRoundIndicator()
@@ -4039,68 +4133,80 @@ function finishItemRound(itemId: string | undefined): void {
   renderEconUI()
 }
 
-// Drop the held unit onto a player hex, creating its live Unit instance.
-function placeHeldUnitOnHex(hex: OffsetCoord): void {
-  const key = hexId(hex)
-  const unit = makeUnit(heldUnit!.definitionId, 'player', heldUnit!.tier)
-  unit.hexPos = { ...hex }
-  unit.visualPos = hexToPixel(hex, HEX_SIZE)
-  unit.placedAt = ++placementCounter
-  if (heldUnit!.item) unit.items = [heldUnit!.item]
-  placedUnits.set(key, unit)
-}
-
 // Handle a planning-phase click on the board canvas. Returns true if consumed.
+//
+// Nothing in here writes to placedUnits any more. Every branch either ends the
+// gesture or hands a GameAction to dispatchAction, which in solo mode rebuilds
+// placedUnits from the just-mutated run.board and in a lobby leaves it alone
+// until the server's snapshot arrives.
 function econBoardClick(hex: OffsetCoord, _clientX: number, _clientY: number): boolean {
   if (!econActive() || econPhase !== 'planning') return false
   const key = hexId(hex)
   const h = humanEcon()
 
   // Holding an item: click a player unit on the board to equip it.
-  if (heldItem) {
+  if (heldItem !== null) {
     const target = placedUnits.get(key)
     if (target && target.team === 'player' && !target.isDummy) {
-      equipHeldItemOn(target)
-      syncBoardToRun()
-      saveRun(run)
-      renderEconUI()
+      const itemIndex = resolveHeldItemIndex()
+      dropHeldItem()
+      if (itemIndex !== null) dispatchAction({ t: 'placeItem', itemIndex, onHex: { col: hex.col, row: hex.row } })
+      // Unconditional, for the same reason as the bench-cell equip above: only
+      // a locally-accepted action re-renders inside dispatchAction, and the
+      // emptied slot must come back on the refused and networked paths too.
+      renderItemBench()
     }
     return true   // consume the click either way (keep holding if it missed)
   }
 
-  if (heldUnit) {
+  if (heldUnit && heldFrom) {
+    // Advisory client-side check, NOT the authority: applyAction's own
+    // isPlayerHex re-validates every destination and refuses with
+    // 'not-player-hex'. This one only exists so an obviously-wrong drop keeps
+    // the unit on the cursor instead of costing a round trip.
     if (![4, 5, 6, 7].includes(hex.row)) return true   // not a player hex — consume the click, keep holding
 
-    const occupant = placedUnits.get(key)
-    if (occupant) {
-      // True swap: the occupant goes back to wherever the held unit came
-      // from, and holding ends — it doesn't get attached to the cursor.
-      const origin = heldFrom
-      const occItem = occupant.items[0]
-      placedUnits.delete(key)
-      placeHeldUnitOnHex(hex)
+    const origin = heldFrom
+
+    // Dropped back on its own hex: a pure cancel. No action is dispatched —
+    // the unit was never moved, so there is nothing to undo and nothing to
+    // ask the server for. It must not duplicate and must not vanish.
+    if (origin.kind === 'board' && origin.hex.col === hex.col && origin.hex.row === hex.row) {
       dropHeldUnit()
-      if (origin) placeDisplacedUnitAtOrigin({ definitionId: occupant.definitionId, tier: occupant.tier as 1 | 2 | 3, item: occItem }, origin)
-    } else {
-      // Pillars don't count toward the board cap, so they're never blocked by it.
-      if (!isCliffId(heldUnit.definitionId) && playerBoardUnitCount() >= boardCap(h)) { flashHeldUnitRejected(); return true }
-      placeHeldUnitOnHex(hex)
-      dropHeldUnit()
+      return true
     }
-    syncBoardToRun()
-    saveRun(run)
-    renderEconUI(); renderTraitDisplay()
+
+    if (origin.kind === 'bench') {
+      // Advisory board-cap check, NOT the authority: applyAction's moveBench
+      // branch re-runs it against fieldedCount/boardCap and refuses with
+      // 'board-full', which surfaces through reportActionRejected. Only a
+      // bench→EMPTY-hex drop can add a fielded unit, which is why this is the
+      // only branch that checks — and pillars never count toward the cap.
+      if (!placedUnits.has(key) && !isCliffId(heldUnit.definitionId) && playerBoardUnitCount() >= boardCap(h)) {
+        flashHeldUnitRejected()
+        return true
+      }
+      dropHeldUnit()
+      dispatchAction({ t: 'moveBench', benchIndex: origin.slot, to: { col: hex.col, row: hex.row } })
+      return true
+    }
+
+    // Board → board. applyAction relocates onto an empty hex and swaps onto an
+    // occupied one; either way the fielded count is unchanged, so no cap check
+    // applies here at all.
+    dropHeldUnit()
+    dispatchAction({ t: 'moveBoard', from: { col: origin.hex.col, row: origin.hex.row }, to: { col: hex.col, row: hex.row } })
     return true
   }
 
-  // Nothing held — pick up the unit on this hex, if any
+  // Nothing held — pick up the unit on this hex, if any. Purely visual: the
+  // unit stays in placedUnits (and in run.board) and only liftedBoardHexKey
+  // keeps it from being drawn on the board while it rides the cursor.
   const unit = placedUnits.get(key)
   if (unit && unit.team === 'player') {
-    placedUnits.delete(key)
+    liftedBoardHexKey = key
     pickUpUnit(unit.definitionId, unit.tier as 1 | 2 | 3, { kind: 'board', hex }, unit.items[0])
-    syncBoardToRun()
-    saveRun(run)
-    renderBenchRow()
+    renderBenchRow()   // empty bench slots light up as drop targets
     return true
   }
   return false
@@ -4137,22 +4243,17 @@ function econBoardHover(e: MouseEvent): void {
   }
 }
 
-// Right-click during planning = sell the board unit under the cursor
+// Right-click during planning = sell the board unit under the cursor.
+// Addressed by the entry's position in this seat's own board array, which is
+// the `index` a `sell` action carries — the same addressing a bench sell uses.
 function econBoardSell(hex: OffsetCoord): boolean {
   if (!econActive() || econPhase !== 'planning') return false
-  const key = hexId(hex)
-  const unit = placedUnits.get(key)
+  const unit = placedUnits.get(hexId(hex))
   if (!unit || unit.team !== 'player') return false
   if (isCliffId(unit.definitionId)) return true   // Ascender pillars can't be sold — consume the click
-  syncBoardToRun()
-  const idx = humanEcon().board.findIndex(e => e.hexPos.col === hex.col && e.hexPos.row === hex.row)
-  if (idx === -1) return false
-  sellFromBoard(run, humanEcon(), idx)
-  placedUnits.delete(key)
-  syncBoardToRun()
-  saveRun(run)
-  renderEconUI()
-  renderTraitDisplay()
+  const index = boardIndexAtHex(hex)
+  if (index === -1) return false
+  dispatchAction({ t: 'sell', from: 'board', index })
   return true
 }
 
@@ -4204,7 +4305,7 @@ function startCombat(): void {
   }
   if (econPhase === 'itemRound') return   // already mid-carousel — ignore repeat Start
 
-  returnHeldUnitToBench()   // never lose a unit still attached to the cursor
+  cancelHeldUnit()   // a unit still on the cursor stays where it was picked up
   planningTimerStartTs = null
   playbackLog = null
   playbackIndex = 0
@@ -4245,7 +4346,12 @@ function startCombat(): void {
     // rather than simulating the fight itself.
     if (econPhase === 'gameOver' || run.gameOver) return
     // Fill the board up to the player's level from the bench before locking in.
-    autoFieldFromBench()
+    // Solo only: in a lobby the server fields nothing on a client's behalf, and
+    // writing straight into placedUnits here would be exactly the optimistic
+    // board edit the ownership rule above forbids. (startCombat already returns
+    // early when networked; the guard is stated here too so the rule is visible
+    // at the call site rather than inferred from a return twenty lines up.)
+    if (!isNetworked()) autoFieldFromBench()
     playerUnits = getPlacedUnitsArray().filter(u => u.team === 'player')
     syncBoardToRun()   // the engine reads run.players[..].board — commit first
 
@@ -4568,7 +4674,7 @@ function setCombatBarState(state: 'idle' | 'running' | 'paused'): void {
 
 document.getElementById('chk-test-mode')!.addEventListener('change', () => {
   if (combatRunning) resetCombat()
-  returnHeldUnitToBench()
+  cancelHeldUnit()
   if (econActive()) {
     // Back to economy mode: discard test placements, restore the run board
     if (run.gameOver) enterGameOver(run.gameOver)
@@ -5153,9 +5259,14 @@ function frame(ts: number): void {
     effectLayer.draw(combatState)
     unitLayer.drawAllHealthBars(combatState.units)
   } else {
-    // Preview placed units
+    // Preview placed units. A unit whose hex is lifted is skipped: it is still
+    // in placedUnits (and in run.board) because picking it up changes no state
+    // at all — it is simply drawn on the cursor instead of on its hex.
     const preview = new Map<string, Unit>()
-    for (const u of placedUnits.values()) preview.set(u.id, u)
+    for (const [key, u] of placedUnits) {
+      if (key === liftedBoardHexKey) continue
+      preview.set(u.id, u)
+    }
 
     // Show ruiner stone on precombat board if trait is active
     const ruinerSpeciesInBuilder = new Set(

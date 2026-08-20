@@ -115,3 +115,41 @@ bot persona name pool". `src/net/guestNames.ts` therefore uses colour words no
 bot answers to (Amber, Teal, Coral, Indigo, Violet, Crimson, Cobalt, Jade,
 Magenta, Saffron, Cyan, Olive). Recorded here so the divergence from the
 spec's literal example list is not read as an oversight.
+
+## Ascender pillars can be swapped onto the bench, discovered during 04-04
+
+**Pre-existing, unchanged by 04-04 — recorded because reading the swap paths
+closely is what surfaced it.**
+
+Ascender pillars (`cliff_l` / `cliff_r`) are auto-spawned board entries that
+`reconcileAscenderPillars()` owns and that the player is never meant to bench.
+Both the direct bench-drop path and the sell path guard against them
+(`isCliffId` in the bench-cell handler; `isPillar` in `applyAction`'s `sell`
+and `moveBoard`-to-bench branches). But dragging a BENCH unit onto the hex a
+pillar is standing on is a *swap*, and neither the old
+`placeDisplacedUnitAtOrigin` nor `applyAction`'s `moveBench` swap branch checks
+`isPillar` on the DISPLACED entry — so the pillar lands in the bench slot the
+dragged unit vacated. `reconcileAscenderPillars()` then sees no pillar on the
+board and spawns a fresh one, leaving a stray duplicate on the bench.
+
+Reproduces identically before and after 04-04 (the behaviour is byte-for-byte
+the same swap, just expressed as a `moveBench` action instead of a local
+mutation), so it is not a regression and not this plan's to fix. The fix is a
+one-line `isPillar` guard on the displaced entry inside `applyAction`'s
+`moveBench` swap branch in `src/game/round.ts` — engine surface, which 04-04
+does not touch.
+
+## Client board-cap check counts pillars, `applyAction` does not
+
+Also noticed during 04-04, also pre-existing. `playerBoardUnitCount()` counts
+every non-dummy player unit in `placedUnits`, pillars included, while
+`applyAction`'s `fieldedCount()` deliberately excludes them. So a player with
+an active Ascender trait sitting one unit below their level cap can see the
+client's advisory rejection flash for a placement the engine would have
+allowed.
+
+04-04 left the client check exactly as it found it (it is now explicitly
+advisory, with `applyAction` as the authority), so the discrepancy is
+unchanged rather than introduced. The fix is to make the advisory count
+skip `isCliffId` entries — but that also changes the `n/level` board
+watermark, which is a gameplay-readability decision rather than a bug fix.
