@@ -33,6 +33,8 @@ import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from 
 import { RoomClient } from './net/roomClient'
 import { parseLobbyCode, partyHost, newLobbyCode, shareableLobbyUrl } from './net/lobbyUrl'
 import { showTitleScreen, hideTitleScreen } from './ui/titleScreen'
+import { showLobbyScreen, updateLobbyScreen, setLobbyMessage, hideLobbyScreen } from './ui/lobbyScreen'
+import { pickGuestName } from './net/guestNames'
 import { TRAIT_TOOLTIPS } from './data/traitTooltips'
 import { REPO_TESTS } from './repoTests'
 import type { CombatState, Unit, ItemDefinition } from './core/types'
@@ -2059,15 +2061,30 @@ function applyServerSnapshot(snapshot: RunState): void {
   renderTraitDisplay()
 }
 
-function bootNetworked(code: string): void {
+// `opts.isHost` is a UI HINT ONLY — it decides which control the Lobby Screen
+// renders, nothing more. The server independently resolves the acting seat
+// from the sender's connection identity and rejects a `start` from any seat
+// but 0 with 'not-host' (party/lobby.ts), so a guest that forced the button
+// into existence in devtools would still be refused. This flag is never the
+// authority; it is a guess the welcome frame below then corrects.
+function bootNetworked(code: string, opts: { isHost: boolean }): void {
+  const shareUrl = shareableLobbyUrl(location.origin, code)
+  let isHost = opts.isHost
+
+  // Shown BEFORE connecting, so the host has a link to copy during the
+  // handshake rather than after it, and a guest opening a link never sees a
+  // blank page while the socket comes up.
+  showLobbyScreen({ shareUrl, isHost, onStart: () => net?.sendStart() })
+
   const client = new RoomClient({
     host: partyHost(),
     // Already validated against LOBBY_CODE_ALPHABET by parseLobbyCode before
     // reaching here (T-04-02), so it is safe as a room name.
     room: code,
-    // Placeholder: plan 04-02 replaces this with the real guest-name pool
-    // behind the Lobby Screen's name field.
-    name: 'Player',
+    // Cosmetic only. party/seats.ts's sanitizeDisplayName is the trust
+    // boundary on the far side of this, and src/ui/lobbyScreen.ts escapes
+    // whatever comes back regardless of what any client sent.
+    name: pickGuestName(),
   })
   net = client
 
@@ -2076,15 +2093,43 @@ function bootNetworked(code: string): void {
       // The server is the sole seat authority — this client renders whatever
       // seat it was given, it never picks one.
       localSeatIndex = m.seat
-      econPhase = 'planning'
       applyServerSnapshot(m.snapshot)
-      updateEconVisibility()
-      // Tracer only: the host starts the round the instant it seats, so this
-      // plan can prove the whole path without a Lobby Screen existing yet.
-      // Plan 04-02 moves this behind the Start button and deletes it here.
-      if (m.seat === 0) client.sendStart()
+      updateLobbyScreen({ seats: m.lobby, localSeat: m.seat })
+
+      // Correct the hint from the server's answer. This is what makes a HOST
+      // REFRESH work: that tab re-enters through the `?lobby=` boot branch,
+      // which cannot know it created the room, so it starts as a guest and is
+      // promoted here when the room hands seat 0 back to it.
+      if ((m.seat === 0) !== isHost) {
+        isHost = m.seat === 0
+        showLobbyScreen({ shareUrl, isHost, onStart: () => net?.sendStart() })
+        updateLobbyScreen({ seats: m.lobby, localSeat: m.seat })
+      }
+
+      // Joining a room whose round loop is already running: there is nothing
+      // to wait for, so skip the Lobby Screen entirely rather than showing a
+      // Start button for a game that has already started.
+      if (m.phase !== 'lobby') {
+        hideLobbyScreen()
+        econPhase = 'planning'
+        updateEconVisibility()
+      }
     } else if (m.t === 'snapshot') {
       applyServerSnapshot(m.snapshot)
+    } else if (m.t === 'lobby') {
+      // The live "Current players" list. party/lobby.ts broadcasts a fresh
+      // view on BOTH connect and close, and lobbyView derives `human` from
+      // live occupancy — so this is equally what makes a friend appear when
+      // they join and disappear when they drop, with no client-side polling.
+      updateLobbyScreen({ seats: m.lobby, localSeat: localSeatIndex })
+    } else if (m.t === 'phase' && m.phase === 'planning') {
+      // THE single dismissal path for both clients. Neither tab leaves the
+      // lobby on a local click — the host's Start only sends a frame; both
+      // tabs leave on the server's broadcast, which is exactly what keeps
+      // host and guest in step.
+      hideLobbyScreen()
+      econPhase = 'planning'
+      updateEconVisibility()
     }
   })
 
@@ -2095,6 +2140,15 @@ function bootNetworked(code: string): void {
     } else if (status === 'rejected' && reason === 'not-seated') {
       netDropped = true
       setNetStatusBanner('This lobby is full — every seat is already taken.')
+      // The Lobby Screen deliberately STAYS UP with an explanation on it.
+      // Falling through to the solo game would silently drop this player into
+      // a different game than the one they were invited to, and a blank
+      // screen explains nothing. Spectating a full lobby is explicitly v2
+      // (HARD-03), so a clear refusal is the correct terminal state.
+      setLobbyMessage(
+        'This lobby is full — every seat is already taken. '
+        + 'Ask your friend to start a new one, or reload to try again.',
+      )
     }
     // Critically, neither branch clears `run`, clears placedUnits, or
     // re-renders from an empty state. The LAST SERVER SNAPSHOT stays exactly
@@ -4981,7 +5035,7 @@ function onMultiplayer(): void {
   const code = newLobbyCode()
   history.replaceState(null, '', shareableLobbyUrl(location.origin, code))
   hideTitleScreen()
-  bootNetworked(code)
+  bootNetworked(code, { isHost: true })
 }
 
 // The single switch between the solo path and the networked path — everything
@@ -4991,8 +5045,11 @@ function onMultiplayer(): void {
 const bootLobbyCode = parseLobbyCode(location.search)
 
 if (bootLobbyCode !== null) {
-  // Flow step 1: a link-opened tab never sees the Title Screen.
-  bootNetworked(bootLobbyCode)
+  // Flow step 1: a link-opened tab never sees the Title Screen. It starts as
+  // a guest because the URL alone cannot say who created the room; the
+  // welcome frame promotes it if the server hands it seat 0, which is what
+  // makes a HOST'S OWN REFRESH land back on a Start button.
+  bootNetworked(bootLobbyCode, { isHost: false })
 } else {
   showTitleScreen({ onSolo: () => { hideTitleScreen(); bootSolo() }, onMultiplayer })
 }

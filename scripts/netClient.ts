@@ -397,6 +397,95 @@ async function afterRestart(host: string, roomId: string, roundBefore: number): 
   await sleep(200)
 }
 
+// ─── Scenarios 8-9: what the Lobby Screen renders and dismisses on ────────────
+
+// Runs against a FRESH room id that has never been started, so the room is
+// genuinely in phase 'lobby' — scenarios 1-7 leave their room mid-game, and
+// a started room would never produce the pre-Start behaviour these two are
+// about. Reuses the caller's already-running server process; only the room
+// (a Durable Object keyed by id) is new.
+//
+// These two exist because this repo has no browser automation. Everything the
+// Lobby Screen renders is a pure function of the `lobby` broadcasts asserted
+// here, and everything it dismisses on is the `phase` broadcast asserted
+// here — so proving the wire behaviour is as close to proving the screen as
+// this project can get automatically.
+async function lobbyScreenFlow(host: string, roomId: string): Promise<void> {
+  // ─── 8. Seat list liveness ──────────────────────────────────────────────
+  const s8 = scenario('seat list liveness')
+
+  const humansIn = (lobby: Array<{ seat: number; human: boolean }>): number[] =>
+    lobby.filter(s => s.human).map(s => s.seat)
+
+  const clientA = new RoomClient({ host, room: roomId, name: 'Amber' })
+  const probeA = probeClient(clientA)
+  const welcomeWaitA = probeA.next(m => m.t === 'welcome', 15_000)
+  clientA.connect()
+  const welcomeA = await welcomeWaitA
+
+  s8(welcomeA.phase === 'lobby', `a room nobody has started reports phase 'lobby' (got '${welcomeA.phase}')`)
+  s8(
+    JSON.stringify(humansIn(welcomeA.lobby)) === JSON.stringify([0]),
+    `the first client's welcome.lobby reports exactly one human seat, at seat 0 (got ${JSON.stringify(humansIn(welcomeA.lobby))})`,
+  )
+
+  // Registered BEFORE B connects: the room broadcasts the fresh view to
+  // everyone the moment the seat is taken, and a waiter registered afterwards
+  // could miss it. Predicated on the human COUNT rather than bare `t`,
+  // because A also receives its own connect-time lobby broadcast.
+  const twoHumansWait = probeA.next(m => m.t === 'lobby' && humansIn(m.lobby).length === 2, 15_000)
+  const clientB = new RoomClient({ host, room: roomId, name: 'Teal' })
+  const probeB = probeClient(clientB)
+  const welcomeWaitB = probeB.next(m => m.t === 'welcome', 15_000)
+  clientB.connect()
+  const welcomeB = await welcomeWaitB
+  const grown = await twoHumansWait
+
+  s8(welcomeB.seat === 1, `the joining client is given seat 1 (got ${welcomeB.seat})`)
+  s8(
+    JSON.stringify(humansIn(grown.lobby)) === JSON.stringify([0, 1]),
+    `the host receives a lobby broadcast naming exactly seats 0 and 1 in ascending order (got ${JSON.stringify(humansIn(grown.lobby))})`,
+  )
+
+  const oneHumanWait = probeA.next(m => m.t === 'lobby' && humansIn(m.lobby).length === 1, 15_000)
+  clientB.close()
+  const shrunk = await oneHumanWait
+  s8(
+    JSON.stringify(humansIn(shrunk.lobby)) === JSON.stringify([0]),
+    `a disconnect drops the seat back out of the list with no client-side polling (got ${JSON.stringify(humansIn(shrunk.lobby))})`,
+  )
+  scenarioPassed('seat list liveness')
+
+  // ─── 9. Host-gated dismissal ────────────────────────────────────────────
+  const s9 = scenario('host-gated dismissal')
+
+  // A second client rejoins so the dismissal can be observed on BOTH sides.
+  const clientC = new RoomClient({ host, room: roomId, name: 'Coral' })
+  const probeC = probeClient(clientC)
+  const welcomeWaitC = probeC.next(m => m.t === 'welcome', 15_000)
+  clientC.connect()
+  await welcomeWaitC
+
+  // Both waiters registered before the send, for the same cross-connection
+  // ordering reason as above.
+  const planningA = probeA.next(m => m.t === 'phase' && m.phase === 'planning', 15_000)
+  const planningC = probeC.next(m => m.t === 'phase' && m.phase === 'planning', 15_000)
+  clientA.sendStart()
+  const [phaseA, phaseC] = await Promise.all([planningA, planningC])
+
+  s9(phaseA.phase === 'planning', "the host's Start reaches the HOST as a phase 'planning' broadcast")
+  s9(phaseC.phase === 'planning', "the host's Start reaches the GUEST as a phase 'planning' broadcast too")
+  s9(
+    phaseA.round === phaseC.round,
+    `both clients dismiss on the SAME round (host ${phaseA.round}, guest ${phaseC.round})`,
+  )
+  scenarioPassed('host-gated dismissal')
+
+  clientA.close()
+  clientC.close()
+  await sleep(200)
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -415,7 +504,15 @@ async function main(): Promise<void> {
   console.log('--- restarting the room process ---')
   await waitForRoomDown(ROOM_PORT)
 
-  await withRoom(({ host }) => afterRestart(host, roomId, roundBefore), vars)
+  await withRoom(async ({ host }) => {
+    await afterRestart(host, roomId, roundBefore)
+    // Scenarios 8-9 need a room that has NEVER been started (phase 'lobby'),
+    // which the room above stopped being back in scenario 2. They get their
+    // own fresh room id on the SAME already-running server process — a
+    // Durable Object is keyed by id, so a new id is a new room without the
+    // cost of a third `partykit dev` spawn.
+    await lobbyScreenFlow(host, `${roomId}-lobby`)
+  }, vars)
 }
 
 const timeout = new Promise((_resolve, reject) => {
