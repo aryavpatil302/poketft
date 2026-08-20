@@ -36,10 +36,22 @@ import {
 import {
   startPlanning, resolveRound, pairSeats, applyAction,
   type RoundResult, type FightLog, type GameAction, type ActionReason,
+  type SeatFightResult,
 } from './game/round'
 import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from './game/playback'
+// The viewer-perspective transform (plan 04-00). Sits strictly between
+// decodeFightLog and createPlaybackState and is presentational only — see the
+// module header for why `winner` is remapped in exactly one place.
+import { mirrorFightLogForSeat } from './game/playbackPerspective'
 import { RoomClient } from './net/roomClient'
-import type { RejectReason, RoomPhase, LobbySeatView } from './net/protocol'
+// Chunk reassembly and the wire codec. Both are imported rather than
+// reimplemented here: fightBuffer owns the bounds and the index/total
+// validation a hostile chunk stream is checked against (T-04-50), and
+// decodeFightLog is the ONLY decoder — it is handed a complete index-sorted
+// chunk set and nothing else.
+import { createFightBuffer, acceptChunk, takeFight, dropFight } from './net/fightBuffer'
+import { decodeFightLog, type FightChunk } from './net/fightWire'
+import type { RejectReason, RoomPhase, LobbySeatView, ServerMessage } from './net/protocol'
 // The countdown's clock-skew correction lives in ONE module and is imported
 // here, never re-derived: no branch in this file may do arithmetic on a
 // `phase` message's absolute `deadline` itself (see src/net/roomClock.ts's
@@ -2023,13 +2035,13 @@ let liftedBoardHexKey: string | null = null
 let liftedBenchSlot: number | null = null
 let currentOpponentIndex = -1        // captured at combat start for settlement
 let lastSettlementLine = ''
-// Snapshot of the human's gold/bench occupancy taken immediately before a
-// resolveRound() call — applyRoundResult diffs against these to derive the
-// quake-reward summary (crawler count, quake gold) without resolveRound
+// Snapshot of the human's settlement-relevant economy taken immediately
+// before a resolveRound() call — applyRoundResult diffs against it to derive
+// the quake-reward summary (crawler count, quake gold) without resolveRound
 // reporting rewards per seat. Set by snapshotPreRound(), read once by the
-// following applyRoundResult() call.
-let preRoundGold = 0
-let preRoundBenchOccupied = 0
+// following applyRoundResult() call. The networked path builds the same
+// before/after pair out of two server snapshots instead (see prevSnapshot).
+let preRoundSettlement: SettlementSnapshot = { gold: 0, benchOccupied: 0, pendingIncome: 0, streak: 0 }
 // The seat this client controls. Single-player leaves this at 0. Phase 3/4
 // (room server + client networking) will set this from the room's seat
 // assignment once a lobby can host more than one human.
@@ -2123,11 +2135,41 @@ function saveRun(state: RunState): void {
 // room). Reset by bootNetworked and leaveLobby so a second lobby starts clean.
 let seenServerSnapshot = false
 
+// The RunState this client held immediately BEFORE the most recent server
+// snapshot replaced it. A networked client never calls snapshotPreRound (it
+// never runs a resolve), so this is its only "before" state — and the
+// settlement line's interest and quake-reward figures are diffs against
+// exactly that. Null until the second snapshot of a session lands.
+let prevSnapshot: RunState | null = null
+
+// The resolve this client is currently acting on: what the room settled, and
+// which fight (if any) it is waiting on chunks for. `fightId` is the sole
+// correlation key between a `resolve` and its `fight-chunk` stream —
+// broadcast ordering ACROSS connections is unspecified, so arrival adjacency
+// is never a correlation (see src/net/protocol.ts's resolve comment).
+let pendingResolve: {
+  round: number
+  kind: 'pvp' | 'creep' | 'item'
+  seat: SeatFightResult | null
+  fightId: string | null
+} | null = null
+
+// The ONE place a `fight-chunk` stream is accumulated. Bounded by
+// fightBuffer's own MAX_TRACKED_FIGHTS / MAX_CHUNKS_PER_FIGHT caps and its
+// per-chunk index/total validation, so a malformed or hostile stream cannot
+// grow this tab's memory without limit (T-04-50). There is deliberately no
+// second buffering path anywhere in this file.
+let netFightBuffer = createFightBuffer()
+
 function applyServerSnapshot(snapshot: RunState): void {
   // Read the OUTGOING composition before `run` is replaced — the star-up
   // flash is the one piece of buy feedback no message on the wire carries
   // (a `snapshot` is just the new state), so it has to be derived by diff.
   const before = localTierComposition()
+  // Captured on EVERY snapshot, not only around a resolve: the resolve
+  // handler needs the state as of the instant before the room settled, and
+  // the last planning-phase snapshot IS that state.
+  prevSnapshot = run
   run = snapshot
   syncRunToBoard()
   renderEconUI()
@@ -2382,6 +2424,9 @@ function leaveLobby(): void {
   netPhase = null
   netClock = null
   netLobby = null
+  prevSnapshot = null
+  pendingResolve = null
+  netFightBuffer = createFightBuffer()
   setNetStatusBanner(null)
   localSeatIndex = 0
   run = loadRun() ?? newRun(botSeats())
@@ -2403,6 +2448,9 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
   netPhase = null
   netClock = null
   netLobby = null
+  prevSnapshot = null
+  pendingResolve = null
+  netFightBuffer = createFightBuffer()
 
   // Shown BEFORE connecting, so the host has a link to copy during the
   // handshake rather than after it, and a guest opening a link never sees a
@@ -2493,8 +2541,10 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
         // frame to a connection joining MID-phase, so a late joiner picks up
         // the live remaining time here with no special case.
         hideLobbyScreen()
-        econPhase = 'planning'
-        updateEconVisibility()
+        // Deferred while a fight is still playing back — see
+        // enterNetPlanningView's header for why the two phases are allowed
+        // to disagree for exactly that long.
+        enterNetPlanningView()
       } else if (m.phase === 'resolving') {
         // Deliberately a no-op, and deliberately unreachable as party/lobby.ts
         // stands: onDeadline sets this.phase = 'resolving' but never calls
@@ -2516,6 +2566,10 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
         // 'lobby' / 'idle': no round is running, so nothing counts down.
         netClock = null
       }
+    } else if (m.t === 'resolve') {
+      handleNetResolve(m)
+    } else if (m.t === 'fight-chunk') {
+      handleFightChunk(m.chunk)
     }
   })
 
@@ -2543,6 +2597,197 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
   })
 
   client.connect()
+}
+
+// ─── The networked round: resolve, then playback ─────────────────────────────
+
+// econPhase is this file's VIEW state machine; netPhase is the room's. They
+// are deliberately allowed to disagree for the length of a playback, because
+// party/lobby.ts opens the next planning phase the instant it has finished
+// streaming the chunks — so the 'planning' broadcast lands WHILE this tab is
+// still watching the fight it just received. Flipping the view then would
+// re-arm the planning-only board interactions (board sell, `r` to pull an
+// item) on top of a board whose hexes currently hold replayed combat units.
+// The switch therefore waits for restorePlayerBoard, which is the same point
+// the solo path leaves its own combat view at.
+function enterNetPlanningView(): void {
+  if (playbackLog !== null || combatRunning) return
+  econPhase = 'planning'
+  updateEconVisibility()
+}
+
+// Takes the room's settlement for this seat. Settles NOTHING locally: HP,
+// gold, elimination and game over all arrive inside `m.snapshot`, and the
+// run is over only when the room says so with `phase: 'over'` (COMBAT-02).
+// No branch below calls resolveRound, recordFight, checkGameOver or
+// startPlanningPhase.
+function handleNetResolve(m: Extract<ServerMessage, { t: 'resolve' }>): void {
+  // Overwritten wholesale: a new resolve supersedes the previous one, and any
+  // fight the old one was still waiting on is stale from here (the
+  // fight-chunk handler discards a completed fight whose id no longer
+  // matches). Everything downstream reads THIS record rather than `m`, so
+  // there is one answer to "which fight is this tab waiting for".
+  pendingResolve = { round: m.round, kind: m.kind, seat: m.seat, fightId: m.fightId }
+  const pending = pendingResolve
+
+  // Ordering matters: applyServerSnapshot moves the outgoing `run` into
+  // prevSnapshot, so the before/after pair below straddles exactly this
+  // resolve.
+  const before = prevSnapshotSettlement()
+  applyServerSnapshot(m.snapshot)
+  currentOpponentIndex = pending.seat?.opponentSeat ?? -1
+
+  if (pending.seat) {
+    lastSettlementLine = buildSettlementLine(
+      pending.seat, pending.round, pending.kind, before, settlementSnapshotOf(humanEcon()),
+    )
+  }
+
+  if (pending.fightId === null) {
+    // A bye, an abstractly-resolved bot-vs-bot pairing, or an item round:
+    // there is no fight to watch and ZERO chunks are coming (party/lobby.ts
+    // guards that explicitly). Clear the combat view, stay in the planning
+    // view, and wait for the room's next `phase` broadcast — synthesising a
+    // fight, or advancing the round here, is exactly what a networked client
+    // may not do.
+    combatState = null
+    combatRunning = false
+    playbackLog = null
+    playbackIndex = 0
+    econPhase = 'planning'
+    updateEconVisibility()
+    return
+  }
+
+  // A fight is on its way. Claim the combat view now so the chunks that
+  // follow land on a tab that is already showing the board rather than the
+  // shop mid-swap; startNetPlayback (plan 04-06 Task 2) starts the replay
+  // once the last chunk completes the fight.
+  econPhase = 'combat'
+  updateEconVisibility()
+}
+
+// The seat's settlement-relevant state as of the last snapshot before this
+// resolve. Falls back to the current run on the very first snapshot of a
+// session, which yields a zero quake diff rather than a nonsense one.
+function prevSnapshotSettlement(): SettlementSnapshot {
+  const source = prevSnapshot ?? run
+  const econ = source.players[localSeatIndex] as PlayerEcon | undefined
+  return econ ? settlementSnapshotOf(econ) : { gold: 0, benchOccupied: 0, pendingIncome: 0, streak: 0 }
+}
+
+// ─── COMBAT-02 / COMBAT-03: what this client does with a streamed fight ──────
+//
+// CHECKED AND RECORDED HERE RATHER THAN ONLY IN A PLANNING DOCUMENT: beyond
+// (1) reassembling the chunks through src/net/fightBuffer.ts, (2) decoding
+// them with decodeFightLog, and (3) orienting the result to this viewer's
+// seat with mirrorFightLogForSeat, NO additional client-side fight logic
+// exists. The replay itself is frame()'s existing playbackLog branch — the
+// SAME loop single-player has always used — which calls applyFrame and
+// nothing from src/core/systems/. No branch below runs a combat tick, re-
+// derives a winner, or reseeds a simulation.
+//
+// COMBAT-03 (both clients see the identical fight) is therefore inherited,
+// not re-established: party/lobby.ts's broadcastResolve encodes each distinct
+// log EXACTLY ONCE per logIndex and sends both participants the same chunk
+// array, so identical events and an identical outcome follow from Phase 3's
+// COMBAT-01 guarantee. The only per-viewer difference is the orientation
+// transform, which adds, drops and reorders no event and re-maps `winner` in
+// exactly one place (see src/game/playbackPerspective.ts).
+function handleFightChunk(chunk: FightChunk): void {
+  const completed = acceptChunk(netFightBuffer, chunk)
+  if (completed === null) return   // rejected, duplicate, or still incomplete
+
+  // A completed fight the pending resolve never announced is stale — a fight
+  // from a resolve already played or superseded, or a reconnect redelivery.
+  // party/lobby.ts sends a seat its `resolve` BEFORE that fight's chunks on
+  // the same connection, and per-connection delivery is FIFO, so a live
+  // fight's id is always already pending by the time its last chunk lands.
+  if (pendingResolve === null || pendingResolve.fightId !== completed) {
+    dropFight(netFightBuffer, completed)
+    return
+  }
+
+  const chunks = takeFight(netFightBuffer, completed)
+  if (chunks === null) return   // unreachable: acceptChunk just reported it complete
+
+  void decodeFightLog(chunks).then(log => {
+    // decodeFightLog is async, so a second resolve can land mid-decode.
+    // Starting playback of a superseded fight would leave the board showing a
+    // round the room has already moved past (T-04-54).
+    if (pendingResolve === null || pendingResolve.fightId !== completed) return
+    pendingResolve = null   // consumed — a redelivered copy is stale from here
+    startNetPlayback(log)
+  }).catch(err => {
+    // A chunk set that passed acceptChunk but will not decode. Loud, and
+    // non-fatal: the round itself is already settled from the snapshot, so
+    // the tab keeps its state and simply shows no fight.
+    console.error('[playback] failed to decode the room\'s fight log', err)
+    econPhase = 'planning'
+    updateEconVisibility()
+  })
+}
+
+// Starts the replay exactly the way startCombat's economy branch does, and
+// through the very same renderer — reusing frame()'s playbackLog loop rather
+// than writing a second one is what makes "no client-side re-simulation"
+// structurally true rather than a promise.
+function startNetPlayback(log: FightLog): void {
+  // THE single call that orients a seatB viewer onto its own half of the
+  // board. Strictly between decode and playback-state construction: nothing
+  // downstream of it re-derives a winner.
+  const oriented = mirrorFightLogForSeat(log, localSeatIndex)
+
+  cancelHeldUnit()
+  unitLayer.setHoveredUnit(null)
+  econPhase = 'combat'
+  updateEconVisibility()
+
+  playbackLog = oriented
+  playbackIndex = 0
+  combatState = createPlaybackState(oriented)
+
+  // Rebuild placedUnits from this seat's committed board, the same way the
+  // solo path does — the snapshot that came with the resolve has already
+  // moved the round forward, so rebuild explicitly rather than trusting
+  // placedUnits' pre-fight contents.
+  placedUnits.clear()
+  for (const e of humanEcon().board) {
+    const unit = makeUnit(e.definitionId, 'player', e.tier)
+    unit.hexPos = { ...e.hexPos }
+    unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
+    if (e.item) unit.items = [e.item]
+    placedUnits.set(hexId(unit.hexPos), unit)
+  }
+  preCombatSnapshot = getPlacedUnitsArray()
+    .filter(u => u.team === 'player')
+    .map(u => ({
+      definitionId: u.definitionId,
+      tier: u.tier as 1 | 2 | 3,
+      hexPos: { ...u.hexPos },
+      item: u.items[0],
+    }))
+
+  // The win-prediction calibration loop is a SOLO learner fed by battles this
+  // browser's own economy produced; a room's fight is not its data, and
+  // pendingBattle being null is also what keeps frame()'s done branch from
+  // recording one.
+  lastWinProb = null
+  lastPowerDelta = 0
+  pendingBattle = null
+
+  if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
+  inOvertime = false
+  document.getElementById('overtime-box')!.style.display = 'none'
+  combatRunning = true
+  accumulator = 0
+  lastTs = 0
+
+  boardLayer.setCombatActive(true)
+  setCombatBarState('running')
+  document.getElementById('result-box')!.style.display = 'none'
+  document.getElementById('combat-info')!.textContent = ''
+  applyLayoutMode()
 }
 
 function econActive(): boolean {
@@ -4052,63 +4297,100 @@ function roundSeedFor(state: RunState): number {
   return (state.round * 2654435761 + roundSeedSalt) >>> 0
 }
 
-// Captures the human's gold and bench occupancy immediately before a
-// resolveRound() call, so applyRoundResult can diff against them afterward —
-// resolveRound settles every seat internally and does not report Cave Crawler
-// earthquake rewards per seat, so the summary line has to be reconstructed
-// from a before/after snapshot instead.
+// ─── The settlement line ─────────────────────────────────────────────────────
+
+// Everything buildSettlementLine reads off one side of the round boundary.
+// Deliberately a plain data shape rather than a PlayerEcon: the solo path
+// reads it off the live econ and the networked path off a server RunState,
+// and neither may reach past these four fields into state the other cannot
+// supply.
+interface SettlementSnapshot {
+  gold: number
+  benchOccupied: number
+  pendingIncome: number
+  streak: number
+}
+
+function settlementSnapshotOf(econ: PlayerEcon): SettlementSnapshot {
+  return {
+    gold: econ.gold,
+    benchOccupied: econ.bench.filter(b => b !== null).length,
+    pendingIncome: econ.pendingIncome,
+    streak: econ.streak,
+  }
+}
+
+// THE one place the settlement summary is formatted, called by both the solo
+// applyRoundResult and the networked `resolve` handler. Extracted rather than
+// copied precisely so the two can never drift: a second copy of this string
+// concatenation is how a lobby ends up reporting a different round than the
+// same round reports in single-player.
+//
+// The income figure comes from the seat's pendingIncome delta (pendingIncome
+// is banked to 0 by startPlanning at the start of every planning phase, so
+// its value here IS this round's total — no second settleRound call needed).
+// The base/interest/streak/win breakdown is recomputed from the same
+// read-only formulas settleRound itself uses, against `before`'s gold;
+// hpLost comes straight from the seat's SeatFightResult.
+//
+// Cave Crawler earthquake rewards are granted authoritatively inside
+// resolveRound (superseding the removed live onLivePlayerQuake roll), which
+// reports no per-seat reward — so the crawler/quake extras are reconstructed
+// by diffing `before` against `after` rather than read from a field.
+function buildSettlementLine(
+  mine: { won: boolean; hpLost: number },
+  round: number,
+  kind: 'pvp' | 'creep' | 'item',
+  before: SettlementSnapshot,
+  after: SettlementSnapshot,
+): string {
+  const total = after.pendingIncome
+  const base = BASE_INCOME_BY_ROUND[round - 1] ?? BASE_INCOME_CAP
+  const interest = Math.min(MAX_INTEREST, Math.floor(before.gold / 10))
+  const streakGold = streakBonus(after.streak)
+  const winGold = mine.won ? WIN_BONUS : 0
+
+  const prefix = kind === 'creep' ? `Cleared ${creepRoundDef(round)?.name ?? 'creeps'} · ` : ''
+  let line =
+    prefix +
+    `+${total}g · base ${base} · interest ${interest}` +
+    (streakGold ? ` · streak ${streakGold}` : '') +
+    (winGold ? ` · win ${winGold}` : '') +
+    ` | +${XP_PER_ROUND} XP` +
+    (mine.hpLost ? ` · −${mine.hpLost} HP` : '')
+
+  const goldFromQuakes = Math.max(0, after.gold - before.gold)
+  const crawlersSpawned = Math.max(0, after.benchOccupied - before.benchOccupied)
+  if (crawlersSpawned > 0 || goldFromQuakes > 0) {
+    const parts: string[] = []
+    if (crawlersSpawned > 0) parts.push(`+${crawlersSpawned} crawler${crawlersSpawned > 1 ? 's' : ''}`)
+    if (goldFromQuakes > 0) parts.push(`+${goldFromQuakes}g quake`)
+    line += ` · ${parts.join(' · ')}`
+  }
+  return line
+}
+
+// Captures the human's settlement-relevant economy immediately before a
+// resolveRound() call, so applyRoundResult can diff against it afterward.
 function snapshotPreRound(): void {
-  const h = humanEcon()
-  preRoundGold = h.gold
-  preRoundBenchOccupied = h.bench.filter(b => b !== null).length
+  preRoundSettlement = settlementSnapshotOf(humanEcon())
 }
 
 // Reads this seat's SeatFightResult out of a resolved round, sets the
 // opponent-preview index, builds the settlement summary line, resolves
 // game-over for this seat, and persists. Called once per resolveRound() call
 // (item round, creep round, and PvP round all funnel through here) — the
-// single settlement path, replacing the old inline combat-end block.
-//
-// The income figure comes from the seat's pendingIncome delta (pendingIncome
-// is banked to 0 by startPlanning at the start of every planning phase, so
-// its value here IS this round's total — no second settleRound call needed).
-// The base/interest/streak/win breakdown is recomputed from the same
-// read-only formulas settleRound itself uses, against the gold snapshot
-// snapshotPreRound captured just before resolveRound ran; hpLost comes
-// straight from the seat's SeatFightResult.
+// single SOLO settlement path, replacing the old inline combat-end block. The
+// networked path never calls this: it has no RoundResult and settles nothing
+// locally (see handleNetResolve, which shares only buildSettlementLine).
 function applyRoundResult(res: RoundResult): void {
   const mine = res.seats.find(s => s.seat === localSeatIndex)
   currentOpponentIndex = mine?.opponentSeat ?? -1
 
   if (mine) {
-    const econ = humanEcon()
-    const total = econ.pendingIncome
-    const base = BASE_INCOME_BY_ROUND[res.round - 1] ?? BASE_INCOME_CAP
-    const interest = Math.min(MAX_INTEREST, Math.floor(preRoundGold / 10))
-    const streakGold = streakBonus(econ.streak)
-    const winGold = mine.won ? WIN_BONUS : 0
-
-    const prefix = res.kind === 'creep' ? `Cleared ${creepRoundDef(res.round)?.name ?? 'creeps'} · ` : ''
-    lastSettlementLine =
-      prefix +
-      `+${total}g · base ${base} · interest ${interest}` +
-      (streakGold ? ` · streak ${streakGold}` : '') +
-      (winGold ? ` · win ${winGold}` : '') +
-      ` | +${XP_PER_ROUND} XP` +
-      (mine.hpLost ? ` · −${mine.hpLost} HP` : '')
-
-    // Cave Crawler earthquake rewards for the human are now granted
-    // authoritatively inside resolveRound (superseding the removed live
-    // onLivePlayerQuake roll) — reconstruct the summary from the before/after
-    // snapshot rather than a per-seat report resolveRound doesn't produce.
-    const goldFromQuakes = Math.max(0, econ.gold - preRoundGold)
-    const crawlersSpawned = Math.max(0, econ.bench.filter(b => b !== null).length - preRoundBenchOccupied)
-    if (crawlersSpawned > 0 || goldFromQuakes > 0) {
-      const parts: string[] = []
-      if (crawlersSpawned > 0) parts.push(`+${crawlersSpawned} crawler${crawlersSpawned > 1 ? 's' : ''}`)
-      if (goldFromQuakes > 0) parts.push(`+${goldFromQuakes}g quake`)
-      lastSettlementLine += ` · ${parts.join(' · ')}`
-    }
+    lastSettlementLine = buildSettlementLine(
+      mine, res.round, res.kind, preRoundSettlement, settlementSnapshotOf(humanEcon()),
+    )
   }
 
   run.gameOver = checkGameOver(run, localSeatIndex)
@@ -4534,17 +4816,13 @@ function startCombat(): void {
       return
     }
 
+    // No orientation transform here, deliberately: src/game/round.ts's
+    // resolvePvpRound always records a human-vs-bot fight with the human as
+    // seatA, so a solo log's 'player' team IS this seat. The seatB case only
+    // arises in a human-vs-human pairing, which is networked by definition
+    // and is handled by startNetPlayback's mirrorFightLogForSeat call.
     playbackLog = res.logs[mine.logIndex]
     playbackIndex = 0
-    if (playbackLog.seatB === localSeatIndex) {
-      // Defensive only: src/game/round.ts's resolvePvpRound always records a
-      // human-vs-bot fight with the human as seatA, so this should be
-      // unreachable in single-player. A human-vs-human pairing (Phase 4) has
-      // no single correct seatA choice from inside that seat-agnostic
-      // function and would hit this — flag it loudly rather than silently
-      // rendering the human's own board flipped and colored 'enemy'.
-      console.warn('[playback] local seat recorded as seatB of its own fight log — rendering may be mirrored (expected only for a future human-vs-human matchup)')
-    }
     combatState = createPlaybackState(playbackLog)
 
     // Rebuild placedUnits from this seat's committed board — resolveRound
@@ -4676,6 +4954,11 @@ function restorePlayerBoard(): void {
   if (econActive() && !isNetworked()) {
     if (run.gameOver) enterGameOver(run.gameOver)
     else startPlanningPhase(true)
+  } else if (isNetworked() && netPhase === 'planning') {
+    // The room's next planning phase already opened while this fight was
+    // still on screen; take the view transition it deferred. A VIEW change
+    // only — no shop roll, no income bank, no round advance.
+    enterNetPlanningView()
   }
 }
 
@@ -4758,6 +5041,8 @@ function resetCombat(): void {
   if (econActive() && !isNetworked()) {
     if (run.gameOver) enterGameOver(run.gameOver)
     else startPlanningPhase(false)
+  } else if (isNetworked() && netPhase === 'planning') {
+    enterNetPlanningView()
   }
 }
 

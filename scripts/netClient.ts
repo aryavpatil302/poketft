@@ -16,6 +16,13 @@ import { PROTOCOL_VERSION, type RejectReason, type ServerMessage } from '../src/
 // the clock-skew property is asserted against a live server rather than only
 // in roomClock.test.ts's unit tests.
 import { captureDeadline, remainingMs } from '../src/net/roomClock'
+// Scenario 14 drives the REAL reassembly, decode, orientation and playback
+// modules src/main.ts imports — not a reimplementation of their arithmetic.
+// A private copy here would prove only that this script agrees with itself.
+import { createFightBuffer, acceptChunk, takeFight, type FightBuffer } from '../src/net/fightBuffer'
+import { decodeFightLog, type FightChunk } from '../src/net/fightWire'
+import { mirrorFightLogForSeat } from '../src/game/playbackPerspective'
+import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from '../src/game/playback'
 import { REROLL_COST, PLAYER_COUNT } from '../src/econ/constants'
 import { UNIT_MAP } from '../src/data/units'
 import type { RunState } from '../src/econ/runState'
@@ -957,6 +964,261 @@ async function sharedPoolConservation(host: string, roomId: string): Promise<voi
   await sleep(200)
 }
 
+// ─── Scenario 14: the full networked round ────────────────────────────────────
+
+// COMBAT-02 and COMBAT-03's end-to-end probe, and the last scenario in this
+// file. Two clients are driven until the room pairs them against EACH OTHER,
+// then the fight the server streamed them is reassembled, decoded, oriented
+// and replayed — through the REAL src/net/fightBuffer.ts and
+// src/game/playbackPerspective.ts modules src/main.ts imports, never a
+// reimplementation of their arithmetic. A copy here would prove only that
+// this script and the browser agree with themselves.
+//
+// scripts/roomRound.ts already proves the same byte-identity property against
+// raw PartySockets; this one proves it through the browser's own client stack
+// AND adds the viewer-orientation half, which roomRound.ts predates.
+
+// Accumulates a client's `fight-chunk` stream exactly the way src/main.ts's
+// handleFightChunk does: accept, and on completion take the index-sorted set
+// straight back out, so the buffer stays near-empty rather than growing a
+// bucket per round.
+function attachChunkSink(client: RoomClient): Map<string, FightChunk[]> {
+  const buffer: FightBuffer = createFightBuffer()
+  const completed = new Map<string, FightChunk[]>()
+  client.onMessage(m => {
+    if (m.t !== 'fight-chunk') return
+    const fightId = acceptChunk(buffer, m.chunk)
+    if (fightId === null) return
+    const chunks = takeFight(buffer, fightId)
+    if (chunks !== null) completed.set(fightId, chunks)
+  })
+  return completed
+}
+
+// Board hexes a seat can field onto (own half, rows 4-7). Cycled modulo
+// length — a hex an earlier placement already took just swaps, which is
+// harmless churn here.
+const ROUND_FIELD_HEXES = [
+  { col: 3, row: 6 }, { col: 4, row: 6 }, { col: 2, row: 6 },
+  { col: 5, row: 6 }, { col: 3, row: 5 }, { col: 4, row: 5 },
+]
+
+// Best-effort: buy the first affordable shop slot and field it. Never throws
+// on a rejection — 'no-gold', 'pool-empty' and a 2s planning window closing
+// mid-round-trip are all correct outcomes of a live shared economy, not
+// failures. Its only job is making the eventual PvP fight non-trivial: two
+// empty boards settle instantly with no frames to play back.
+async function buyAndFieldVia(
+  client: RoomClient,
+  probe: ReturnType<typeof probeClient>,
+  seatIdx: number,
+  getLatest: () => RunState,
+  hexCursor: { i: number },
+): Promise<void> {
+  const econ = getLatest().players[seatIdx]
+  const slot = econ.shop.findIndex(id => id !== null && (UNIT_MAP.get(id)?.cost ?? Infinity) <= econ.gold)
+  if (slot === -1) return
+
+  const bought = probe.next(
+    m => m.t === 'rejected' || (m.t === 'snapshot' && m.snapshot.players[seatIdx].shop[slot] === null),
+    5000,
+  ).catch(() => null)
+  client.sendAction({ t: 'buy', slot })
+  const res = await bought
+  if (!res || res.t !== 'snapshot') return
+
+  const after = res.snapshot as RunState
+  const benchIdx = after.players[seatIdx].bench.findIndex(u => u !== null)
+  if (benchIdx === -1) return
+
+  const hex = ROUND_FIELD_HEXES[hexCursor.i % ROUND_FIELD_HEXES.length]
+  hexCursor.i++
+  const fielded = probe.next(
+    m => m.t === 'rejected' ||
+      (m.t === 'snapshot' &&
+        m.snapshot.players[seatIdx].board.some(e => e.hexPos.col === hex.col && e.hexPos.row === hex.row)),
+    5000,
+  ).catch(() => null)
+  client.sendAction({ t: 'moveBench', benchIndex: benchIdx, to: hex })
+  await fielded
+}
+
+async function fullNetworkedRound(host: string, roomId: string): Promise<void> {
+  const s14 = scenario('the full networked round')
+
+  const clientA = new RoomClient({ host, room: roomId, name: 'RoundA' })
+  const probeA = probeClient(clientA)
+  const chunksA = attachChunkSink(clientA)
+  const welcomeWaitA = probeA.next(m => m.t === 'welcome', 15_000)
+  clientA.connect()
+  const welcomeA = await welcomeWaitA
+
+  const clientB = new RoomClient({ host, room: roomId, name: 'RoundB' })
+  const probeB = probeClient(clientB)
+  const chunksB = attachChunkSink(clientB)
+  const welcomeWaitB = probeB.next(m => m.t === 'welcome', 15_000)
+  clientB.connect()
+  const welcomeB = await welcomeWaitB
+
+  s14(welcomeA.phase === 'lobby', `the round room has never been started (phase '${welcomeA.phase}')`)
+  s14(welcomeA.seat === 0 && welcomeB.seat === 1, `the two clients hold seats 0 and 1 (got ${welcomeA.seat} and ${welcomeB.seat})`)
+
+  // Latest state per client, for choosing the next shop slot. Both `snapshot`
+  // and `resolve` carry one, and a resolve's is the settled state the next
+  // planning phase opens from — reading only `snapshot` would leave the
+  // buy/field helper one round stale.
+  let latestA: RunState = welcomeA.snapshot
+  let latestB: RunState = welcomeB.snapshot
+  clientA.onMessage(m => { if (m.t === 'snapshot' || m.t === 'resolve') latestA = m.snapshot })
+  clientB.onMessage(m => { if (m.t === 'snapshot' || m.t === 'resolve') latestB = m.snapshot })
+
+  const openingA = probeA.next(m => m.t === 'phase' && m.phase === 'planning', 15_000)
+  const openingB = probeB.next(m => m.t === 'phase' && m.phase === 'planning', 15_000)
+  clientA.sendStart()
+  await Promise.all([openingA, openingB])
+
+  // ─── Drive rounds until the room pairs 0 against 1 ──────────────────────
+  const MAX_ROUNDS = 20
+  const hexCursorA = { i: 0 }
+  const hexCursorB = { i: 0 }
+  let pairAnnouncedForNextRound = latestA.players[0].nextOpponent === 1
+  let targetA: any = null
+  let targetB: any = null
+  let rounds = 0
+
+  for (; rounds < MAX_ROUNDS && targetA === null; rounds++) {
+    // Both waiters registered BEFORE anything can trigger them: the room
+    // broadcasts this round's resolve and the NEXT round's phase from the
+    // same onDeadline continuation, often milliseconds apart.
+    const resolveBoth = Promise.all([
+      probeA.next(m => m.t === 'resolve', 20_000),
+      probeB.next(m => m.t === 'resolve', 20_000),
+    ])
+    const nextPhaseBoth = Promise.all([
+      probeA.next(m => m.t === 'phase' && m.phase === 'planning', 20_000).catch(() => null),
+      probeB.next(m => m.t === 'phase' && m.phase === 'planning', 20_000).catch(() => null),
+    ])
+
+    await buyAndFieldVia(clientA, probeA, 0, () => latestA, hexCursorA)
+    await buyAndFieldVia(clientB, probeB, 1, () => latestB, hexCursorB)
+
+    const [ra, rb] = await resolveBoth
+    s14(ra.round === rb.round, `both clients see the same resolved round (${ra.round})`)
+    s14(ra.kind === rb.kind, `both clients see the same round kind (${ra.kind})`)
+
+    if (pairAnnouncedForNextRound && ra.kind === 'pvp' && ra.seat?.opponentSeat === 1) {
+      s14(rb.seat?.opponentSeat === 0, `round ${ra.round}: the room paired seat 1 back against seat 0`)
+      targetA = ra
+      targetB = rb
+      break
+    }
+    pairAnnouncedForNextRound = ra.snapshot.players[0].nextOpponent === 1
+
+    if (ra.survivors.length <= 1) {
+      throw new Error(`netClient: the run ended (round ${ra.round}) before a 0-vs-1 pairing was ever announced`)
+    }
+    await nextPhaseBoth
+  }
+  s14(targetA !== null, `a 0-vs-1 human pairing was forced within ${MAX_ROUNDS} rounds (took ${rounds + 1})`)
+
+  // ─── One fight, two reassemblies ────────────────────────────────────────
+  const fightId: string = targetA.fightId
+  s14(!!fightId && fightId === targetB.fightId, `both clients were told the same non-null fightId (${fightId})`)
+
+  const chunkDeadline = Date.now() + 15_000
+  while ((!chunksA.has(fightId) || !chunksB.has(fightId)) && Date.now() < chunkDeadline) await sleep(50)
+  const setA = chunksA.get(fightId)
+  const setB = chunksB.get(fightId)
+  s14(
+    setA !== undefined && setB !== undefined,
+    'both clients completed the fight through acceptChunk — completion is holding `total` distinct indices, never counting arrivals',
+  )
+  if (setA === undefined || setB === undefined) throw new Error('netClient: unreachable — chunk sets missing after the assertion above')
+
+  s14(
+    setA[0].total === setB[0].total && setA.length === setA[0].total && setB.length === setB[0].total,
+    `both clients completed at the same total (${setA[0].total} chunk(s) each)`,
+  )
+  const ascending = (chunks: FightChunk[]): boolean => chunks.every((c, i) => c.index === i)
+  s14(ascending(setA) && ascending(setB), 'takeFight handed back index-sorted arrays on both clients')
+  s14(
+    setA.map(c => c.gzipB64).join('|') === setB.map(c => c.gzipB64).join('|'),
+    'the two reassembled chunk sets are byte-identical — one server-run fight, encoded once (COMBAT-01)',
+  )
+
+  const logA = await decodeFightLog(setA)
+  const logB = await decodeFightLog(setB)
+  s14(JSON.stringify(logA) === JSON.stringify(logB), 'both clients decode to deep-equal FightLogs')
+  s14(logA.frames.length > 0, `the decoded fight has frames to play back (${logA.frames.length})`)
+
+  // ─── Orientation ────────────────────────────────────────────────────────
+  // Mirrored for whichever seat the recorder put on the 'enemy' half — that
+  // is the viewer the transform exists for, and picking it off the log rather
+  // than hardcoding a seat keeps this assertion real whichever way
+  // resolvePvpRound happened to order the pairing.
+  const seatOnEnemyHalf: number = logA.seatB
+  s14(
+    (logA.seatA === 0 && logA.seatB === 1) || (logA.seatA === 1 && logA.seatB === 0),
+    `the recorded log is the 0-vs-1 fight (seatA ${logA.seatA}, seatB ${logA.seatB})`,
+  )
+
+  const rawWinner = logA.winner
+  const oriented = mirrorFightLogForSeat(logB, seatOnEnemyHalf)
+  s14(
+    logB.winner === rawWinner,
+    'mirrorFightLogForSeat did not mutate its input — the source log still reports its recorded winner',
+  )
+  if (rawWinner === 'draw') {
+    s14(oriented.winner === 'draw', "a draw stays a draw through the orientation transform")
+  } else {
+    s14(
+      oriented.winner === (rawWinner === 'player' ? 'enemy' : 'player'),
+      `the seatB viewer's oriented log reports the opposite winner (${rawWinner} -> ${oriented.winner}) — a presentation swap, not a re-derivation`,
+    )
+  }
+  s14(oriented.seatA === logB.seatB && oriented.seatB === logB.seatA, 'the oriented log swaps seatA and seatB')
+  s14(
+    oriented.frames.length === logB.frames.length,
+    `the orientation transform added and dropped no frame (${logB.frames.length})`,
+  )
+  const ticksUnchanged = oriented.frames.every((f, i) => f.tick === logB.frames[i].tick)
+  s14(ticksUnchanged, 'every frame keeps its recorded tick — the transform reorders nothing')
+  const eventsUnchanged = oriented.frames.every((f, i) => f.events.length === logB.frames[i].events.length)
+  s14(eventsUnchanged, 'every frame keeps its exact event count — the transform adds and drops no event')
+
+  // ─── Playback ───────────────────────────────────────────────────────────
+  // The same three functions src/main.ts calls, in the same order.
+  const playbackState = createPlaybackState(oriented)
+  let applied = 0
+  for (const f of oriented.frames) { applyFrame(playbackState, f); applied++ }
+  s14(applied === oriented.frames.length, `every frame of the oriented log applied through applyFrame without throwing (${applied})`)
+  s14(playbackLength(oriented) === oriented.frames.length, 'playbackLength matches the oriented frame count')
+
+  // The property COMBAT-03 is actually about: each client, having oriented
+  // ITS OWN copy to ITS OWN seat, reads the outcome the room settled for it.
+  for (const [label, seat, log, resolveMsg] of [
+    ['A', 0, logA, targetA],
+    ['B', 1, logB, targetB],
+  ] as const) {
+    const own = mirrorFightLogForSeat(log, seat)
+    const winner = playbackWinner(own)
+    const result = resolveMsg.seat
+    if (result.draw) {
+      s14(winner === 'draw', `${label} (seat ${seat}): playbackWinner reports a draw, matching its own SeatFightResult`)
+    } else {
+      s14(
+        winner === (result.won ? 'player' : 'enemy'),
+        `${label} (seat ${seat}): playbackWinner on its own oriented log says '${winner}', matching SeatFightResult.won=${result.won}`,
+      )
+    }
+  }
+  scenarioPassed('the full networked round')
+
+  clientA.close()
+  clientB.close()
+  await sleep(200)
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -1007,6 +1269,14 @@ async function main(): Promise<void> {
     },
     { PLANNING_MS: String(PLANNING_MS_ACTIONS) },
   )
+
+  // A FOURTH process, back on the short window: scenario 14 has to drive real
+  // rounds until the room pairs its two humans against each other, and a 20s
+  // planning phase would make that a multi-minute wait rather than a test.
+  console.log('--- restarting the room process for the full-round scenario ---')
+  await waitForRoomDown(ROOM_PORT)
+
+  await withRoom(({ host }) => fullNetworkedRound(host, `${roomId}-round`), vars)
 }
 
 const timeout = new Promise((_resolve, reject) => {
