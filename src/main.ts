@@ -39,7 +39,14 @@ import {
 } from './game/round'
 import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from './game/playback'
 import { RoomClient } from './net/roomClient'
-import type { RejectReason } from './net/protocol'
+import type { RejectReason, RoomPhase, LobbySeatView } from './net/protocol'
+// The countdown's clock-skew correction lives in ONE module and is imported
+// here, never re-derived: no branch in this file may do arithmetic on a
+// `phase` message's absolute `deadline` itself (see src/net/roomClock.ts's
+// header for why a local Date.now comparison is the bug being prevented).
+import {
+  captureDeadline, remainingSeconds, fractionRemaining, type RoomClock,
+} from './net/roomClock'
 import { parseLobbyCode, partyHost, newLobbyCode, shareableLobbyUrl } from './net/lobbyUrl'
 import { showTitleScreen, hideTitleScreen } from './ui/titleScreen'
 import { showLobbyScreen, updateLobbyScreen, setLobbyMessage, hideLobbyScreen } from './ui/lobbyScreen'
@@ -1314,22 +1321,42 @@ function renderCombatTimer(): void {
   label.style.color = overtime ? '#ff9966' : '#ffffff'
 }
 
-// Planning-phase deadline: mirrors renderCombatTimer's look. Ticks down from
-// PLANNING_TIME_LIMIT_MS and calls startCombat() once when it hits zero —
-// purely a UI/wall-clock countdown, it never drives bot logic (bots already
-// planned their round once in resolveBotRound right when planning began).
+// Planning-phase deadline, from one of two sources of truth that answer
+// different questions:
+//   SOLO — a local wall-clock countdown from PLANNING_TIME_LIMIT_MS that calls
+//   startCombat() once when it hits zero. It is an auto-start convenience and
+//   never drives bot logic (bots already planned their round once inside
+//   resolveRound right when planning began).
+//   NETWORKED — a DISPLAY of an authority that lives on the server. The room
+//   owns the deadline and fires resolution itself.
+// Both draw the same bar with the same element ids and the same colour
+// thresholds, so the two modes are indistinguishable on screen.
 function renderPlanningTimer(): void {
   const bar   = document.getElementById('planning-timer-bar')!
   const fill  = document.getElementById('planning-timer-fill')!
   const label = document.getElementById('planning-timer-label')!
 
-  // In a lobby the ROOM owns the countdown and fires resolution itself. A
-  // local timer here would run its own startCombat() and fork this client's
-  // game state away from the server's. Plan 04-05 replaces this guard with
-  // the real server-driven countdown rendered from the `phase` message's
-  // absolute deadline.
   if (isNetworked()) {
-    bar.style.display = 'none'
+    // ── The networked branch: WHEN THIS REACHES ZERO, DO NOTHING. ──────────
+    // The server's own timer ends the planning phase and tells this client
+    // via `resolve`; a client that called startCombat() at zero would fight a
+    // different battle than the one the room settled and fork this tab's game
+    // state away from the shared one. Note the solo branch immediately below
+    // DOES call startCombat() at zero — that difference is the whole point of
+    // splitting this function in two.
+    if (netPhase !== 'planning' || netClock === null || combatState) {
+      bar.style.display = 'none'
+      return
+    }
+    const now = performance.now()
+    // Both readings come from roomClock, which corrects for clock skew and
+    // clamps: a hostile or nonsensical deadline yields an empty bar, never a
+    // negative width or a NaN in a style string (T-04-18).
+    const netRemaining = fractionRemaining(netClock, now)
+    bar.style.display = 'block'
+    fill.style.width = `${netRemaining * 100}%`
+    fill.style.background = netRemaining > 0.5 ? '#44cc44' : netRemaining > 0.2 ? '#ffcc00' : '#ff3333'
+    label.textContent = `${remainingSeconds(netClock, now)}`
     return
   }
 
@@ -2016,6 +2043,22 @@ let net: RoomClient | null = null
 
 function isNetworked(): boolean { return net !== null }
 
+// The room's own phase, as last broadcast. Null until the first `welcome` or
+// `phase` frame lands. This is the ONLY authority on whether a networked tab
+// is in a planning window — `econPhase` remains the local view-state machine
+// and says nothing about the room.
+let netPhase: RoomPhase | null = null
+
+// The captured planning deadline, expressed as a duration against this tab's
+// own monotonic clock (see src/net/roomClock.ts). Null outside a planning
+// phase, which is exactly when the countdown bar hides.
+let netClock: RoomClock | null = null
+
+// The room's last broadcast seat view: who holds which seat, whether that
+// holder is a live human connection or the seat's bot persona, and each
+// seat's HP. Null in solo mode, which is what renderLobby falls back on.
+let netLobby: LobbySeatView[] | null = null
+
 // True once the socket has dropped or been refused. Input stops here rather
 // than silently doing nothing: RoomClient already no-ops a send outside
 // 'open', but a click that looks accepted and then never changes anything is
@@ -2222,7 +2265,13 @@ const REJECT_NOTICE_MS = 2000
 let rejectNoticeEl: HTMLDivElement | null = null
 let rejectNoticeTimer: ReturnType<typeof setTimeout> | null = null
 
-function reportActionRejected(reason: ActionReason | RejectReason): void {
+// The transient amber notice itself, decoupled from the reason vocabulary.
+// Plan 04-05 needs it for refusals that are NOT a server `rejected` frame at
+// all — a reset, a New Run or a test-mode toggle the CLIENT declines because
+// the room's run is shared and no seat may restart or reshape it unilaterally.
+// Those have no ActionReason/RejectReason to look up, so they pass their own
+// text rather than being forced into a wrong one.
+function showRejectNotice(text: string): void {
   if (rejectNoticeEl === null) {
     const el = document.createElement('div')
     el.id = 'action-reject-notice'
@@ -2243,7 +2292,7 @@ function reportActionRejected(reason: ActionReason | RejectReason): void {
     document.body.appendChild(el)
     rejectNoticeEl = el
   }
-  rejectNoticeEl.textContent = REJECT_TEXT[reason] ?? 'That action was refused.'
+  rejectNoticeEl.textContent = text
   rejectNoticeEl.style.display = 'block'
   rejectNoticeEl.style.opacity = '1'
   if (rejectNoticeTimer !== null) clearTimeout(rejectNoticeTimer)
@@ -2252,6 +2301,11 @@ function reportActionRejected(reason: ActionReason | RejectReason): void {
     if (!rejectNoticeEl) return
     rejectNoticeEl.style.opacity = '0'
   }, REJECT_NOTICE_MS)
+}
+
+// The server-`rejected` half: maps a wire reason to its player-facing text.
+function reportActionRejected(reason: ActionReason | RejectReason): void {
+  showRejectNotice(REJECT_TEXT[reason] ?? 'That action was refused.')
 }
 
 // ─── Star-up detection ────────────────────────────────────────────────────────
@@ -2321,6 +2375,12 @@ function leaveLobby(): void {
   net = null
   netDropped = false
   seenServerSnapshot = false
+  // Room-scoped state, cleared for the same reason `run` is reset below: a
+  // second lobby (or a return to solo) must not inherit the first room's
+  // phase, countdown or seat view.
+  netPhase = null
+  netClock = null
+  netLobby = null
   setNetStatusBanner(null)
   localSeatIndex = 0
   run = loadRun() ?? newRun(botSeats())
@@ -2339,6 +2399,9 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
   const shareUrl = shareableLobbyUrl(location.origin, code)
   let isHost = opts.isHost
   seenServerSnapshot = false
+  netPhase = null
+  netClock = null
+  netLobby = null
 
   // Shown BEFORE connecting, so the host has a link to copy during the
   // handshake rather than after it, and a guest opening a link never sees a
@@ -2362,6 +2425,11 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
       // The server is the sole seat authority — this client renders whatever
       // seat it was given, it never picks one.
       localSeatIndex = m.seat
+      // Both room-scoped views are adopted BEFORE the snapshot is applied:
+      // applyServerSnapshot re-renders the in-game seat list, and that render
+      // must already be able to see who is human.
+      netPhase = m.phase
+      netLobby = m.lobby
       applyServerSnapshot(m.snapshot)
       updateLobbyScreen({ seats: m.lobby, localSeat: m.seat })
 
@@ -2397,15 +2465,56 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
       // view on BOTH connect and close, and lobbyView derives `human` from
       // live occupancy — so this is equally what makes a friend appear when
       // they join and disappear when they drop, with no client-side polling.
+      // The same frame feeds the IN-GAME seat list, which is why a human seat
+      // that drops mid-round reverts to its bot persona there too.
+      netLobby = m.lobby
       updateLobbyScreen({ seats: m.lobby, localSeat: localSeatIndex })
-    } else if (m.t === 'phase' && m.phase === 'planning') {
-      // THE single dismissal path for both clients. Neither tab leaves the
-      // lobby on a local click — the host's Start only sends a frame; both
-      // tabs leave on the server's broadcast, which is exactly what keeps
-      // host and guest in step.
-      hideLobbyScreen()
-      econPhase = 'planning'
-      updateEconVisibility()
+      renderLobby()
+    } else if (m.t === 'seat-taken' || m.t === 'seat-freed') {
+      // Belt and braces, NOT a second source of truth: party/lobby.ts
+      // broadcasts a full `lobby` view alongside each of these, and that view
+      // is the only thing `netLobby` is ever assigned from. Patching netLobby
+      // from a seat-taken/seat-freed would invent a second, divergeable
+      // derivation of occupancy — so this branch only re-renders.
+      renderLobby()
+    } else if (m.t === 'phase') {
+      // The room's phase machine, mirrored. `netClock` is captured on EVERY
+      // phase frame (captureDeadline returns null for any phase carrying no
+      // deadline), so the countdown never survives the phase it belongs to.
+      netPhase = m.phase
+      netClock = captureDeadline(m, performance.now())
+
+      if (m.phase === 'planning') {
+        // THE single dismissal path for both clients. Neither tab leaves the
+        // lobby on a local click — the host's Start only sends a frame; both
+        // tabs leave on the server's broadcast, which is exactly what keeps
+        // host and guest in step. party/lobby.ts's onConnect sends this same
+        // frame to a connection joining MID-phase, so a late joiner picks up
+        // the live remaining time here with no special case.
+        hideLobbyScreen()
+        econPhase = 'planning'
+        updateEconVisibility()
+      } else if (m.phase === 'resolving') {
+        // Deliberately a no-op, and deliberately unreachable as party/lobby.ts
+        // stands: onDeadline sets this.phase = 'resolving' but never calls
+        // broadcastPhase() for that transition — the client learns a round
+        // resolved from the `resolve` message (plan 04-06), never from a
+        // phase frame. Kept so nobody later writes code that waits for a
+        // 'resolving' broadcast that is never sent. It must not advance local
+        // state or hide the board: the last snapshot stays on screen until
+        // the resolve arrives.
+      } else if (m.phase === 'over') {
+        // The run is finished for this room. Outcome is read off the snapshot
+        // rather than off any local tally: this seat won exactly when it is
+        // the sole survivor.
+        const survivors = run.players.filter(p => !p.eliminated)
+        const won = survivors.length === 1 && survivors[0] === run.players[localSeatIndex]
+        netClock = null
+        enterGameOver(won ? 'win' : 'loss')
+      } else {
+        // 'lobby' / 'idle': no round is running, so nothing counts down.
+        netClock = null
+      }
     }
   })
 
@@ -4007,7 +4116,15 @@ function enterGameOver(kind: 'win' | 'loss'): void {
       ${kind === 'win' ? '🏆 VICTORY' : `DEFEAT — ${placement}${placement === 2 ? 'nd' : placement === 3 ? 'rd' : 'th'} place`}
     </div>
     <div style="font-size:12px;color:#99aacc;margin-bottom:16px;">Survived to round ${run.round} (stage ${stageLabel(run.round)})</div>
-    <button id="btn-new-run" style="${ECON_BTN};font-size:14px;padding:9px 26px;">New Run</button>`
+    ${isNetworked()
+      ? `<div style="font-size:11px;color:#667;max-width:280px;">This lobby's run is finished. Open a new lobby to play again.</div>`
+      : `<button id="btn-new-run" style="${ECON_BTN};font-size:14px;padding:9px 26px;">New Run</button>`}`
+  // No New Run button at all while networked: the run belongs to the ROOM, and
+  // this button's body (clearRun / newRun / initFreshRun / startPlanningPhase)
+  // is exactly the local round-advance machinery a networked client may never
+  // execute. Omitted rather than merely disabled so there is no element to
+  // re-enable in devtools.
+  if (isNetworked()) return
   document.getElementById('btn-new-run')!.addEventListener('click', () => {
     clearRun()
     run = newRun(botSeats())
@@ -4514,8 +4631,11 @@ function restorePlayerBoard(): void {
   renderDamageMeter()
   applyLayoutMode()
 
-  // Economy mode: next planning phase (fresh shop) or the run is over
-  if (econActive()) {
+  // Economy mode: next planning phase (fresh shop) or the run is over.
+  // NEVER while networked: the room owns the round loop, and the next planning
+  // phase arrives as a `phase` broadcast. Advancing locally here would roll
+  // this seat's shop against a RunState the server never agreed to.
+  if (econActive() && !isNetworked()) {
     if (run.gameOver) enterGameOver(run.gameOver)
     else startPlanningPhase(true)
   }
@@ -4595,7 +4715,9 @@ function resetCombat(): void {
   // round anymore. This is a deliberate behaviour change from before this
   // plan (see 02-05-SUMMARY.md), not a bug: the player keeps every gold/XP/HP
   // change the fight they didn't finish watching already applied.
-  if (econActive()) {
+  // Guarded on !isNetworked() for the same reason as restorePlayerBoard: a
+  // networked reset stops watching, it never advances the shared round.
+  if (econActive() && !isNetworked()) {
     if (run.gameOver) enterGameOver(run.gameOver)
     else startPlanningPhase(false)
   }
@@ -4673,6 +4795,15 @@ function setCombatBarState(state: 'idle' | 'running' | 'paused'): void {
 }
 
 document.getElementById('chk-test-mode')!.addEventListener('change', () => {
+  // Test mode is free placement with no RunState at all; entering it from a
+  // lobby would leave this tab shopping against a room it is no longer
+  // showing. The toggle is reverted rather than merely ignored, so the
+  // checkbox never disagrees with econActive().
+  if (isNetworked()) {
+    (document.getElementById('chk-test-mode') as HTMLInputElement).checked = false
+    showRejectNotice('Test mode is not available inside a lobby.')
+    return
+  }
   if (combatRunning) resetCombat()
   cancelHeldUnit()
   if (econActive()) {
@@ -4777,6 +4908,13 @@ document.getElementById('btn-stop')!.addEventListener('click', () => {
 })
 
 document.getElementById('btn-reset')!.addEventListener('click', () => {
+  // A seat cannot unilaterally restart a shared room's run — the server owns
+  // it, and every other seat is mid-game in it. Refused visibly rather than
+  // silently, through plan 04-03's notice.
+  if (isNetworked()) {
+    showRejectNotice('You cannot restart a lobby run — only a new lobby starts a new game.')
+    return
+  }
   if (econActive()) {
     // Economy mode: abandon the current run and start a fresh one
     if (!confirm('End this run and start a new one?')) return
