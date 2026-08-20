@@ -49,6 +49,26 @@ The `constants`/`xp`/`income` cluster looks like one root cause (an XP table
 edit whose tests were not updated). The ability failures look like separate
 balance-number drift.
 
+**Re-confirmed during 04-03** at base commit `081571e`: 16 tsc errors (identical
+list) and **23** failing tests across **8** files. `src/enemy/generator.test.ts`'s
+single failure did NOT reproduce — that suite is either flaky or was fixed
+between 04-01 and here. Everything else is unchanged. Nothing in the repo
+imports `src/main.ts` (`grep -rn "from '.*main'" src/ scripts/ e2e/` returns
+nothing), so no plan in this phase can affect these counts either way.
+
+## `dist/` is tracked in git, so `npm run build` dirties the working tree
+
+Noticed during 04-03. `dist/index.html`, `dist/assets/*.js` and the copied
+`dist/visuals/**` are all tracked, so running `npm run build` (or `npx vite
+build`) to satisfy a plan's acceptance criteria leaves a modified `dist/` plus
+untracked new hashed bundles that must be reverted before committing. It is
+easy to sweep build output into a source commit by accident.
+
+Not fixed here (adding `dist/` to `.gitignore` and `git rm -r --cached dist`
+is a repo-wide decision, not this plan's). Until then: after any build run,
+`git checkout -- dist` and delete the new untracked `dist/assets/index-*.js`
+before staging.
+
 ## Parallel-execution hazard: fixed room port 1999
 
 `scripts/roomHarness.ts` defaults `ROOM_PORT` to 1999. Two GSD agents running
