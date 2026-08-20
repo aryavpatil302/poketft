@@ -39,7 +39,18 @@ import {
   type SeatFightResult,
 } from './game/round'
 import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from './game/playback'
+// The viewer-perspective transform (plan 04-00). Sits strictly between
+// decodeFightLog and createPlaybackState and is presentational only — see the
+// module header for why `winner` is remapped in exactly one place.
+import { mirrorFightLogForSeat } from './game/playbackPerspective'
 import { RoomClient } from './net/roomClient'
+// Chunk reassembly and the wire codec. Both are imported rather than
+// reimplemented here: fightBuffer owns the bounds and the index/total
+// validation a hostile chunk stream is checked against (T-04-50), and
+// decodeFightLog is the ONLY decoder — it is handed a complete index-sorted
+// chunk set and nothing else.
+import { createFightBuffer, acceptChunk, takeFight, dropFight } from './net/fightBuffer'
+import { decodeFightLog, type FightChunk } from './net/fightWire'
 import type { RejectReason, RoomPhase, LobbySeatView, ServerMessage } from './net/protocol'
 // The countdown's clock-skew correction lives in ONE module and is imported
 // here, never re-derived: no branch in this file may do arithmetic on a
@@ -2143,6 +2154,13 @@ let pendingResolve: {
   fightId: string | null
 } | null = null
 
+// The ONE place a `fight-chunk` stream is accumulated. Bounded by
+// fightBuffer's own MAX_TRACKED_FIGHTS / MAX_CHUNKS_PER_FIGHT caps and its
+// per-chunk index/total validation, so a malformed or hostile stream cannot
+// grow this tab's memory without limit (T-04-50). There is deliberately no
+// second buffering path anywhere in this file.
+let netFightBuffer = createFightBuffer()
+
 function applyServerSnapshot(snapshot: RunState): void {
   // Read the OUTGOING composition before `run` is replaced — the star-up
   // flash is the one piece of buy feedback no message on the wire carries
@@ -2408,6 +2426,7 @@ function leaveLobby(): void {
   netLobby = null
   prevSnapshot = null
   pendingResolve = null
+  netFightBuffer = createFightBuffer()
   setNetStatusBanner(null)
   localSeatIndex = 0
   run = loadRun() ?? newRun(botSeats())
@@ -2431,6 +2450,7 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
   netLobby = null
   prevSnapshot = null
   pendingResolve = null
+  netFightBuffer = createFightBuffer()
 
   // Shown BEFORE connecting, so the host has a link to copy during the
   // handshake rather than after it, and a guest opening a link never sees a
@@ -2548,6 +2568,8 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
       }
     } else if (m.t === 'resolve') {
       handleNetResolve(m)
+    } else if (m.t === 'fight-chunk') {
+      handleFightChunk(m.chunk)
     }
   })
 
@@ -2652,6 +2674,120 @@ function prevSnapshotSettlement(): SettlementSnapshot {
   const source = prevSnapshot ?? run
   const econ = source.players[localSeatIndex] as PlayerEcon | undefined
   return econ ? settlementSnapshotOf(econ) : { gold: 0, benchOccupied: 0, pendingIncome: 0, streak: 0 }
+}
+
+// ─── COMBAT-02 / COMBAT-03: what this client does with a streamed fight ──────
+//
+// CHECKED AND RECORDED HERE RATHER THAN ONLY IN A PLANNING DOCUMENT: beyond
+// (1) reassembling the chunks through src/net/fightBuffer.ts, (2) decoding
+// them with decodeFightLog, and (3) orienting the result to this viewer's
+// seat with mirrorFightLogForSeat, NO additional client-side fight logic
+// exists. The replay itself is frame()'s existing playbackLog branch — the
+// SAME loop single-player has always used — which calls applyFrame and
+// nothing from src/core/systems/. No branch below runs a combat tick, re-
+// derives a winner, or reseeds a simulation.
+//
+// COMBAT-03 (both clients see the identical fight) is therefore inherited,
+// not re-established: party/lobby.ts's broadcastResolve encodes each distinct
+// log EXACTLY ONCE per logIndex and sends both participants the same chunk
+// array, so identical events and an identical outcome follow from Phase 3's
+// COMBAT-01 guarantee. The only per-viewer difference is the orientation
+// transform, which adds, drops and reorders no event and re-maps `winner` in
+// exactly one place (see src/game/playbackPerspective.ts).
+function handleFightChunk(chunk: FightChunk): void {
+  const completed = acceptChunk(netFightBuffer, chunk)
+  if (completed === null) return   // rejected, duplicate, or still incomplete
+
+  // A completed fight the pending resolve never announced is stale — a fight
+  // from a resolve already played or superseded, or a reconnect redelivery.
+  // party/lobby.ts sends a seat its `resolve` BEFORE that fight's chunks on
+  // the same connection, and per-connection delivery is FIFO, so a live
+  // fight's id is always already pending by the time its last chunk lands.
+  if (pendingResolve === null || pendingResolve.fightId !== completed) {
+    dropFight(netFightBuffer, completed)
+    return
+  }
+
+  const chunks = takeFight(netFightBuffer, completed)
+  if (chunks === null) return   // unreachable: acceptChunk just reported it complete
+
+  void decodeFightLog(chunks).then(log => {
+    // decodeFightLog is async, so a second resolve can land mid-decode.
+    // Starting playback of a superseded fight would leave the board showing a
+    // round the room has already moved past (T-04-54).
+    if (pendingResolve === null || pendingResolve.fightId !== completed) return
+    pendingResolve = null   // consumed — a redelivered copy is stale from here
+    startNetPlayback(log)
+  }).catch(err => {
+    // A chunk set that passed acceptChunk but will not decode. Loud, and
+    // non-fatal: the round itself is already settled from the snapshot, so
+    // the tab keeps its state and simply shows no fight.
+    console.error('[playback] failed to decode the room\'s fight log', err)
+    econPhase = 'planning'
+    updateEconVisibility()
+  })
+}
+
+// Starts the replay exactly the way startCombat's economy branch does, and
+// through the very same renderer — reusing frame()'s playbackLog loop rather
+// than writing a second one is what makes "no client-side re-simulation"
+// structurally true rather than a promise.
+function startNetPlayback(log: FightLog): void {
+  // THE single call that orients a seatB viewer onto its own half of the
+  // board. Strictly between decode and playback-state construction: nothing
+  // downstream of it re-derives a winner.
+  const oriented = mirrorFightLogForSeat(log, localSeatIndex)
+
+  cancelHeldUnit()
+  unitLayer.setHoveredUnit(null)
+  econPhase = 'combat'
+  updateEconVisibility()
+
+  playbackLog = oriented
+  playbackIndex = 0
+  combatState = createPlaybackState(oriented)
+
+  // Rebuild placedUnits from this seat's committed board, the same way the
+  // solo path does — the snapshot that came with the resolve has already
+  // moved the round forward, so rebuild explicitly rather than trusting
+  // placedUnits' pre-fight contents.
+  placedUnits.clear()
+  for (const e of humanEcon().board) {
+    const unit = makeUnit(e.definitionId, 'player', e.tier)
+    unit.hexPos = { ...e.hexPos }
+    unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
+    if (e.item) unit.items = [e.item]
+    placedUnits.set(hexId(unit.hexPos), unit)
+  }
+  preCombatSnapshot = getPlacedUnitsArray()
+    .filter(u => u.team === 'player')
+    .map(u => ({
+      definitionId: u.definitionId,
+      tier: u.tier as 1 | 2 | 3,
+      hexPos: { ...u.hexPos },
+      item: u.items[0],
+    }))
+
+  // The win-prediction calibration loop is a SOLO learner fed by battles this
+  // browser's own economy produced; a room's fight is not its data, and
+  // pendingBattle being null is also what keeps frame()'s done branch from
+  // recording one.
+  lastWinProb = null
+  lastPowerDelta = 0
+  pendingBattle = null
+
+  if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
+  inOvertime = false
+  document.getElementById('overtime-box')!.style.display = 'none'
+  combatRunning = true
+  accumulator = 0
+  lastTs = 0
+
+  boardLayer.setCombatActive(true)
+  setCombatBarState('running')
+  document.getElementById('result-box')!.style.display = 'none'
+  document.getElementById('combat-info')!.textContent = ''
+  applyLayoutMode()
 }
 
 function econActive(): boolean {
@@ -4680,17 +4816,13 @@ function startCombat(): void {
       return
     }
 
+    // No orientation transform here, deliberately: src/game/round.ts's
+    // resolvePvpRound always records a human-vs-bot fight with the human as
+    // seatA, so a solo log's 'player' team IS this seat. The seatB case only
+    // arises in a human-vs-human pairing, which is networked by definition
+    // and is handled by startNetPlayback's mirrorFightLogForSeat call.
     playbackLog = res.logs[mine.logIndex]
     playbackIndex = 0
-    if (playbackLog.seatB === localSeatIndex) {
-      // Defensive only: src/game/round.ts's resolvePvpRound always records a
-      // human-vs-bot fight with the human as seatA, so this should be
-      // unreachable in single-player. A human-vs-human pairing (Phase 4) has
-      // no single correct seatA choice from inside that seat-agnostic
-      // function and would hit this — flag it loudly rather than silently
-      // rendering the human's own board flipped and colored 'enemy'.
-      console.warn('[playback] local seat recorded as seatB of its own fight log — rendering may be mirrored (expected only for a future human-vs-human matchup)')
-    }
     combatState = createPlaybackState(playbackLog)
 
     // Rebuild placedUnits from this seat's committed board — resolveRound
