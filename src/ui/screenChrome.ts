@@ -37,8 +37,87 @@ const BACKGROUND_URL = '/visuals/backgrounds/pixel_beach.png'
 // later is the whole fix, with no code change.
 const LOGO_SRC = '/visuals/gui icons/Logo.png'
 
-const SUBTITLE_TEXT = 'Isle Of Imagination'
 const WORDMARK_TEXT = 'PokeTFT'
+
+// Existing beach-themed static sprites (public/visuals/sprites/beachy/) used
+// as purely decorative title/lobby-screen dressing — no gameplay meaning,
+// just idle Pokémon on the sand behind the buttons.
+const BEACH_SPRITE_FILES = [
+  'a-exeggutor-sprite.webp',
+  'a-raichu-sprite.webp',
+  'blastoise-sprite.webp',
+  'kingler-sprite.webp',
+  'palossand-sprite.webp',
+  'tapu-fini-sprite.webp',
+]
+
+// Fixed screen positions (percent of the full-page root) hugging the left
+// beach / right jungle trim of the background art, so sprites read as part
+// of the scenery instead of floating over the sand where the buttons sit.
+// Which sprite lands in which slot is randomized per screen load; the slots
+// themselves stay put so nothing overlaps the centered logo/button column.
+const BEACH_SPRITE_SLOTS: Array<{ left: string; bottom: string }> = [
+  { left: '3%', bottom: '6%' },
+  { left: '10%', bottom: '26%' },
+  { left: '4%', bottom: '46%' },
+  { left: '94%', bottom: '8%' },
+  { left: '88%', bottom: '28%' },
+  { left: '93%', bottom: '48%' },
+]
+
+let beachSpriteStyleInjected = false
+
+// @keyframes cannot live in an inline `style` attribute, so this is injected
+// into <head> once, the same way a stylesheet-free app injects any shared
+// keyframe it needs.
+function ensureBeachSpriteKeyframes(): void {
+  if (beachSpriteStyleInjected) return
+  const style = document.createElement('style')
+  style.id = 'beach-sprite-keyframes'
+  style.textContent = `
+    @keyframes screenSpriteBob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10%); }
+    }
+  `
+  document.head.appendChild(style)
+  beachSpriteStyleInjected = true
+}
+
+function shuffled<T>(items: readonly T[]): T[] {
+  const copy = [...items]
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[copy[i], copy[j]] = [copy[j], copy[i]]
+  }
+  return copy
+}
+
+// Randomized on every call: which sprites appear, which slot each lands in,
+// and each one's bob timing — so a fresh screen load never looks identical
+// to the last. Purely decorative: `pointer-events: none` and a low z-index
+// keep them from ever intercepting a click meant for the buttons above.
+function beachSpritesHtml(): string {
+  const files = shuffled(BEACH_SPRITE_FILES)
+  const slots = shuffled(BEACH_SPRITE_SLOTS)
+  const count = Math.min(files.length, slots.length)
+  const imgs: string[] = []
+  for (let i = 0; i < count; i++) {
+    const slot = slots[i]
+    const duration = (2.2 + Math.random() * 1.4).toFixed(2)
+    const delay = (-Math.random() * 3).toFixed(2)
+    const size = Math.round(56 + Math.random() * 28)
+    imgs.push(`
+      <img src="/visuals/sprites/beachy/${files[i]}" alt="" style="
+        position:absolute; left:${slot.left}; bottom:${slot.bottom};
+        width:${size}px; height:auto; image-rendering:pixelated;
+        pointer-events:none; z-index:-1;
+        animation: screenSpriteBob ${duration}s ease-in-out ${delay}s infinite;
+      ">
+    `)
+  }
+  return imgs.join('')
+}
 
 // ─── Overlay root ─────────────────────────────────────────────────────────────
 
@@ -94,8 +173,14 @@ function pixelTextCss(fontSizeCss: string): string {
 
 // `idPrefix` keeps the two screens' element ids distinct, because both are in
 // the document at once during the hand-off from Title to Lobby.
+//
+// Also injects the decorative beach sprites here (rather than a separate call
+// each screen has to remember) — every caller of screenHeaderHtml wants them,
+// since both screens share the same beach backdrop.
 export function screenHeaderHtml(idPrefix: string): string {
+  ensureBeachSpriteKeyframes()
   return `
+    ${beachSpritesHtml()}
     <div style="display:flex;flex-direction:column;align-items:center;gap:0.6vh;">
       <img id="${idPrefix}-logo" src="${LOGO_SRC}" alt="" style="
         max-height: 30vh; max-width: 70vw; object-fit: contain;
@@ -104,7 +189,6 @@ export function screenHeaderHtml(idPrefix: string): string {
       <div id="${idPrefix}-wordmark" style="display:none;${pixelTextCss('clamp(34px, 7vw, 84px)')}">
         ${escapeHtml(WORDMARK_TEXT)}
       </div>
-      <div style="${pixelTextCss('clamp(16px, 2.4vw, 30px)')}">${escapeHtml(SUBTITLE_TEXT)}</div>
     </div>
   `
 }

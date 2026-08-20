@@ -2061,6 +2061,24 @@ function applyServerSnapshot(snapshot: RunState): void {
   renderTraitDisplay()
 }
 
+// Bails out of a lobby back to the Title Screen — available to host and
+// guest alike. Tears down the socket, drops the `?lobby=` code from the URL
+// (so a later "Start Multiplayer Game" mints a fresh room rather than
+// reconnecting to this one), and resets `run` back to the player's own solo
+// save rather than leaving the server's last snapshot on screen, which is
+// what bootSolo() would otherwise render if it were clicked next.
+function leaveLobby(): void {
+  net?.close()
+  net = null
+  netDropped = false
+  setNetStatusBanner(null)
+  localSeatIndex = 0
+  run = loadRun() ?? newRun(botSeats())
+  history.replaceState(null, '', location.origin + location.pathname)
+  hideLobbyScreen()
+  showTitleScreen({ onSolo: () => { hideTitleScreen(); bootSolo() }, onMultiplayer })
+}
+
 // `opts.isHost` is a UI HINT ONLY — it decides which control the Lobby Screen
 // renders, nothing more. The server independently resolves the acting seat
 // from the sender's connection identity and rejects a `start` from any seat
@@ -2074,7 +2092,7 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
   // Shown BEFORE connecting, so the host has a link to copy during the
   // handshake rather than after it, and a guest opening a link never sees a
   // blank page while the socket comes up.
-  showLobbyScreen({ shareUrl, isHost, onStart: () => net?.sendStart() })
+  showLobbyScreen({ shareUrl, isHost, onStart: () => net?.sendStart(), onBack: leaveLobby })
 
   const client = new RoomClient({
     host: partyHost(),
@@ -2102,7 +2120,7 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
       // promoted here when the room hands seat 0 back to it.
       if ((m.seat === 0) !== isHost) {
         isHost = m.seat === 0
-        showLobbyScreen({ shareUrl, isHost, onStart: () => net?.sendStart() })
+        showLobbyScreen({ shareUrl, isHost, onStart: () => net?.sendStart(), onBack: leaveLobby })
         updateLobbyScreen({ seats: m.lobby, localSeat: m.seat })
       }
 

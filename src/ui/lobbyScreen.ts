@@ -19,7 +19,7 @@ import { escapeHtml } from './escapeHtml'
 import {
   screenRootCss, screenHeaderHtml, wireLogoFallback,
   screenButtonCss, wireButtonFeedback, fadeScreenIn, fadeScreenOut,
-  SCREEN_YELLOW, SCREEN_FADE_MS,
+  SCREEN_YELLOW, SCREEN_OUTLINE_BLUE, SCREEN_FADE_MS,
 } from './screenChrome'
 import type { LobbySeatView } from '../net/protocol'
 
@@ -27,6 +27,7 @@ export interface LobbyScreenProps {
   shareUrl: string
   isHost: boolean
   onStart: () => void
+  onBack: () => void
 }
 
 export interface LobbyScreenView {
@@ -62,14 +63,19 @@ function ensureRoot(): HTMLDivElement {
   el.id = 'lobby-screen'
   el.style.cssText = screenRootCss()
   el.innerHTML = `
+    <button id="btn-lobby-back" type="button" title="Back to main screen" style="
+      ${screenButtonCss()}; position:absolute; top:3vh; left:3vw; z-index:1;
+      padding:8px 16px; font-size:clamp(12px, 1.3vw, 16px);
+    ">&lsaquo; Back</button>
+
     ${screenHeaderHtml('lobby-screen')}
 
     <div style="display:flex;flex-direction:column;align-items:center;gap:2.4vh;width:min(720px, 88vw);">
 
       <div style="width:100%;">
         <div style="
-          color:${SCREEN_YELLOW};font-weight:900;font-size:13px;letter-spacing:0.1em;
-          margin-bottom:6px;text-shadow:0 2px 4px rgba(0,0,0,0.7);
+          color:${SCREEN_OUTLINE_BLUE};font-weight:900;font-size:13px;letter-spacing:0.1em;
+          margin-bottom:6px;text-shadow:0 1px 0 rgba(255,255,255,0.35);
         ">Link here</div>
         <div id="lobby-link-bar" role="button" tabindex="0" title="Copy the lobby link" style="
           display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;
@@ -90,8 +96,8 @@ function ensureRoot(): HTMLDivElement {
 
       <div style="width:100%;">
         <div style="
-          color:${SCREEN_YELLOW};font-weight:900;font-size:13px;letter-spacing:0.1em;
-          margin-bottom:6px;text-shadow:0 2px 4px rgba(0,0,0,0.7);
+          color:${SCREEN_OUTLINE_BLUE};font-weight:900;font-size:13px;letter-spacing:0.1em;
+          margin-bottom:6px;text-shadow:0 1px 0 rgba(255,255,255,0.35);
         ">Current players</div>
         <div id="lobby-players" style="
           background:rgba(8,12,24,0.72);border:2px solid #6aa4ff;border-radius:12px;
@@ -112,8 +118,23 @@ function ensureRoot(): HTMLDivElement {
   document.body.appendChild(el)
   wireLogoFallback(el, 'lobby-screen')
   wireLinkBar(el)
+  // Hover/press feedback only, wired once here for the same reason the Title
+  // Screen wires its buttons at creation — the click handler itself is
+  // (re-)assigned per showLobbyScreen call, in renderBackControl, so it never
+  // closes over a stale `props`.
+  const back = el.querySelector<HTMLButtonElement>('#btn-lobby-back')
+  if (back !== null) wireButtonFeedback(back)
   rootEl = el
   return el
+}
+
+// Leaving the lobby is available to host and guest alike — either side of a
+// 2-person lobby should be able to bail back to the Title Screen without
+// reloading the tab.
+function renderBackControl(root: HTMLElement, props: LobbyScreenProps): void {
+  const back = root.querySelector<HTMLButtonElement>('#btn-lobby-back')
+  if (back === null) return
+  back.onclick = () => props.onBack()
 }
 
 // ─── Link bar ─────────────────────────────────────────────────────────────────
@@ -222,6 +243,7 @@ export function showLobbyScreen(props: LobbyScreenProps): void {
   }
 
   renderStartControl(root, props)
+  renderBackControl(root, props)
   fadeScreenIn(root)
 }
 
