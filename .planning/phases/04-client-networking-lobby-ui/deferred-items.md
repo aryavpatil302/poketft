@@ -61,3 +61,37 @@ passed immediately.
 Not fixed here because `scripts/roomHarness.ts` is shared surface and 04-00 is
 editing adjacent files. Candidate fix: default `ROOM_PORT` to an
 ephemeral/derived port instead of a constant.
+
+Did NOT reproduce during 04-02: `npm run net:client` passed on the default
+port 1999 across all 9 scenarios in a single run.
+
+## Missing asset: `public/visuals/gui icons/Logo.png`, discovered during 04-02
+
+`04-UI-SPEC.md` §Screens 1 names `public/visuals/gui icons/Logo.png` as the
+logo for both new screens. **That file does not exist anywhere in the repo** —
+`find . -iname "*logo*"` (excluding `node_modules`) returns nothing, and the
+whole of `public/visuals/gui icons/` is three files: `oran_berry.webp`,
+`pokeball_owned.png`, `star-up.png`.
+
+Not fixed here: generating logo art is explicitly out of scope
+(`04-UI-SPEC.md` §Explicitly Out of Scope — "do not spend time generating new
+art assets"). `src/ui/screenChrome.ts` keeps the `img` pointing at the spec'd
+path and swaps in a CSS-styled `PokeTFT` wordmark (same yellow-on-blue-outline
+treatment as the `Isle Of Imagination` subtitle) when the request 404s, so
+dropping the real file into `public/visuals/gui icons/Logo.png` is the entire
+fix with no code change.
+
+**Action for the project owner:** add `Logo.png` to `public/visuals/gui icons/`.
+Until then both screens render the wordmark fallback rather than the mockup's
+logo.
+
+## `04-UI-SPEC.md`'s example guest names collide with the bot name pool
+
+The spec suggests `"Blue", "Red", "Green", ...` as the guest-name pool. All
+three (plus `Leaf` and `Silver`) are already in `src/econ/botNames.ts`'s
+`HUMAN_CHARACTER_NAMES` as Kanto rival/trainer names, so using them would
+violate the same spec's requirement that a guest name be "distinct from the
+bot persona name pool". `src/net/guestNames.ts` therefore uses colour words no
+bot answers to (Amber, Teal, Coral, Indigo, Violet, Crimson, Cobalt, Jade,
+Magenta, Saffron, Cyan, Olive). Recorded here so the divergence from the
+spec's literal example list is not read as an oversight.
