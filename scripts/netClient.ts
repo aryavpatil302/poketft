@@ -12,6 +12,7 @@ import { withRoom, ROOM_PORT } from './roomHarness'
 import { RoomClient, type RoomClientStatus } from '../src/net/roomClient'
 import { PROTOCOL_VERSION, type RejectReason, type ServerMessage } from '../src/net/protocol'
 import { REROLL_COST, PLAYER_COUNT } from '../src/econ/constants'
+import { UNIT_MAP } from '../src/data/units'
 import type { RunState } from '../src/econ/runState'
 
 // Shortens the room's planning window so a multi-round run doesn't spend a
@@ -608,6 +609,222 @@ async function actionSemantics(host: string, roomId: string): Promise<void> {
   await sleep(200)
 }
 
+// ─── Scenario 12: two clients, one shared pool ────────────────────────────────
+
+// NET-02's edge probe: two seats shopping against ONE pool at the same time.
+// The room applies actions serially, but "serial" is an implementation detail
+// of party/lobby.ts's onMessage — this asserts the PROPERTY that falls out of
+// it (nothing duplicated, nothing lost, no seat's action reaching another
+// seat's board) against a real room rather than assuming it.
+//
+// Runs against a FRESH room id on the long-planning-window process, because
+// every assertion below has to land inside ONE planning phase: a settlement
+// would re-roll shops, let five bot seats shop against the same pool, and turn
+// the conservation arithmetic into a statement about botPlanRound.
+async function sharedPoolConservation(host: string, roomId: string): Promise<void> {
+  const s12 = scenario('two clients against one pool')
+
+  const poolTotal = (pool: Record<string, number>): number =>
+    Object.values(pool).reduce((sum, copies) => sum + copies, 0)
+
+  // The first slot this seat can actually afford. Cost comes from UNIT_MAP
+  // rather than being assumed, so a shop that rolled something expensive is
+  // skipped instead of producing a 'no-gold' that would be counted as an
+  // interesting rejection when it is really just this script overreaching.
+  const firstAffordableSlot = (econ: { shop: Array<string | null>; gold: number }): number =>
+    econ.shop.findIndex(id => id !== null && (UNIT_MAP.get(id)?.cost ?? Infinity) <= econ.gold)
+
+  const clientA = new RoomClient({ host, room: roomId, name: 'PoolA' })
+  const probeA = probeClient(clientA)
+  const welcomeWaitA = probeA.next(m => m.t === 'welcome', 15_000)
+  clientA.connect()
+  const welcomeA = await welcomeWaitA
+  s12(welcomeA.phase === 'lobby', `the pool room has never been started (phase '${welcomeA.phase}')`)
+
+  const clientB = new RoomClient({ host, room: roomId, name: 'PoolB' })
+  const probeB = probeClient(clientB)
+  const welcomeWaitB = probeB.next(m => m.t === 'welcome', 15_000)
+  clientB.connect()
+  const welcomeB = await welcomeWaitB
+  s12(welcomeA.seat === 0 && welcomeB.seat === 1, `the two clients hold seats 0 and 1 (got ${welcomeA.seat} and ${welcomeB.seat})`)
+
+  // Running "latest snapshot" per client, for choosing the next shop slot.
+  // The per-buy ASSERTIONS below never read these — they compare the two
+  // clients' own copies of one specific broadcast instead.
+  let latestA: RunState = welcomeA.snapshot
+  let latestB: RunState = welcomeB.snapshot
+  clientA.onMessage(m => { if (m.t === 'snapshot') latestA = m.snapshot })
+  clientB.onMessage(m => { if (m.t === 'snapshot') latestB = m.snapshot })
+
+  const openingWaitA = probeA.next(m => m.t === 'snapshot', 15_000)
+  const openingWaitB = probeB.next(m => m.t === 'snapshot', 15_000)
+  clientA.sendStart()
+  const [openA, openB] = await Promise.all([openingWaitA, openingWaitB])
+  latestA = openA.snapshot
+  latestB = openB.snapshot
+  s12(
+    JSON.stringify(openA.snapshot.pool) === JSON.stringify(openB.snapshot.pool),
+    'both clients open the round on an identical pool map',
+  )
+
+  const openingPoolTotal = poolTotal(openA.snapshot.pool)
+  const openingRound: number = openA.snapshot.round
+
+  // ─── Interleaved buys ───────────────────────────────────────────────────
+  // Both seats' buys go out back to back with no await between them, so the
+  // room really does have two intents in flight against one pool — the case
+  // this scenario exists for. Each seat's own waiter is keyed on ITS OWN shop
+  // slot clearing, so the two remain individually attributable despite that.
+  const TARGET_BUYS = 2
+  const MAX_ROUNDS = 6
+  let buysA = 0
+  let buysB = 0
+
+  for (let attempt = 0; attempt < MAX_ROUNDS && (buysA < TARGET_BUYS || buysB < TARGET_BUYS); attempt++) {
+    const slotA = buysA < TARGET_BUYS ? firstAffordableSlot(latestA.players[0]) : -1
+    const slotB = buysB < TARGET_BUYS ? firstAffordableSlot(latestB.players[1]) : -1
+    if (slotA === -1 && slotB === -1) break
+
+    // Four waiters, all registered BEFORE either send: each seat's own view of
+    // its own buy, and each seat's view of the OTHER seat's buy. A `snapshot`
+    // is broadcast to every connection, so the two waiters keyed on the same
+    // predicate resolve on the SAME broadcast — which is what makes comparing
+    // them a statement about the wire rather than about one client's maths.
+    const appliedA = (m: ServerMessage): boolean =>
+      m.t === 'snapshot' && m.snapshot.players[0].shop[slotA] === null
+    const appliedB = (m: ServerMessage): boolean =>
+      m.t === 'snapshot' && m.snapshot.players[1].shop[slotB] === null
+
+    const ownA = slotA === -1 ? null : probeA.next(m => m.t === 'rejected' || appliedA(m), 15_000).catch(() => null)
+    const mirrorA = slotA === -1 ? null : probeB.next(appliedA, 15_000).catch(() => null)
+    const ownB = slotB === -1 ? null : probeB.next(m => m.t === 'rejected' || appliedB(m), 15_000).catch(() => null)
+    const mirrorB = slotB === -1 ? null : probeA.next(appliedB, 15_000).catch(() => null)
+
+    if (slotA !== -1) clientA.sendAction({ t: 'buy', slot: slotA })
+    if (slotB !== -1) clientB.sendAction({ t: 'buy', slot: slotB })
+
+    const [seenOwnA, seenMirrorA, seenOwnB, seenMirrorB] =
+      await Promise.all([ownA, mirrorA, ownB, mirrorB])
+
+    if (seenOwnA && seenOwnA.t === 'snapshot') {
+      buysA++
+      s12(
+        seenMirrorA !== null && seenMirrorA.t === 'snapshot' &&
+          JSON.stringify(seenMirrorA.snapshot.pool) === JSON.stringify(seenOwnA.snapshot.pool),
+        `after seat 0's buy #${buysA} both clients report an identical pool map`,
+      )
+    }
+    if (seenOwnB && seenOwnB.t === 'snapshot') {
+      buysB++
+      s12(
+        seenMirrorB !== null && seenMirrorB.t === 'snapshot' &&
+          JSON.stringify(seenMirrorB.snapshot.pool) === JSON.stringify(seenOwnB.snapshot.pool),
+        `after seat 1's buy #${buysB} both clients report an identical pool map`,
+      )
+    }
+  }
+
+  s12(buysA >= TARGET_BUYS, `seat 0 completed at least ${TARGET_BUYS} buys (got ${buysA})`)
+  s12(buysB >= TARGET_BUYS, `seat 1 completed at least ${TARGET_BUYS} buys (got ${buysB})`)
+
+  // ─── Conservation ───────────────────────────────────────────────────────
+  // The expected delta is DERIVED from the buys that were actually observed to
+  // apply, never a hardcoded number: a rejected buy (pool-empty when the other
+  // seat won the race for the last copy) is a correct outcome, and hardcoding
+  // would turn it into a failure.
+  const totalBuys = buysA + buysB
+  const afterBuysTotal = poolTotal(latestA.pool)
+  s12(
+    afterBuysTotal === openingPoolTotal - totalBuys,
+    `exactly ${totalBuys} copies left the shared pool across ${totalBuys} successful buys — none duplicated, none vanished (${openingPoolTotal} -> ${afterBuysTotal})`,
+  )
+  s12(
+    JSON.stringify(latestA.pool) === JSON.stringify(latestB.pool),
+    "both clients' latest snapshots still agree on the full pool map after the interleaved burst",
+  )
+
+  // ─── Fielding: moveBench over the wire ──────────────────────────────────
+  // Distinct hexes per seat, so a board entry appearing on the WRONG seat
+  // would be visible as a foreign hex rather than hiding behind a coincidence.
+  const HEX_A = { col: 2, row: 6 }
+  const HEX_B = { col: 4, row: 5 }
+
+  const benchIdxA = latestA.players[0].bench.findIndex(u => u !== null)
+  const benchIdxB = latestB.players[1].bench.findIndex(u => u !== null)
+  s12(benchIdxA !== -1 && benchIdxB !== -1, 'both seats have a bought unit on the bench to field')
+
+  const fieldedA = (m: ServerMessage): boolean =>
+    m.t === 'snapshot' &&
+    m.snapshot.players[0].board.some(e => e.hexPos.col === HEX_A.col && e.hexPos.row === HEX_A.row)
+  const fieldedB = (m: ServerMessage): boolean =>
+    m.t === 'snapshot' &&
+    m.snapshot.players[1].board.some(e => e.hexPos.col === HEX_B.col && e.hexPos.row === HEX_B.row)
+
+  const fieldOwnA = probeA.next(m => m.t === 'rejected' || fieldedA(m), 15_000).catch(() => null)
+  const fieldMirrorA = probeB.next(fieldedA, 15_000).catch(() => null)
+  const fieldOwnB = probeB.next(m => m.t === 'rejected' || fieldedB(m), 15_000).catch(() => null)
+  const fieldMirrorB = probeA.next(fieldedB, 15_000).catch(() => null)
+
+  clientA.sendAction({ t: 'moveBench', benchIndex: benchIdxA, to: HEX_A })
+  clientB.sendAction({ t: 'moveBench', benchIndex: benchIdxB, to: HEX_B })
+
+  const [ownFieldA, mirrorFieldA, ownFieldB, mirrorFieldB] =
+    await Promise.all([fieldOwnA, fieldMirrorA, fieldOwnB, fieldMirrorB])
+
+  s12(
+    ownFieldA !== null && ownFieldA.t === 'snapshot',
+    `seat 0's moveBench was applied over the wire, not refused (${ownFieldA === null ? 'timed out' : ownFieldA.t === 'rejected' ? `rejected '${ownFieldA.reason}'` : 'snapshot'})`,
+  )
+  s12(
+    ownFieldB !== null && ownFieldB.t === 'snapshot',
+    `seat 1's moveBench was applied over the wire, not refused (${ownFieldB === null ? 'timed out' : ownFieldB.t === 'rejected' ? `rejected '${ownFieldB.reason}'` : 'snapshot'})`,
+  )
+  s12(
+    mirrorFieldA !== null && mirrorFieldB !== null,
+    "each seat's placement is broadcast to the other client too",
+  )
+
+  // ─── Isolation, and conservation across a move ──────────────────────────
+  const finalA = latestA
+  const finalB = latestB
+  s12(
+    JSON.stringify(finalA) === JSON.stringify(finalB),
+    "both clients hold byte-identical RunStates once both placements have landed",
+  )
+  s12(
+    finalA.players[0].board.length === 1 &&
+      finalA.players[0].board[0].hexPos.col === HEX_A.col && finalA.players[0].board[0].hexPos.row === HEX_A.row,
+    `seat 0's board holds exactly its own fielded unit, on its own hex (${JSON.stringify(finalA.players[0].board.map(e => e.hexPos))})`,
+  )
+  s12(
+    finalA.players[1].board.length === 1 &&
+      finalA.players[1].board[0].hexPos.col === HEX_B.col && finalA.players[1].board[0].hexPos.row === HEX_B.row,
+    `seat 1's board holds exactly its own fielded unit, on its own hex (${JSON.stringify(finalA.players[1].board.map(e => e.hexPos))})`,
+  )
+  s12(
+    !finalA.players[0].board.some(e => e.hexPos.col === HEX_B.col && e.hexPos.row === HEX_B.row) &&
+      !finalA.players[1].board.some(e => e.hexPos.col === HEX_A.col && e.hexPos.row === HEX_A.row),
+    "neither seat's placement reached the other seat's board (T-04-42)",
+  )
+  // A move relocates a unit; it must not mint or destroy a pool copy.
+  s12(
+    poolTotal(finalA.pool) === afterBuysTotal,
+    `fielding changed no pool copy at all — a move relocates, it never mints or returns (${afterBuysTotal} -> ${poolTotal(finalA.pool)})`,
+  )
+  // Everything above is attributable to these two seats' own actions only if
+  // no round settled underneath the scenario — a settlement would have let
+  // five bot seats shop against the same pool.
+  s12(
+    finalA.round === openingRound,
+    `no round settled during the scenario, so every pool change is attributable to these two seats (round stayed at ${openingRound})`,
+  )
+  scenarioPassed('two clients against one pool')
+
+  clientA.close()
+  clientB.close()
+  await sleep(200)
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -643,7 +860,14 @@ async function main(): Promise<void> {
   await waitForRoomDown(ROOM_PORT)
 
   await withRoom(
-    ({ host }) => actionSemantics(host, `${roomId}-actions`),
+    async ({ host }) => {
+      await actionSemantics(host, `${roomId}-actions`)
+      // Scenario 12 needs the same long window (all of its assertions have to
+      // land inside one planning phase) but a room nobody has spent down —
+      // scenarios 10-11 deliberately leave seat 0 broke. Fresh room id, same
+      // process, exactly the trick scenarios 8-9 use.
+      await sharedPoolConservation(host, `${roomId}-pool`)
+    },
     { PLANNING_MS: String(PLANNING_MS_ACTIONS) },
   )
 }
