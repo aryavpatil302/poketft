@@ -9,3 +9,14 @@ training_runs/
 # node_modules (which this repo otherwise tracks) — purely local dev state,
 # same class as .partykit/ above.
 node_modules/.mf/
+
+# Build output. `npx vite build` regenerates this from source, and Plan 05-02's
+# deploy builds it fresh rather than serving a committed copy — a tracked dist/
+# only churns a 99 MB tree on every build and invites someone to hand-deploy a
+# stale bundle. dist-verify/ is the throwaway output dir the room-host build
+# guard's verification builds into.
+dist/
+dist-verify/
+
+# macOS Finder metadata — never meaningful to the app.
+.DS_Store
