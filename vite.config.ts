@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import fs   from 'node:fs'
 import path from 'node:path'
+import { isValidRoomHost } from './src/net/lobbyUrl'
 
 const ROOT = process.cwd()
 
@@ -19,6 +20,55 @@ export default defineConfig({
   },
 
   plugins: [
+    // Trust boundary (T-05-02 / T-05-03): every VITE_-prefixed variable is
+    // inlined verbatim into a world-readable bundle, and the room host this one
+    // carries becomes the origin of the wss: connection every client opens.
+    // Validating it here turns two silent production failures — an unset value
+    // shipping a bundle that points at localhost, and a malformed value
+    // restructuring the socket URL — into a red terminal at deploy time.
+    //
+    // `apply: 'build'` is load-bearing: vitest loads this same config file under
+    // the serve command, and the guard must never gate the test suite.
+    //
+    // `buildStart` rather than a later hook so the failure lands before bundling
+    // and the negative cases return in well under a second.
+    //
+    // isValidRoomHost is imported from src/net/lobbyUrl.ts rather than restated
+    // here — ONE validator, TWO callers, so the guard and the client can never
+    // disagree about what a valid room host looks like.
+    {
+      name: 'require-room-host',
+      apply: 'build',
+
+      buildStart() {
+        const configured = process.env.VITE_PARTY_HOST
+
+        if (!configured) {
+          throw new Error(
+            'VITE_PARTY_HOST is required for a production build, and is unset.\n' +
+            '  It is baked into the bundle as the PartyKit room host every client connects to.\n' +
+            '  Without it the shipped client silently falls back to localhost and no remote\n' +
+            '  player can connect.\n' +
+            '  Expected: a bare host with an optional port — no scheme, no trailing slash.\n' +
+            '  Example:  VITE_PARTY_HOST=poketft.someuser.partykit.dev npx vite build\n' +
+            '  See DEPLOY.md.',
+          )
+        }
+
+        if (!isValidRoomHost(configured)) {
+          throw new Error(
+            `VITE_PARTY_HOST is malformed: "${configured}"\n` +
+            '  It is baked into the bundle as the PartyKit room host every client connects to,\n' +
+            '  and partysocket adds its own scheme and /parties/main/<room> path.\n' +
+            '  Expected: a bare host with an optional port — no scheme, no trailing slash, no\n' +
+            '  path segment, no whitespace, no uppercase, no underscores.\n' +
+            '  Example:  VITE_PARTY_HOST=poketft.someuser.partykit.dev npx vite build\n' +
+            '  See DEPLOY.md.',
+          )
+        }
+      },
+    },
+
     {
       name: 'save-test-to-repo',
 

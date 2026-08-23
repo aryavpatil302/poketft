@@ -56,14 +56,53 @@ export function shareableLobbyUrl(origin: string, code: string): string {
 // the default works for localhost and a LAN address alike with no config.
 const PARTY_DEV_PORT = 1999
 
-// VITE_PARTY_HOST is set in Phase 5 to the deployed room host. Read through a
-// locally-widened `import.meta` (this project does not pull in vite/client
-// types) with optional chaining throughout, so a non-Vite runtime — tsx
-// running scripts/, or vitest — sees `undefined` rather than throwing on a
-// missing `env`.
-export function partyHost(): string {
-  const meta = import.meta as ImportMeta & { env?: Record<string, string | undefined> }
-  const configured = meta.env?.VITE_PARTY_HOST
+// The ONE validator for a room host, with TWO callers: this module at runtime
+// and the `require-room-host` build guard in vite.config.ts. Living in one
+// place is what stops the guard and the client ever disagreeing about what a
+// valid host looks like.
+//
+// A room host is a bare `host[:port]` and nothing more — roomClient.ts hands
+// the value straight to `new PartySocket({ host, ... })`, which derives the
+// rest itself. Each rejection below is load-bearing:
+//   - a `://` scheme     partysocket prepends its own ws:/wss:, and a doubled
+//                        scheme produces an unopenable URL.
+//   - a `/` path segment partysocket appends its own `/parties/main/<room>`.
+//   - whitespace         a stray space or newline from a copy-pasted env value
+//                        would otherwise survive into the connection URL.
+//   - uppercase and `_`  neither is legal in a hostname, and rejecting them is
+//                        what makes Plan 05-02's netlify.toml placeholder
+//                        REPLACE_ME_AFTER_PARTYKIT_DEPLOY self-invalidating:
+//                        an un-edited placeholder fails the build rather than
+//                        shipping a bundle that points nowhere.
+export function isValidRoomHost(value: string): boolean {
+  return /^[a-z0-9.-]+(:\d+)?$/.test(value)
+}
+
+// VITE_PARTY_HOST is set at build time (Phase 5) to the deployed room host.
+//
+// TWO properties of this signature are load-bearing. Do not "tidy" either one:
+//
+// 1. The env read must stay ONE un-aliased `import.meta.env.VITE_PARTY_HOST`
+//    expression, because Vite substitutes that exact source text at transform
+//    time. Assigning `import.meta` (or `import.meta.env`) to a local first
+//    defeats the substitution: the alias is emitted verbatim into the bundle,
+//    a browser's `import.meta` has no `env`, the optional chain yields
+//    undefined, and every deployed client silently falls back to
+//    `<deployed-domain>:1999`. That was this file's previous shape and the
+//    exact defect Plan 05-01 fixes. Written as below, `vite build` inlines the
+//    literal instead — pinned end-to-end by that plan's bundle grep.
+// 2. Taking the value as a defaulted PARAMETER is what makes both branches
+//    unit-testable — the same idiom `newLobbyCode(rng = Math.random)` above
+//    uses, for the same reason. It is not optional here: `vi.stubEnv` cannot
+//    reach the expression at all (Vite has already replaced it by the time the
+//    stub exists), so an explicit argument is the only way a test can drive
+//    the configured branch.
+//
+// The optional chaining keeps a non-Vite runtime — tsx running scripts/, or
+// vitest — seeing `undefined` rather than throwing on a missing `env`.
+export function partyHost(
+  configured = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_PARTY_HOST,
+): string {
   if (configured) return configured
   // globalThis.location is absent outside a browser; fall back to loopback
   // rather than throwing, so importing this module from Node stays safe.
