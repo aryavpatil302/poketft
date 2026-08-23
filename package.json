@@ -17,6 +17,7 @@
     "grow-catalog": "tsx src/econ/growCatalog.ts",
     "train-all": "tsx src/econ/trainAll.ts",
     "sim-bots": "tsx src/sim/botLeague.ts",
+    "deploy:preflight": "tsx scripts/deployPreflight.ts",
     "room:dev": "partykit dev",
     "room:smoke": "tsx scripts/roomSmoke.ts",
     "room:seats": "tsx scripts/roomSeats.ts",
