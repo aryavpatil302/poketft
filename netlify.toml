@@ -1,0 +1,61 @@
+# Static host config for the pokeTFT frontend. The authoritative room server
+# (party/lobby.ts) does NOT deploy from here — it goes to PartyKit separately,
+# and it must go FIRST, because VITE_PARTY_HOST below is compiled into this
+# build. See DEPLOY.md for the ordered runbook.
+#
+# Why Netlify: this repo already contains a working, proven netlify.toml for
+# its Astro blog (blog/netlify.toml), so this is real prior art rather than a
+# coin flip. The ~83 MB public/visuals payload (largest single asset ~11 MB)
+# sits comfortably inside Netlify's limits, whereas Vercel's Hobby deployment
+# size cap is the tightest of the candidates. Reversible: deleting this file
+# and adding the equivalent elsewhere is an hour, not a rewrite.
+#
+# No [[redirects]] rule is present, and that is a finding rather than an
+# omission. This app is a single index.html at the root with no client-side
+# router: src/main.ts:2433 writes `location.origin + location.pathname`, and
+# src/main.ts:2445 and src/main.ts:5811 both build
+# `shareableLobbyUrl(location.origin, code)`, which src/net/lobbyUrl.ts
+# defines as `${origin}/?lobby=${code}`. A lobby code therefore ALWAYS travels
+# as a query string on the root path and never as a path segment, so a static
+# host serving one index.html at `/` needs no SPA fallback. Add one only if a
+# real path segment is ever introduced.
+
+[build]
+  # Deliberately `npx vite build` and NOT the repo's `build` npm script. That
+  # script is `tsc && vite build`, and `npx tsc --noEmit` currently emits 16
+  # pre-existing type errors in src/core/ and src/sim/ — so it would exit
+  # before Vite ever ran, producing a deploy that fails for a reason that has
+  # nothing to do with deployment. Those 16 errors are unrelated repo debt and
+  # clearing them is explicitly not this phase's job; the type baseline is
+  # tracked in Plan 05-01's must_haves and re-asserted by
+  # `npm run deploy:preflight`.
+  #
+  # Every gate in both Phase 5 plans, the preflight, and DEPLOY.md all name
+  # this same command, so the verified path and the real deploy path cannot
+  # diverge. Once the type debt is cleared, restoring the npm script here is
+  # the correct move.
+  command = "npx vite build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+  # VITE_ variables are INLINED into a world-readable JavaScript bundle at
+  # build time. Never put a secret, token or key here (P-01). VITE_PARTY_HOST
+  # is a public hostname — the room every client already connects to — and is
+  # the only thing this variable may ever hold.
+  #
+  # This placeholder is self-invalidating ON PURPOSE. `isValidRoomHost` in
+  # src/net/lobbyUrl.ts accepts only /^[a-z0-9.-]+(:\d+)?$/, so the uppercase
+  # letters AND the underscores below each independently fail it — and the
+  # `require-room-host` build guard in vite.config.ts runs that validator at
+  # buildStart. A build attempted before a human edits this line therefore
+  # dies in ~6ms with an actionable message instead of publishing a site whose
+  # every connection attempt silently points nowhere.
+  #
+  # DO NOT "helpfully" replace this with a lowercase placeholder such as
+  # `example.partykit.dev`. That would PASS validation and ship a broken site,
+  # which is the exact failure this literal exists to prevent. Replace it only
+  # with the real host printed by `npx partykit deploy` — bare host, no
+  # scheme, no trailing slash.
+  VITE_PARTY_HOST = "REPLACE_ME_AFTER_PARTYKIT_DEPLOY"
