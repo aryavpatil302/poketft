@@ -1,0 +1,62 @@
+[Unit]
+Description=pokeTFT room server (Node host for party/lobby.ts)
+After=network.target
+# Disables systemd's restart-rate limiting entirely (default: 5 restarts /
+# 10s, after which the unit goes to a permanent "failed" state requiring a
+# manual `systemctl reset-failed`). Restart=on-failure below is what actually
+# recovers from a crash; this just makes sure repeated crashes can't wedge
+# the service into staying down instead of kept restarting.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=poketft
+WorkingDirectory=/home/poketft/poketft
+ExecStart=/home/poketft/poketft/node_modules/.bin/tsx party/nodeHost.ts
+Restart=on-failure
+RestartSec=2
+# party/nodeHost.ts's own SIGTERM handler drains in-flight writes with a 5s
+# ceiling before calling process.exit(0) itself — this gives it slightly
+# more room than that before systemd escalates to SIGKILL, so the graceful
+# path is the one that actually runs in the common case.
+TimeoutStopSec=10
+# A hard ceiling as a last-resort backstop against unbounded room growth
+# (nodeHost.ts's own MAX_ROOMS cap is the primary defense) — if it's ever
+# exceeded anyway, the OOM killer takes this unit down and Restart=on-failure
+# brings it back, rather than the whole instance running out of memory.
+# 512M leaves headroom on a t3.micro (1 GB total) for Caddy and the OS.
+MemoryMax=512M
+# Light sandboxing for a process that talks to the open internet. If you
+# override ROOM_DATA_DIR below, update ReadWritePaths to match — everything
+# else on the filesystem stays read-only to this process either way.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/home/poketft/poketft/.party-data
+# 127.0.0.1, not 0.0.0.0: deploy/Caddyfile is the only thing that should ever
+# reach this port directly, and it already runs on the same host. Binding to
+# every interface would mean a security-group change made later (e.g. while
+# debugging something unrelated) could expose the room directly, bypassing
+# Caddy's TLS entirely with no other warning sign. `npm run room:serve` for
+# local/LAN testing still defaults to 0.0.0.0 — this override is
+# production-only.
+Environment=HOST=127.0.0.1
+Environment=PORT=1999
+# ROOM_DATA_DIR defaults to .party-data (relative to WorkingDirectory) if
+# unset — override only if you want state stored outside the repo checkout.
+# Environment=ROOM_DATA_DIR=/home/poketft/poketft/.party-data
+#
+# Set this to your deployed frontend's real origin once you know it (see
+# DEPLOY.md step 6 in the Manual Steps section — the Netlify URL) so an
+# arbitrary web page elsewhere on the internet can't open connections to
+# your rooms from every one of its visitors' browsers. Comma-separate if you
+# ever serve more than one frontend origin. Unset is permissive (fine for
+# initial setup/testing, not recommended once you have the real URL).
+# Environment=ALLOWED_ORIGINS=https://your-site.netlify.app
+#
+# Never set PLANNING_MS here. That override exists only for this repo's own
+# automated test harness (scripts/roomHarness.ts) so tests don't wait out a
+# real 30s countdown. A production room must always see Lobby's real default.
+
+[Install]
+WantedBy=multi-user.target

@@ -19,6 +19,7 @@
     "sim-bots": "tsx src/sim/botLeague.ts",
     "deploy:preflight": "tsx scripts/deployPreflight.ts",
     "room:dev": "partykit dev",
+    "room:serve": "tsx party/nodeHost.ts",
     "room:smoke": "tsx scripts/roomSmoke.ts",
     "room:seats": "tsx scripts/roomSeats.ts",
     "room:round": "tsx scripts/roomRound.ts",
@@ -28,6 +29,7 @@
   "devDependencies": {
     "@cucumber/cucumber": "^12.9.0",
     "@types/node": "^26.1.1",
+    "@types/ws": "^8.18.1",
     "chromedriver": "^148.0.4",
     "partykit": "^0.0.115",
     "selenium-webdriver": "^4.44.0",
@@ -37,6 +39,7 @@
     "vitest": "^1.6.0"
   },
   "dependencies": {
-    "partysocket": "^1.3.0"
+    "partysocket": "^1.3.0",
+    "ws": "^8.21.0"
   }
 }

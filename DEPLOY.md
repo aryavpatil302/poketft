@@ -11,7 +11,12 @@
 ## What gets deployed where
 
 - **The authoritative room** — `party/lobby.ts`, the server that owns game state and
-  arbitrates both players' actions — goes to **PartyKit**.
+  arbitrates both players' actions — goes to **PartyKit** (or, if that path is blocked
+  for you, to **your own AWS EC2 server** — see "Alternative" further down. As of this
+  writing PartyKit's free shared domain is at capacity and its own-Cloudflare-account
+  deploy path has an unfixed CLI bug, so the AWS path is the one actually verified
+  end-to-end; try PartyKit first regardless, since it's less work if it happens to work
+  for you).
 - **The built static frontend** — `dist/`, produced by Vite from `index.html` and
   `src/` — goes to **Netlify**.
 
@@ -57,9 +62,11 @@ npm run deploy:preflight
 ```
 
 Runs every check that is possible without a credential: the type baseline, the scoped
-test suite, a dependency freeze, a real bundle of the room under workerd, both build-guard
-directions, and a payload size report. **Fix any failure before continuing** — anything
-red here will also be red after deploying, just far more expensively.
+test suite, a dependency freeze, a real bundle of the room under workerd, the same
+bundle again through the AWS self-hosted adapter (`party/nodeHost.ts`), both
+build-guard directions, and a payload size report. **Fix any failure before
+continuing** — anything red here will also be red after deploying, just far more
+expensively.
 
 Note what this does *not* cover: it never contacts PartyKit's or Netlify's API, so it
 cannot see an account-side problem or a project-name collision.
@@ -149,6 +156,222 @@ https://<your-site>.netlify.app/?lobby=<six-character-code>
 
 The lobby code is always a **query string on the root path**, never a path segment —
 which is why `netlify.toml` needs no SPA fallback redirect.
+
+---
+
+## Alternative: self-hosting the room on your own AWS EC2 server
+
+**Why this exists:** the PartyKit-hosted path above (steps 2-4) can fail for two reasons
+that have nothing to do with this repo's code:
+
+- PartyKit's shared free `*.partykit.dev` domain has hit Cloudflare's hard cap of 10,000
+  custom domains on that zone — a capacity ceiling shared across every free PartyKit
+  user, not specific to any one account.
+- Deploying to your own Cloudflare account via `partykit deploy --domain` fails on a
+  fresh account because PartyKit's CLI (frozen at its last published version, `0.0.115`
+  — no newer release exists) doesn't create Durable Object namespaces with the
+  `new_sqlite_classes` migration Cloudflare's free plan has required since a July 2026
+  policy change. This is a genuine bug in an unmaintained tool, not something fixable
+  from config.
+
+Rather than wait on either of those, this path hosts `party/lobby.ts` yourself: a small
+Node.js process (`party/nodeHost.ts` + `party/nodeStorage.ts`) that runs the exact same
+room logic, supervised by `systemd`, fronted by `Caddy` for real TLS. `party/lobby.ts`
+itself is never modified, so the PartyKit path above stays available too, any time it
+gets fixed.
+
+This is an **alternative to steps 2-4 above**, not a replacement for the whole document
+— it arrives at the same place: a bare `host` value for `VITE_PARTY_HOST`. From there,
+steps 5-6 above (build, deploy to Netlify, get the link) are unchanged.
+
+### 1. Prerequisites
+
+- An AWS account.
+- A domain you control, purchased somewhere (Namecheap, Porkbun, Cloudflare Registrar —
+  a few dollars a year), with the ability to add a DNS **A record**. A bare IP address
+  cannot get a real TLS certificate — this is not optional, since `partysocket` (the
+  client library) unconditionally uses `wss://` for any public host, and browsers block
+  an `https://` page from opening a plain insecure `ws://` connection anyway.
+- Everything past this point assumes you already have a running Ubuntu instance with SSH
+  access — the AWS console account setup itself is human-only, same as `partykit login`
+  above, and out of this document's scope.
+
+### 2. Launch an EC2 instance
+
+A small instance (`t3.micro` is free-tier eligible) is plenty for a friends-only game.
+Allocate and **associate an Elastic IP** with it — a bare EC2 public IP changes every
+time the instance stops and restarts, which would silently break your DNS record. In the
+instance's security group, allow inbound traffic on ports **22** (SSH), **80** and
+**443** (HTTP/HTTPS — Caddy needs 80 to complete its Let's Encrypt certificate challenge,
+even though the room only ever talks over 443). SSH in once it's running.
+
+### 3. Point DNS at it
+
+Add an **A record** for a subdomain — e.g. `room.yourdomain.com` — pointed at the
+Elastic IP from step 2. DNS propagation can take anywhere from a minute to a few hours;
+Caddy (step 7) simply retries its certificate request until the record resolves, so
+there's no need to wait idle — go ahead and do steps 4-6 in the meantime.
+
+### 4. Install Node.js
+
+```sh
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt-get install -y nodejs
+node --version   # confirm it matches this project's target (Node 20+)
+```
+
+### 5. Create the service user, then get the code onto the instance AS that user
+
+`deploy/poketft-room.service` (below) runs as a dedicated `poketft` user with
+`WorkingDirectory=/home/poketft/poketft`. Create that user and clone **directly into**
+that exact path, as that user, so there's no separate ownership-fixing step and nothing
+to get out of sync between where the code lands and where the service looks for it:
+
+```sh
+sudo useradd -m -s /usr/sbin/nologin poketft   # -m creates /home/poketft
+sudo -u poketft git clone <your-fork-or-repo-url> /home/poketft/poketft
+cd /home/poketft/poketft
+sudo -u poketft npm install
+```
+
+(`sudo -u poketft <command>` runs that one command as `poketft` without needing an
+interactive login — `nologin` only blocks the latter, not this.)
+
+> **Don't skip `npm install`.** This repo commits `node_modules` for reproducibility, but
+> only the macOS `@esbuild/darwin-arm64` binary is tracked — not the Linux one `tsx`
+> needs to run on this instance. Skipping this step produces a confusing "tsx exits
+> immediately with no output" failure that looks unrelated to the real cause.
+
+### 6. Set up the systemd service
+
+Still from `/home/poketft/poketft`:
+
+```sh
+sudo -u poketft mkdir -p .party-data
+sudo cp deploy/poketft-room.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now poketft-room
+sudo systemctl status poketft-room       # should read "active (running)"
+journalctl -u poketft-room -f            # follow logs; Ctrl-C to stop watching
+```
+
+> **Don't skip creating `.party-data` first.** The unit's `ReadWritePaths=` sandboxing
+> entry (see the unit file's own comments) needs that directory to already exist —
+> without it, the service can fail to even start, which reads like a mysterious
+> permissions problem with no obvious connection to the real cause.
+
+Sanity-check it locally, on the instance itself, before TLS is even in the picture:
+
+```sh
+curl http://127.0.0.1:1999/parties/main/healthcheck
+```
+
+This should return a small JSON status object — the exact same contract
+`scripts/roomHarness.ts` already polls in this project's own automated tests.
+
+### 7. Set up Caddy for TLS
+
+```sh
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install -y caddy
+```
+
+Copy `deploy/Caddyfile`, substituting your real domain for `room.yourdomain.com`:
+
+```sh
+sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+sudo sed -i 's/room.yourdomain.com/room.YOUR-REAL-DOMAIN.com/' /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+Now confirm the **public** path works — run this from a **different machine** (your
+laptop, not the EC2 instance itself), since a loopback `curl` proves nothing about
+whether the internet can actually reach it:
+
+```sh
+curl https://room.yourdomain.com/parties/main/healthcheck
+```
+
+If this returns the same JSON status object as step 6's loopback check, the room is
+live on the public internet.
+
+### 8. Arrive at `VITE_PARTY_HOST`
+
+The value is simply the bare domain — `room.yourdomain.com`, no port, since Caddy owns
+443 and the client's `wss://` default targets it with no explicit port needed. From
+here, **steps 5-6 of the Manual Steps section above are unchanged**: set this as
+`VITE_PARTY_HOST`, build with `npx vite build`, deploy to Netlify exactly as documented.
+
+### 9. Lock the room to your real frontend origin
+
+Once you have the Netlify URL from step 6 of the Manual Steps section, come back and
+set it as an allowed origin so an arbitrary web page elsewhere on the internet can't
+open connections to your rooms from its visitors' browsers:
+
+```sh
+sudo systemctl edit poketft-room
+```
+
+Add these two lines in the editor that opens (a systemd drop-in — this doesn't touch
+`deploy/poketft-room.service` itself), then save and exit:
+
+```ini
+[Service]
+Environment=ALLOWED_ORIGINS=https://your-site.netlify.app
+```
+
+```sh
+sudo systemctl restart poketft-room
+```
+
+This step is optional but recommended — everything above works without it, since
+non-browser clients (this project's own test harness, curl, a native app) never send an
+`Origin` header and are unaffected either way.
+
+### Troubleshooting (AWS path)
+
+**`journalctl -u poketft-room` shows the process exiting immediately** — almost always
+the missing-esbuild-binary gotcha from step 5. Re-run `npm install` on the instance.
+
+**Browser hangs trying to connect, or fails outright** — check each layer from the
+inside out: is `systemctl status poketft-room` `active`? Does the loopback `curl` in
+step 6 succeed? Does `systemctl status caddy` show a certificate issuance failure
+(usually means DNS from step 3 hasn't propagated yet)? Does the security group from
+step 2 actually allow inbound 443?
+
+**Works from the instance (`curl 127.0.0.1:1999/...`) but not from outside** — the
+problem is the reverse proxy or the security group, not the Node process. Test the
+public `curl` in step 7 again once DNS/security-group issues are ruled out.
+
+### Decisions worth revisiting (AWS path)
+
+Both reversible, recorded here so revisiting either is cheap:
+
+- **Caddy over nginx** — chosen for zero-config automatic Let's Encrypt issuance and
+  renewal, and because it forwards WebSocket upgrade headers with no special directive
+  (nginx needs an explicit `proxy_set_header Upgrade $http_upgrade; proxy_set_header
+  Connection "upgrade";` pair). Swapping to nginx later is a config-file change; the
+  Node process underneath is unaffected either way.
+- **systemd over PM2/Docker** — chosen because it's already on every stock Ubuntu
+  install, needs nothing extra installed, and gives auto-restart-on-crash plus
+  auto-start-on-boot from a single unit file. PM2 is a reasonable alternative if you
+  later want a process-management dashboard; Docker if you later want to run this
+  alongside other services in containers.
+
+**Abrupt disconnects (a phone losing signal, a NAT timeout with no clean TCP close) are
+handled, not just assumed to be:** `party/nodeHost.ts` runs a 30-second WebSocket
+heartbeat (ping every open connection; a connection that never answers the previous
+ping gets `terminate()`d) specifically because a dead peer otherwise never fires `close`
+on its own — without it, that seat would stay occupied forever and a real player
+returning to the game would be wrongly told the room is full. `terminate()` does fire
+`close`, which runs the normal `onClose()` path (frees the seat, persists, broadcasts
+the update) exactly as a clean disconnect would. This is still only exercised on this
+project's local loopback tests, not over a real flaky mobile connection — worth
+watching during the cross-network checklist below, not a reason to hold off on a small
+friends-only deployment.
 
 ---
 

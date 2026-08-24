@@ -1,0 +1,11 @@
+# Replace room.yourdomain.com with your real subdomain, pointed at this
+# instance's Elastic IP via a DNS A record (see DEPLOY.md's AWS walkthrough).
+#
+# That's the whole config Caddy needs. Unlike nginx, Caddy's reverse_proxy
+# detects and transparently forwards WebSocket upgrade requests (the
+# Connection: Upgrade / Upgrade: websocket headers) with no special
+# directive — and it provisions and auto-renews a real Let's Encrypt
+# certificate for the domain the moment it starts, from this one block.
+room.yourdomain.com {
+	reverse_proxy 127.0.0.1:1999
+}

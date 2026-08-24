@@ -18,5 +18,12 @@ node_modules/.mf/
 dist/
 dist-verify/
 
+# The Node adapter's local per-room persistence (party/nodeHost.ts +
+# party/nodeStorage.ts) — one JSON file per room id, same class of local,
+# regenerable state as .partykit/ above, just for the self-hosted-on-AWS path
+# instead of `partykit dev`. Never committed; for a friends-only game,
+# restarting from an empty run on a lost box is an acceptable loss.
+.party-data/
+
 # macOS Finder metadata — never meaningful to the app.
 .DS_Store

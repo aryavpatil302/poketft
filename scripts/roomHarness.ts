@@ -1,11 +1,35 @@
 // Reusable automated verification plumbing: spawns and tears down a real
-// `partykit dev` server so every plan in this phase has an automated,
+// room server (either `partykit dev` or the plain-Node production adapter in
+// party/nodeHost.ts) so every plan in this phase has an automated,
 // end-to-end verification path from Node.
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import PartySocket from 'partysocket'
 
 export const ROOM_PORT = Number(process.env.ROOM_PORT ?? 1999)
+
+// Which server binary withRoom() spawns. 'partykit' (default) is the local
+// dev/test path this project has always used — unaffected by either PartyKit
+// dead end documented in DEPLOY.md. 'node' spawns party/nodeHost.ts instead,
+// the actual production code path for the AWS self-hosted room — set via
+// `ROOM_BACKEND=node npm run room:smoke` (etc.) to prove the adapter behaves
+// identically to `partykit dev` against this project's real protocol, with
+// zero duplication of the smoke/seat/round assertions themselves.
+type RoomBackend = 'partykit' | 'node'
+
+function readRoomBackend(): RoomBackend {
+  const raw = process.env.ROOM_BACKEND
+  if (raw === undefined) return 'partykit'
+  // A bare `as RoomBackend` cast here would let a typo like `ROOM_BACKEND=nodejs`
+  // silently fall through to `=== 'node'` checks failing and the partykit
+  // branch running instead — reporting green while never having exercised
+  // the backend the caller actually asked for. Fail loudly instead.
+  if (raw !== 'partykit' && raw !== 'node') {
+    throw new Error(`ROOM_BACKEND must be 'partykit' or 'node', got: ${JSON.stringify(raw)}`)
+  }
+  return raw
+}
+const ROOM_BACKEND: RoomBackend = readRoomBackend()
 
 const HEALTHCHECK_POLL_MS = 250
 const HEALTHCHECK_TIMEOUT_MS = 60_000
@@ -36,8 +60,18 @@ export async function withRoom<T>(
   let stderr = ''
 
   try {
-    const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}=${v}`])
-    child = spawn('npx', ['partykit', 'dev', '--port', String(port), ...varArgs], { stdio: 'pipe' })
+    if (ROOM_BACKEND === 'node') {
+      // Real process.env, not partykit dev's --var flags — party/nodeHost.ts
+      // reads room.env straight from process.env (see its own header
+      // comment on why that's the correct divergence for this backend).
+      child = spawn('npx', ['tsx', 'party/nodeHost.ts', '--port', String(port)], {
+        stdio: 'pipe',
+        env: { ...process.env, ...vars },
+      })
+    } else {
+      const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}=${v}`])
+      child = spawn('npx', ['partykit', 'dev', '--port', String(port), ...varArgs], { stdio: 'pipe' })
+    }
     child.stderr?.on('data', chunk => { stderr += String(chunk) })
     child.stdout?.on('data', () => { /* drain, not needed for readiness */ })
 
@@ -53,7 +87,7 @@ export async function withRoom<T>(
       await new Promise(resolve => setTimeout(resolve, HEALTHCHECK_POLL_MS))
     }
     if (!ready) {
-      throw new Error(`partykit dev did not become ready within ${HEALTHCHECK_TIMEOUT_MS}ms.\nCaptured stderr:\n${stderr}`)
+      throw new Error(`${ROOM_BACKEND} room server did not become ready within ${HEALTHCHECK_TIMEOUT_MS}ms.\nCaptured stderr:\n${stderr}`)
     }
 
     return await fn({ port, host })

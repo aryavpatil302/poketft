@@ -78,7 +78,7 @@ interface RunResult {
 
 // `env` entries set to undefined are DELETED from the child's environment
 // rather than passed as the string "undefined" — that distinction is the
-// whole point of check 5's unset case.
+// whole point of check 6's unset case.
 function run(command: string, args: string[], env: Record<string, string | undefined> = {}): RunResult {
   const childEnv: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
@@ -119,7 +119,7 @@ function formatMb(bytes: number): string {
 // ─── Checks ───────────────────────────────────────────────────────────────────
 
 function checkTypes(): void {
-  heading('1/7  Types, against a baseline')
+  heading('1/8  Types, against a baseline')
   const { output } = run('npx', ['tsc', '--noEmit'])
   const errorLines = output.split('\n').filter(line => line.includes('error TS'))
   const scoped = errorLines.filter(line => SCOPED_CLEAN_PATHS.test(line.trim()))
@@ -145,7 +145,7 @@ function checkTypes(): void {
 }
 
 function checkScopedTests(): void {
-  heading('2/7  Unit suite, scoped to this phase\'s surfaces')
+  heading('2/8  Unit suite, scoped to this phase\'s surfaces')
   const { status } = run('npx', ['vitest', 'run', ...TEST_SCOPE], { VITE_PARTY_HOST: undefined })
   assert(status === 0, `npx vitest run ${TEST_SCOPE.join(' ')} exits 0`)
   console.log(
@@ -154,17 +154,19 @@ function checkScopedTests(): void {
   )
 }
 
+const EXPECTED_DEPENDENCIES = ['partysocket', 'ws'].sort()
+
 function checkDependencyFreeze(): void {
-  heading('3/7  Dependency freeze')
+  heading('3/8  Dependency freeze')
   const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as {
     dependencies?: Record<string, string>
     devDependencies?: Record<string, string>
   }
 
-  const deps = Object.keys(pkg.dependencies ?? {})
+  const deps = Object.keys(pkg.dependencies ?? {}).sort()
   assert(
-    deps.length === 1 && deps[0] === 'partysocket',
-    `dependencies is exactly ["partysocket"] (found [${deps.join(', ')}])`,
+    JSON.stringify(deps) === JSON.stringify(EXPECTED_DEPENDENCIES),
+    `dependencies is exactly [${EXPECTED_DEPENDENCIES.join(', ')}] (found [${deps.join(', ')}])`,
   )
 
   // The deploy CLIs are run through npx by a human at deploy time. A
@@ -179,8 +181,15 @@ function checkDependencyFreeze(): void {
 }
 
 function checkRoomBundle(): void {
-  heading('4/7  Room config and Workers bundle')
-  const { status, output } = run('npm', ['run', 'room:smoke'])
+  heading('4/8  Room config and Workers bundle')
+  // Both env vars pinned explicitly rather than left to inherit from
+  // process.env: if this were ever run as `ROOM_BACKEND=node npm run
+  // deploy:preflight`, an unpinned call here would silently run the NODE
+  // backend while this check's own assertion claims it tested `partykit dev`
+  // under workerd — a false pass in the one check that actually proves the
+  // PartyKit deploy path's bundle is sound. Check 5 already pins its own
+  // values for the same reason; this closes the same gap on this side.
+  const { status, output } = run('npm', ['run', 'room:smoke'], { ROOM_BACKEND: 'partykit', ROOM_PORT: '1999' })
   if (status !== 0) {
     console.error(output)
   }
@@ -191,8 +200,32 @@ function checkRoomBundle(): void {
   )
 }
 
+function checkNodeHostBundle(): void {
+  heading('5/8  Node production host boots and passes room:smoke')
+  // A DIFFERENT port than check 4's default (1999): scripts/roomHarness.ts's
+  // SIGTERM teardown doesn't wait for the child to actually exit before
+  // returning, and `partykit dev`'s own workerd grandchild process doesn't
+  // reliably release its port immediately either. Without a distinct port
+  // here, a still-listening leftover from check 4 could answer this check's
+  // healthcheck poll instead of the node backend actually being started —
+  // a false pass in the one gate meant to catch a broken production adapter.
+  const { status, output } = run('npm', ['run', 'room:smoke'], { ROOM_BACKEND: 'node', ROOM_PORT: '1996' })
+  if (status !== 0) {
+    console.error(output)
+  }
+  assert(
+    status === 0,
+    'ROOM_BACKEND=node npm run room:smoke passes — party/nodeHost.ts boots Lobby and behaves identically',
+  )
+  console.log(
+    'NOTE: this is the credential-free stand-in for the AWS self-hosted room path, the same way ' +
+    'check 4 stands in for `partykit deploy`. It proves party/nodeHost.ts + party/nodeStorage.ts ' +
+    'host party/lobby.ts correctly, not that a real EC2 instance is reachable.',
+  )
+}
+
 function checkBuildGuardNegative(): void {
-  heading('5/7  Build guard, negative')
+  heading('6/8  Build guard, negative')
 
   const unset = buildInto(undefined)
   assert(unset.status !== 0, 'a build with VITE_PARTY_HOST absent exits NONZERO')
@@ -209,7 +242,7 @@ function checkBuildGuardNegative(): void {
 }
 
 function checkBuildGuardPositive(): void {
-  heading('6/7  Build guard, positive — and the host actually binds')
+  heading('7/8  Build guard, positive — and the host actually binds')
 
   const built = buildInto(PROBE_HOST)
   if (built.status !== 0) {
@@ -229,7 +262,7 @@ function checkBuildGuardPositive(): void {
 }
 
 function checkPayload(): void {
-  heading('7/7  Payload report')
+  heading('8/8  Payload report')
   const files = walkFiles(VERIFY_DIR)
   let total = 0
   let largest = { path: '', bytes: 0 }
@@ -252,10 +285,18 @@ function checkPayload(): void {
 
 function printManualSteps(): void {
   console.log('\n══ Everything above is done. What remains is HUMAN-ONLY ═══════════════════════')
-  console.log('These cannot be run by an agent or by this script — two of them require an')
-  console.log('interactive browser login. Full detail, in order, is in DEPLOY.md:')
-  console.log('  1. `npx partykit login`          — interactive GitHub OAuth')
-  console.log('  2. `npx partykit deploy`         — publishes the room; copy the host it prints')
+  console.log('These cannot be run by an agent or by this script. Full detail, in order, is in')
+  console.log('DEPLOY.md — pick ONE room-hosting path:')
+  console.log('')
+  console.log('  Path A — PartyKit-hosted room:')
+  console.log('    1. `npx partykit login`          — interactive GitHub OAuth')
+  console.log('    2. `npx partykit deploy`         — publishes the room; copy the host it prints')
+  console.log('')
+  console.log('  Path B — self-hosted on your own AWS EC2 server (see "Alternative" in DEPLOY.md):')
+  console.log('    1. Launch an EC2 instance, point a domain at it, run the systemd + Caddy setup')
+  console.log('    2. Arrives at the same kind of value: a bare host for VITE_PARTY_HOST')
+  console.log('')
+  console.log('  Then, either path:')
   console.log('  3. Set VITE_PARTY_HOST to that host, then build and deploy the frontend')
   console.log('  4. The cross-network round with a friend (DEPLOY-03) — a person on a second')
   console.log('     device on a different network; no test in this repo covers it')
@@ -264,7 +305,7 @@ function printManualSteps(): void {
 
 function main(): void {
   try {
-    // Start from a clean directory so check 6's bundle grep can never match a
+    // Start from a clean directory so check 7's bundle grep can never match a
     // stale artifact left by an earlier run.
     rmSync(VERIFY_DIR, { recursive: true, force: true })
 
@@ -272,6 +313,7 @@ function main(): void {
     checkScopedTests()
     checkDependencyFreeze()
     checkRoomBundle()
+    checkNodeHostBundle()
     checkBuildGuardNegative()
     checkBuildGuardPositive()
     checkPayload()
