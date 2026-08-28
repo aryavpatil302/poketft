@@ -4469,6 +4469,9 @@ function startPlanningPhase(rollIfUnlocked: boolean): void {
 function enterGameOver(kind: 'win' | 'loss'): void {
   econPhase = 'gameOver'
   planningTimerStartTs = null
+  // A run can end on the round the item pick settles — leaving a live stamp
+  // behind would leave the countdown bar drawing over the game-over box.
+  itemRoundTimerStartTs = null
   updateEconVisibility()
   const box = document.getElementById('gameover-box')!
   const placement = kind === 'win' ? 1 : run.players.filter(p => !p.eliminated).length + 1
