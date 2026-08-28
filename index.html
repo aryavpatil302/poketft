@@ -60,6 +60,18 @@
         transform-origin: center;
       }
       .bench-star-up-flash { --flash-anim: benchStarUpFlash 0.5s ease-out 1; }
+      /* A brand-new bought unit landing on the bench for the first time: a
+         small, distinct pop/jump — never a combine. No side-to-side translate
+         and no filter change (those two properties are what make the
+         celebration above read as a celebration); this is deliberately
+         smaller and quieter. */
+      @keyframes benchBuySpawn {
+        0%   { scale: 0.8; translate: 0 6%; }
+        45%  { scale: 1.08; translate: 0 -6%; }
+        70%  { scale: 0.97; translate: 0 1%; }
+        100% { scale: 1; translate: 0 0; }
+      }
+      .bench-buy-spawn { --flash-anim: benchBuySpawn 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) 1; }
       /* A crawler dropped onto the bench by a Cave Crawler earthquake: pops in
          from above, jumps, rumbles side-to-side, then settles. Reuses the same
          --flash-anim slot on .bench-unit-visual (a fresh spawn never coincides

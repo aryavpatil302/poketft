@@ -25,6 +25,7 @@ import { loadRun, saveRun as persistRunToStorage, clearRun, newRun, type RunStat
 // server calls. rollShop survives only because initFreshRun seeds a brand-new
 // solo run's shops before any action can be dispatched against it.
 import { rollShop } from './econ/shop'
+import { tierComposition, detectTierChanges, type TierChange, type TierChangeKind } from './econ/tierChanges'
 import { xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
 import { checkGameOver } from './econ/botMatches'
@@ -2183,7 +2184,7 @@ function applyServerSnapshot(snapshot: RunState): void {
   syncRunToBoard()
   renderEconUI()
   renderTraitDisplay()
-  if (seenServerSnapshot) flashStarUps(detectStarUps(before, localTierComposition()))
+  if (seenServerSnapshot) flashTierChanges(detectTierChanges(before, localTierComposition()))
   seenServerSnapshot = true
 }
 
@@ -2260,12 +2261,12 @@ function dispatchAction(action: GameAction): boolean {
   }
   saveRun(run)
 
-  const ups = detectStarUps(before, localTierComposition())
+  const changes = detectTierChanges(before, localTierComposition())
   // Rebuild placedUnits from the just-mutated run.board whenever the board
   // could have changed — either because the action addressed it, or because a
   // combine upgraded a FIELDED unit (so the board shows the upgraded copy and
-  // flashStarUps can find it to flash).
-  if (planningBoardLive && (boardAddressing || ups.some(up => heldOnBoard(up)))) syncRunToBoard()
+  // flashTierChanges can find it to flash).
+  if (planningBoardLive && (boardAddressing || changes.some(c => heldOnBoard(c)))) syncRunToBoard()
   // The ONE place the local branch re-renders, rather than the same two lines
   // copy-pasted into every handler. Trait badges are refreshed unconditionally
   // because a buy, a sell and a combine can all change the active set, and the
@@ -2276,7 +2277,7 @@ function dispatchAction(action: GameAction): boolean {
   renderTraitDisplay()
   // After the render: the bench cell / board unit the flash targets is a fresh
   // DOM node (or a fresh placedUnits entry) on every render.
-  flashStarUps(ups)
+  flashTierChanges(changes)
   return true
 }
 
@@ -2360,48 +2361,22 @@ function reportActionRejected(reason: ActionReason | RejectReason): void {
   showRejectNotice(REJECT_TEXT[reason] ?? 'That action was refused.')
 }
 
-// ─── Star-up detection ────────────────────────────────────────────────────────
+// ─── Tier-change detection ────────────────────────────────────────────────────
 
-// The highest tier this seat holds of each definitionId, across bench AND
-// board. A combine is exactly "some definitionId's highest held tier went up",
-// which is derivable from state — unlike buyUnit's CombineResult, which
-// applyAction's ActionResult does not carry and a server `snapshot` never
-// could.
+// Thin wrapper over the pure classifier in econ/tierChanges.ts, parameterised
+// here on the local seat's own econ.
 function localTierComposition(): Map<string, number> {
-  const composition = new Map<string, number>()
-  const econ = run.players[localSeatIndex] as PlayerEcon | undefined
-  if (!econ) return composition
-  for (const b of econ.bench) {
-    if (!b) continue
-    composition.set(b.definitionId, Math.max(composition.get(b.definitionId) ?? 0, b.tier))
-  }
-  for (const e of econ.board) {
-    composition.set(e.definitionId, Math.max(composition.get(e.definitionId) ?? 0, e.tier))
-  }
-  return composition
-}
-
-// Pure diff, shared by the local dispatch path and applyServerSnapshot so both
-// modes celebrate a star-up identically.
-function detectStarUps(
-  before: Map<string, number>,
-  after: Map<string, number>,
-): Array<{ definitionId: string; tier: number }> {
-  const ups: Array<{ definitionId: string; tier: number }> = []
-  for (const [definitionId, tier] of after) {
-    if (tier > (before.get(definitionId) ?? 0)) ups.push({ definitionId, tier })
-  }
-  return ups
+  return tierComposition(run.players[localSeatIndex] as PlayerEcon | undefined)
 }
 
 function heldOnBoard(up: { definitionId: string; tier: number }): boolean {
   return humanEcon().board.some(e => e.definitionId === up.definitionId && e.tier === up.tier)
 }
 
-function flashStarUps(ups: Array<{ definitionId: string; tier: number }>): void {
-  for (const up of ups) {
+function flashTierChanges(changes: TierChange[]): void {
+  for (const change of changes) {
     const boardEntry = humanEcon().board.find(
-      e => e.definitionId === up.definitionId && e.tier === up.tier,
+      e => e.definitionId === change.definitionId && e.tier === change.tier,
     )
     if (boardEntry) {
       // Fielded copies only exist as live units during planning; mid-combat
@@ -2411,7 +2386,7 @@ function flashStarUps(ups: Array<{ definitionId: string; tier: number }>): void 
       const unit = placedUnits.get(hexId(boardEntry.hexPos))
       if (unit) unitLayer.flashStarUp(unit.id)
     } else {
-      triggerBenchStarFlash(up.definitionId, up.tier)
+      triggerBenchFlash(change.definitionId, change.tier, change.kind)
     }
   }
 }
@@ -3238,19 +3213,35 @@ function cancelHeldUnit(): void {
 
 // Brief "star up" celebration: after a buy completes a 2★/3★ combine, the
 // resulting bench slot (or board hex) flashes — grow 50%, gain the tier's
-// saturation, rumble — for one 0.5s pulse. Timer-driven (not tick-driven) so
-// it plays during planning, outside the combat tick loop.
-let benchStarFlash: { definitionId: string; tier: number } | null = null
+// saturation, rumble — for one 0.5s pulse. A fresh buy instead plays a short
+// pop/jump (see benchBuySpawn in index.html). Timer-driven (not tick-driven)
+// so it plays during planning, outside the combat tick loop.
+let benchFlash: { definitionId: string; tier: number; kind: TierChangeKind } | null = null
 
-function triggerBenchStarFlash(definitionId: string, tier: number): void {
-  benchStarFlash = { definitionId, tier }
+// Each flash kind tracks its own CSS animation duration (index.html) rather
+// than sharing one bare literal — a spawn pop is quicker than a star-up
+// celebration.
+const BENCH_FLASH_DURATION_MS: Record<TierChangeKind, number> = {
+  'star-up': 500,
+  spawn: 360,
+}
+
+// Fixed two-entry literal map — the class appended to .bench-unit-visual is
+// always one of these two strings, never a state-derived one (T-fu8-01).
+const BENCH_FLASH_CLASS: Record<TierChangeKind, string> = {
+  'star-up': 'bench-star-up-flash',
+  spawn: 'bench-buy-spawn',
+}
+
+function triggerBenchFlash(definitionId: string, tier: number, kind: TierChangeKind): void {
+  benchFlash = { definitionId, tier, kind }
   renderBenchRow()
   setTimeout(() => {
-    if (benchStarFlash?.definitionId === definitionId && benchStarFlash.tier === tier) {
-      benchStarFlash = null
+    if (benchFlash?.definitionId === definitionId && benchFlash.tier === tier && benchFlash.kind === kind) {
+      benchFlash = null
       renderBenchRow()
     }
-  }, 500)
+  }, BENCH_FLASH_DURATION_MS[kind])
 }
 
 function benchCellHTML(slot: number): string {
@@ -3273,7 +3264,9 @@ function benchCellHTML(slot: number): string {
     const manaPct = def.baseStats.maxMana > 0
       ? Math.min(100, (def.baseStats.startMana / def.baseStats.maxMana) * 100)
       : 0
-    const flashing = benchStarFlash && benchStarFlash.definitionId === b.definitionId && benchStarFlash.tier === b.tier
+    const flashing = benchFlash && benchFlash.definitionId === b.definitionId && benchFlash.tier === b.tier
+      ? benchFlash.kind
+      : null
     // Star-level diamond, tinted per tier and attached flush against the left
     // edge of the HP bar — same treatment as fielded units' health bars
     // (unitLayer.ts drawHealthBars), reproduced here with a mix-blend-mode
@@ -3286,7 +3279,7 @@ function benchCellHTML(slot: number): string {
     // rest of the unit — bars included — overflows upward above the thin
     // cell, standing on top of the spot rather than being boxed inside it.
     content = `
-      <div class="bench-unit-visual${flashing ? ' bench-star-up-flash' : ''}" style="position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;box-sizing:border-box;pointer-events:none;">
+      <div class="bench-unit-visual${flashing ? ' ' + BENCH_FLASH_CLASS[flashing] : ''}" style="position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;box-sizing:border-box;pointer-events:none;">
         <div style="position:relative;width:52px;">
           <div style="position:absolute;left:${-1 - STAR_SIZE}px;top:${(6 + 2) / 2 - STAR_SIZE / 2}px;width:${STAR_SIZE}px;height:${STAR_SIZE}px;isolation:isolate;">
             <img src="/visuals/sprites/star_level.png" style="position:absolute;inset:0;width:100%;height:100%;" onerror="this.parentElement.style.display='none'">
@@ -3871,7 +3864,7 @@ function renderEconBar(): void {
       if (econPhase === 'gameOver') return
       // The star-up flash a completed combine used to read off buyUnit's
       // CombineResult is now derived by dispatchAction's own before/after tier
-      // diff (see detectStarUps) — the result shape does not survive either
+      // diff (see detectTierChanges) — the result shape does not survive either
       // applyAction or the wire, so the feedback is read off state instead.
       dispatchAction({ t: 'buy', slot: Number(card.dataset.slot) })
     })
