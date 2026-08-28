@@ -4029,9 +4029,14 @@ function enemyBenchCellHTML(entry: { definitionId: string; tier: 1 | 2 | 3; item
 function renderEnemyBenchRow(): void {
   const row = document.getElementById('enemy-bench-row')
   if (!row) return
-  const opp = econActive() && econPhase === 'combat' && currentOpponentIndex >= 1
-    ? run.players[currentOpponentIndex]
-    : null
+  // Combat-only, regardless of what the resolver would answer for a planning
+  // view: a bench row must stay hidden between fights even though there is a
+  // valid upcoming-opponent seat to resolve.
+  const inCombat = econActive() && econPhase === 'combat'
+  const shownSeat = inCombat
+    ? displayedOpponentSeat(true, localSeatIndex, run.players[localSeatIndex].nextOpponent, currentOpponentIndex)
+    : -1
+  const opp = shownSeat >= 0 ? run.players[shownSeat] : null
   if (!opp) { row.style.display = 'none'; return }
   row.style.display = 'flex'
   row.innerHTML = [0, 1, 2, 3, 4, 5, 6, 7, 8]
@@ -4117,11 +4122,20 @@ function renderLobby(): void {
   // they were carrying when they died.
   const rank = (p: PlayerEcon): number => (p.eliminated ? -1 : p.hp)
 
+  // Which round/seat this view describes — same three values renderRoundIndicator
+  // computes, so the lobby highlight always names the same seat as the "Vs {name}"
+  // line during combat, and the same upcoming pairing during planning.
+  const inCombat = econPhase === 'combat'
+  const shownRound = displayedRound(inCombat, run.round, currentCombatRound)
+  const shownSeat = displayedOpponentSeat(
+    inCombat, localSeatIndex, run.players[localSeatIndex].nextOpponent, currentOpponentIndex,
+  )
+
   const rows = run.players
     .map((p, i) => ({ p, i }))
     .sort((a, b) => rank(b.p) - rank(a.p) || a.i - b.i)
     .map(({ p, i }) => {
-      const isOpp = i === run.players[localSeatIndex].nextOpponent && !p.eliminated && !isCreepRound(run.round) && !isItemRound(run.round)
+      const isOpp = i === shownSeat && !p.eliminated && !isCreepRound(shownRound) && !isItemRound(shownRound)
       const hpPct = Math.max(0, p.hp)
       const hpColor = p.hp > 60 ? '#44cc44' : p.hp > 30 ? '#ffcc00' : '#ff4444'
       const isHuman = seatIsHuman(i)
