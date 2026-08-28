@@ -740,8 +740,8 @@ function drawDimOverlay(active: boolean): void {
   cDimCtx.clearRect(0, 0, cDim.width, cDim.height)
   if (!active) return
 
-  // Fill just the hex field polygons with 50% black; the surround stays bright.
-  cDimCtx.fillStyle = 'rgba(0,0,0,0.5)'
+  // Fill just the hex field polygons with 25% black; the surround stays bright.
+  cDimCtx.fillStyle = 'rgba(0,0,0,0.25)'
   cDimCtx.save()
   // Shift to where the board sits within canvas-wrap, then apply the same
   // perspective Y-scale used by boardLayer so hexes align precisely.
@@ -766,11 +766,11 @@ function drawDimOverlay(active: boolean): void {
 }
 
 // The econ-mode lobby panel is transparent grass that sits outside the c-dim
-// canvas, so the board dim doesn't reach it. Darken it to the same 50% black
+// canvas, so the board dim doesn't reach it. Darken it to the same 25% black
 // during combat so the whole surround dims together.
 function dimSidePanel(active: boolean): void {
   if (!econActive()) return
-  document.getElementById('right-panel')!.style.background = active ? 'rgba(0,0,0,0.5)' : 'transparent'
+  document.getElementById('right-panel')!.style.background = active ? 'rgba(0,0,0,0.25)' : 'transparent'
 }
 
 // ─── Unit roster (left panel) ─────────────────────────────────────────────────
