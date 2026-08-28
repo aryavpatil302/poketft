@@ -29,6 +29,7 @@ import { xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
 import { checkGameOver } from './econ/botMatches'
 import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices } from './econ/creeps'
+import { displayedOpponentSeat, displayedRound } from './econ/opponentView'
 import {
   REROLL_COST, XP_BUY_COST, sellValue, stageLabel, SHOP_ODDS,
   BASE_INCOME_BY_ROUND, BASE_INCOME_CAP, MAX_INTEREST, streakBonus, WIN_BONUS, XP_PER_ROUND,
@@ -2043,6 +2044,7 @@ let heldFrom: { kind: 'bench'; slot: number } | { kind: 'board'; hex: OffsetCoor
 let liftedBoardHexKey: string | null = null
 let liftedBenchSlot: number | null = null
 let currentOpponentIndex = -1        // captured at combat start for settlement
+let currentCombatRound = -1          // the round FOUGHT, captured alongside currentOpponentIndex
 let lastSettlementLine = ''
 // Snapshot of the human's settlement-relevant economy taken immediately
 // before a resolveRound() call — applyRoundResult diffs against it to derive
@@ -2645,6 +2647,7 @@ function handleNetResolve(m: Extract<ServerMessage, { t: 'resolve' }>): void {
   const before = prevSnapshotSettlement()
   applyServerSnapshot(m.snapshot)
   currentOpponentIndex = pending.seat?.opponentSeat ?? -1
+  currentCombatRound = pending.round
 
   if (pending.seat) {
     lastSettlementLine = buildSettlementLine(
@@ -4026,9 +4029,14 @@ function enemyBenchCellHTML(entry: { definitionId: string; tier: 1 | 2 | 3; item
 function renderEnemyBenchRow(): void {
   const row = document.getElementById('enemy-bench-row')
   if (!row) return
-  const opp = econActive() && econPhase === 'combat' && currentOpponentIndex >= 1
-    ? run.players[currentOpponentIndex]
-    : null
+  // Combat-only, regardless of what the resolver would answer for a planning
+  // view: a bench row must stay hidden between fights even though there is a
+  // valid upcoming-opponent seat to resolve.
+  const inCombat = econActive() && econPhase === 'combat'
+  const shownSeat = inCombat
+    ? displayedOpponentSeat(true, localSeatIndex, run.players[localSeatIndex].nextOpponent, currentOpponentIndex)
+    : -1
+  const opp = shownSeat >= 0 ? run.players[shownSeat] : null
   if (!opp) { row.style.display = 'none'; return }
   row.style.display = 'flex'
   row.innerHTML = [0, 1, 2, 3, 4, 5, 6, 7, 8]
@@ -4046,18 +4054,27 @@ function renderRoundIndicator(): void {
   if (!econActive() || econPhase === 'gameOver') { el.style.display = 'none'; return }
   el.style.display = 'block'
 
-  const opponent = isItemRound(run.round)
+  // Which round/seat this view describes: during combat, the fight actually
+  // on screen (captured at settlement); otherwise, the upcoming pairing
+  // preview. See src/econ/opponentView.ts for why these two differ.
+  const inCombat = econPhase === 'combat'
+  const shownRound = displayedRound(inCombat, run.round, currentCombatRound)
+  const shownSeat = displayedOpponentSeat(
+    inCombat, localSeatIndex, run.players[localSeatIndex].nextOpponent, currentOpponentIndex,
+  )
+
+  const opponent = isItemRound(shownRound)
     ? "Delibird's Gift"                                     // non-combat round — no opponent
-    : isCreepRound(run.round)
-      ? `Vs ${creepRoundDef(run.round)?.name ?? 'Creeps'}`   // fixed PvE board, not a bot
-      : (() => { const opp = run.players[run.players[localSeatIndex].nextOpponent ?? -1]; return opp ? `Vs ${opp.name}` : '' })()
+    : isCreepRound(shownRound)
+      ? `Vs ${creepRoundDef(shownRound)?.name ?? 'Creeps'}`  // fixed PvE board, not a bot
+      : (() => { const opp = run.players[shownSeat]; return opp ? `Vs ${opp.name}` : '' })()
 
   // Built as elements with textContent (not innerHTML) so opponent names are
   // never interpreted as markup.
   el.replaceChildren()
   const stageLine = document.createElement('div')
   stageLine.style.cssText = 'font-size:15px;font-weight:bold;opacity:0.8;'
-  stageLine.textContent = `Stage ${stageLabel(run.round)}`
+  stageLine.textContent = `Stage ${stageLabel(shownRound)}`
   el.appendChild(stageLine)
   if (opponent) {
     const oppLine = document.createElement('div')
@@ -4105,11 +4122,20 @@ function renderLobby(): void {
   // they were carrying when they died.
   const rank = (p: PlayerEcon): number => (p.eliminated ? -1 : p.hp)
 
+  // Which round/seat this view describes — same three values renderRoundIndicator
+  // computes, so the lobby highlight always names the same seat as the "Vs {name}"
+  // line during combat, and the same upcoming pairing during planning.
+  const inCombat = econPhase === 'combat'
+  const shownRound = displayedRound(inCombat, run.round, currentCombatRound)
+  const shownSeat = displayedOpponentSeat(
+    inCombat, localSeatIndex, run.players[localSeatIndex].nextOpponent, currentOpponentIndex,
+  )
+
   const rows = run.players
     .map((p, i) => ({ p, i }))
     .sort((a, b) => rank(b.p) - rank(a.p) || a.i - b.i)
     .map(({ p, i }) => {
-      const isOpp = i === run.players[localSeatIndex].nextOpponent && !p.eliminated && !isCreepRound(run.round) && !isItemRound(run.round)
+      const isOpp = i === shownSeat && !p.eliminated && !isCreepRound(shownRound) && !isItemRound(shownRound)
       const hpPct = Math.max(0, p.hp)
       const hpColor = p.hp > 60 ? '#44cc44' : p.hp > 30 ? '#ffcc00' : '#ff4444'
       const isHuman = seatIsHuman(i)
@@ -4395,6 +4421,7 @@ function snapshotPreRound(): void {
 function applyRoundResult(res: RoundResult): void {
   const mine = res.seats.find(s => s.seat === localSeatIndex)
   currentOpponentIndex = mine?.opponentSeat ?? -1
+  currentCombatRound = res.round
 
   if (mine) {
     lastSettlementLine = buildSettlementLine(
