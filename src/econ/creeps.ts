@@ -107,6 +107,16 @@ export function rollItemChoices(owned: string[] = [], rng: Rng = Math.random, co
   return chosen.map(i => i.id)
 }
 
+// What the item-round deadline falls back to when the player never chooses:
+// a uniform random pick over whatever three ids are currently on the tray.
+export function autoPickItemChoice(choices: string[], rng: Rng = Math.random): string | undefined {
+  if (choices.length === 0) return undefined
+  // Clamp to the last index so a degenerate rng returning exactly 1 cannot
+  // walk off the end of the array and silently resolve to undefined.
+  const idx = Math.min(choices.length - 1, Math.floor(rng() * choices.length))
+  return choices[idx]
+}
+
 // Combat creep rounds are the opening PvE fights (rounds 1..CREEP_ROUND_COUNT)
 // EXCLUDING item rounds (round 3), which have no board.
 export function isCreepRound(round: number): boolean {

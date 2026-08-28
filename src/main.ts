@@ -29,7 +29,7 @@ import { tierComposition, detectTierChanges, type TierChange, type TierChangeKin
 import { xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
 import { checkGameOver } from './econ/botMatches'
-import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices } from './econ/creeps'
+import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices, autoPickItemChoice } from './econ/creeps'
 import { displayedOpponentSeat, displayedRound } from './econ/opponentView'
 import {
   REROLL_COST, XP_BUY_COST, sellValue, stageLabel, SHOP_ODDS,
@@ -1381,6 +1381,40 @@ function renderPlanningTimer(): void {
     fill.style.width = `${netRemaining * 100}%`
     fill.style.background = netRemaining > 0.5 ? '#44cc44' : netRemaining > 0.2 ? '#ffcc00' : '#ff3333'
     label.textContent = `${remainingSeconds(netClock, now)}`
+    return
+  }
+
+  if (econPhase === 'itemRound') {
+    // Same bar, same element ids, same thresholds as the planning countdown
+    // below — only one of these branches can be driving it on any given frame,
+    // gated on econPhase.
+    if (itemRoundTimerStartTs === null) {
+      bar.style.display = 'none'
+      return
+    }
+
+    const elapsedMs = performance.now() - itemRoundTimerStartTs
+    if (elapsedMs >= ITEM_ROUND_TIME_LIMIT_MS) {
+      bar.style.display = 'none'
+      // Resolve through the exact same settle path a click takes — this is
+      // what makes an auto-pick indistinguishable from a real choice
+      // downstream. Clear the deadline state BEFORE calling finishItemRound
+      // so a re-entrant frame during that call can't race this branch again
+      // (finishItemRound's own econPhase !== 'itemRound' guard also protects
+      // against a double-settle, but clearing first keeps this branch honest
+      // too).
+      const picked = autoPickItemChoice(itemRoundChoices)
+      itemRoundTimerStartTs = null
+      itemRoundChoices = []
+      finishItemRound(picked)
+      return
+    }
+
+    bar.style.display = 'block'
+    const remaining = Math.max(0, 1 - elapsedMs / ITEM_ROUND_TIME_LIMIT_MS)
+    fill.style.width = `${remaining * 100}%`
+    fill.style.background = remaining > 0.5 ? '#44cc44' : remaining > 0.2 ? '#ffcc00' : '#ff3333'
+    label.textContent = `${Math.max(0, Math.ceil((ITEM_ROUND_TIME_LIMIT_MS - elapsedMs) / 1000))}`
     return
   }
 
@@ -4465,6 +4499,9 @@ function startPlanningPhase(rollIfUnlocked: boolean): void {
 function enterGameOver(kind: 'win' | 'loss'): void {
   econPhase = 'gameOver'
   planningTimerStartTs = null
+  // A run can end on the round the item pick settles — leaving a live stamp
+  // behind would leave the countdown bar drawing over the game-over box.
+  itemRoundTimerStartTs = null
   updateEconVisibility()
   const box = document.getElementById('gameover-box')!
   const placement = kind === 'win' ? 1 : run.players.filter(p => !p.eliminated).length + 1
@@ -4514,6 +4551,8 @@ function humanOwnedItems(): string[] {
 function startItemRound(): void {
   econPhase = 'itemRound'
   planningTimerStartTs = null
+  itemRoundTimerStartTs = null   // a fresh round never inherits a stale deadline
+  itemRoundChoices = []
   cancelHeldUnit()
   unitLayer.setHoveredUnit(null)
   updateEconVisibility()
@@ -4547,6 +4586,9 @@ function startItemRound(): void {
 
   // Phase 3 — reveal the item tray, expanding outward from the centre.
   window.setTimeout(() => {
+    // The round was torn down while Delibird was still animating (game over,
+    // test-mode toggle, etc.) — nothing to reveal and no deadline to arm.
+    if (econPhase !== 'itemRound') return
     tray.innerHTML = choices.map(id => {
       const def = ITEM_MAP.get(id)
       return `<div class="delibird-item" data-item-id="${id}" style="
@@ -4578,12 +4620,23 @@ function startItemRound(): void {
       el.addEventListener('mousemove', show)
       el.addEventListener('mouseleave', () => tooltipHiddenReset())
     })
+    // Arm the deadline now that the cards are actually clickable — the swoop
+    // plus hops burn ~2s during which the tray has pointer-events:none, so
+    // arming any earlier would run the clock against cards the player cannot
+    // yet click. Never armed while networked: the lobby item-pick path is a
+    // server-owned round, not something a client may locally settle.
+    itemRoundChoices = choices
+    itemRoundTimerStartTs = isNetworked() ? null : performance.now()
   }, DELIBIRD_SWOOP_MS + DELIBIRD_HOPS_MS)
 }
 
 function finishItemRound(itemId: string | undefined): void {
   if (econPhase !== 'itemRound') return
   econPhase = 'planning'   // claim immediately so a double-click can't run this twice
+  // The one teardown both the click path and the timer-expiry path pass
+  // through — whichever settles the round, the deadline dies with it.
+  itemRoundTimerStartTs = null
+  itemRoundChoices = []
 
   const overlay  = document.getElementById('delibird-round')!
   const trayWrap = document.getElementById('delibird-tray-wrap')!
@@ -4763,6 +4816,18 @@ let earthquakeFlashTs    = 0   // performance.now() of last earthquake VFX; 0 = 
 // countdown must never itself call botPlanRound.
 const PLANNING_TIME_LIMIT_MS = 30000
 let planningTimerStartTs: number | null = null   // null = no countdown running
+
+// Item-round deadline: the same 30s window as planning, so an unattended
+// Delibird tray can't stall a run forever. Armed only once the tray is
+// actually clickable (see startItemRound's reveal setTimeout) — arming it
+// any earlier would run the clock against cards the player can't yet click.
+// No matching reset is needed at the test-mode toggle (src/main.ts ~5147):
+// the render branch below is gated on econPhase === 'itemRound', so a stale
+// stamp is unreachable once the phase moves on, and startItemRound clears
+// it on entry anyway.
+const ITEM_ROUND_TIME_LIMIT_MS = PLANNING_TIME_LIMIT_MS
+let itemRoundTimerStartTs: number | null = null   // null = not running
+let itemRoundChoices: string[] = []               // the three ids currently on the tray
 
 function startCombat(): void {
   // In a lobby the server resolves the round and streams back the fight it
