@@ -17,12 +17,13 @@
 // Every negative value and every value equal to localSeat normalize to the
 // same -1 sentinel, so callers only ever need to test for non-negative.
 export function displayedOpponentSeat(
-  _inCombat: boolean,
-  _localSeat: number,
-  _nextOpponent: number | undefined,
-  _combatOpponentSeat: number,
+  inCombat: boolean,
+  localSeat: number,
+  nextOpponent: number | undefined,
+  combatOpponentSeat: number,
 ): number {
-  throw new Error('not implemented')
+  const raw = inCombat ? combatOpponentSeat : (nextOpponent ?? -1)
+  return raw < 0 || raw === localSeat ? -1 : raw
 }
 
 // Returns the round this view should describe. Planning always shows the
@@ -30,9 +31,10 @@ export function displayedOpponentSeat(
 // falling back to the live round if nothing has been captured yet (before
 // any settlement has ever happened) rather than rendering a nonsense stage.
 export function displayedRound(
-  _inCombat: boolean,
-  _liveRound: number,
-  _combatRound: number,
+  inCombat: boolean,
+  liveRound: number,
+  combatRound: number,
 ): number {
-  throw new Error('not implemented')
+  if (!inCombat) return liveRound
+  return combatRound < 1 ? liveRound : combatRound
 }
