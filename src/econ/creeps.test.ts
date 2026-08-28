@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { makeUnit } from '../core/unitFactory'
 import { createCombatState, runCombat } from '../core/combatEngine'
 import type { Unit } from '../core/types'
-import { CREEP_ROUNDS, isCreepRound, isItemRound, rollItemChoices, CREEP_ROUND_COUNT } from './creeps'
+import { CREEP_ROUNDS, isCreepRound, isItemRound, rollItemChoices, autoPickItemChoice, CREEP_ROUND_COUNT } from './creeps'
 import { ITEM_MAP } from '../data/items'
 import { shopEligibleUnits } from './runState'
 import '../core/systems/ability'   // register ability handlers
@@ -71,6 +71,36 @@ describe('creep rounds — round classification', () => {
     const all = rollItemChoices([], () => 0.5, 99)   // every offerable item id
     const picks = rollItemChoices(all, () => 0.5, 3)
     expect(picks.length).toBeGreaterThan(0)   // never empty → no soft-lock
+  })
+})
+
+describe('autoPickItemChoice — item-round deadline fallback', () => {
+  it('returns undefined for an empty array', () => {
+    expect(autoPickItemChoice([], () => 0.5)).toBeUndefined()
+  })
+
+  it('picks the first element when rng returns 0', () => {
+    expect(autoPickItemChoice(['a', 'b', 'c'], () => 0)).toBe('a')
+  })
+
+  it('picks the last element when rng returns just under 1', () => {
+    expect(autoPickItemChoice(['a', 'b', 'c'], () => 0.99)).toBe('c')
+  })
+
+  it('clamps to the last element when a degenerate rng returns exactly 1', () => {
+    expect(autoPickItemChoice(['a', 'b', 'c'], () => 1)).toBe('c')
+  })
+
+  it('with the real Math.random every draw is a member and all three appear over 300 draws', () => {
+    const choices = ['a', 'b', 'c']
+    const seen = new Set<string>()
+    for (let i = 0; i < 300; i++) {
+      const pick = autoPickItemChoice(choices)
+      expect(pick).toBeDefined()
+      expect(choices).toContain(pick)
+      seen.add(pick!)
+    }
+    expect(seen.size).toBe(3)
   })
 })
 
