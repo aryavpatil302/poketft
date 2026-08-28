@@ -44,6 +44,35 @@ describe('detectTierChanges', () => {
     const after = new Map<string, number>()
     expect(detectTierChanges(before, after)).toEqual([])
   })
+
+  it('sell every copy then re-buy classifies as spawn again', () => {
+    const held = new Map([['tangela', 1]])
+    const sold = new Map<string, number>()
+    expect(detectTierChanges(held, sold)).toEqual([])
+    const reBought = new Map([['tangela', 1]])
+    expect(detectTierChanges(sold, reBought)).toEqual([
+      { definitionId: 'tangela', tier: 1, kind: 'spawn' },
+    ])
+  })
+
+  it('a third-copy combine and an unrelated new spawn in the same diff yield two changes', () => {
+    const before = new Map([['tangela', 1]])
+    const after = new Map([['tangela', 2], ['zubat', 1]])
+    const changes = detectTierChanges(before, after)
+    expect(changes).toHaveLength(2)
+    expect(changes).toEqual(expect.arrayContaining([
+      { definitionId: 'tangela', tier: 2, kind: 'star-up' },
+      { definitionId: 'zubat', tier: 1, kind: 'spawn' },
+    ]))
+  })
+
+  it('an unheld definitionId arriving at tier 2 via a snapshot classifies as star-up, not spawn', () => {
+    const before = new Map<string, number>()
+    const after = new Map([['tangela', 2]])
+    expect(detectTierChanges(before, after)).toEqual([
+      { definitionId: 'tangela', tier: 2, kind: 'star-up' },
+    ])
+  })
 })
 
 describe('tierComposition', () => {
@@ -64,5 +93,22 @@ describe('tierComposition', () => {
 
   it('an undefined econ yields an empty map', () => {
     expect(tierComposition(undefined)).toEqual(new Map())
+  })
+
+  it('a realistic PlayerEcon-shaped fixture (bench with holes, board with hexPos) produces the expected highest-tier map', () => {
+    const e = emptyEcon('t', null)
+    e.bench[0] = { definitionId: 'tangela', tier: 1 }
+    e.bench[1] = null
+    e.bench[2] = { definitionId: 'zubat', tier: 2 }
+    e.bench[3] = null
+    e.board = [
+      { definitionId: 'tangela', tier: 2, hexPos: { col: 1, row: 4 } },
+      { definitionId: 'morgrem', tier: 1, hexPos: { col: 2, row: 5 } },
+    ]
+    expect(tierComposition(e)).toEqual(new Map([
+      ['tangela', 2],
+      ['zubat', 2],
+      ['morgrem', 1],
+    ]))
   })
 })

@@ -2265,8 +2265,12 @@ function dispatchAction(action: GameAction): boolean {
   // Rebuild placedUnits from the just-mutated run.board whenever the board
   // could have changed — either because the action addressed it, or because a
   // combine upgraded a FIELDED unit (so the board shows the upgraded copy and
-  // flashTierChanges can find it to flash).
-  if (planningBoardLive && (boardAddressing || changes.some(c => heldOnBoard(c)))) syncRunToBoard()
+  // flashTierChanges can find it to flash). Restricted to star-up changes: a
+  // spawn (tier-1 acquisition) never legitimately lands on the board, so
+  // scanning it here would rest the condition's intent on that incidental
+  // fact rather than stating it.
+  const starUps = changes.filter(c => c.kind === 'star-up')
+  if (planningBoardLive && (boardAddressing || starUps.some(c => heldOnBoard(c)))) syncRunToBoard()
   // The ONE place the local branch re-renders, rather than the same two lines
   // copy-pasted into every handler. Trait badges are refreshed unconditionally
   // because a buy, a sell and a combine can all change the active set, and the
@@ -2379,6 +2383,12 @@ function flashTierChanges(changes: TierChange[]): void {
       e => e.definitionId === change.definitionId && e.tier === change.tier,
     )
     if (boardEntry) {
+      // A tier-1 acquisition can never legitimately land on the board — a buy
+      // always resolves to the bench or straight into a combine. A spawn
+      // change that somehow resolves to a board entry is a state anomaly:
+      // skip it silently rather than firing the celebration VFX, which is
+      // precisely the misfire this classifier exists to prevent.
+      if (change.kind !== 'star-up') continue
       // Fielded copies only exist as live units during planning; mid-combat
       // the fighting copies are snapshots and the upgrade shows up when the
       // next planning phase rebuilds the board.
