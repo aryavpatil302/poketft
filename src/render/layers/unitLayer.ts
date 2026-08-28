@@ -604,6 +604,11 @@ export class UnitLayer {
         }
       }
 
+      // Klawf: fast side-to-side scuttle while Anger Shell is active (empowered state)
+      if (unit.definitionId === 'klawf' && unit.statusEffects.some(fx => fx.stackId === 'klawf_speed')) {
+        nudgeX += Math.sin(performance.now() * 0.045) * 7
+      }
+
       // Drednaw flip (cast + pre-auto): hop up and spin, only when not in windup
       const drednawFlip = unit.statusEffects.find(fx => fx.stackId === 'drednaw_flip')
       if (drednawFlip && drednawFlip.magnitude && !unit.isInWindup) {
@@ -857,21 +862,21 @@ export class UnitLayer {
                 }
               } else if (unit.attackModifiers.some(m => m.id === 'gogoat_horn') ||
                          unit.statusEffects.some(fx => fx.stackId === 'gogoat_lunge')) {
-                // Empowered headbutt: same timing as standard melee but 50% deeper lunge
-                const PULL_PX  = MELEE_PULLBACK_PX
+                // Empowered healing headbutt: hop strike — he jumps forward into the
+                // target (no pull-back), arcing up then landing exactly on the hit
+                // frame, then eases back out of the lunge during recovery.
+                const H        = WINDUP_HIT_FRACTION
                 const LUNGE_PX = 70
-                let scale: number
-                if (progress < 0.15) {
-                  scale = -(progress / 0.15) * PULL_PX
-                } else if (progress < 0.40) {
-                  const p = (progress - 0.15) / 0.25
-                  scale = -PULL_PX + p * p * (LUNGE_PX + PULL_PX)
+                const HOP_PX   = 40
+                if (progress < H) {
+                  const t = progress / H
+                  nudgeX = nx * t * t * LUNGE_PX
+                  nudgeY = ny * t * t * LUNGE_PX - Math.sin(t * Math.PI) * HOP_PX
                 } else {
-                  const p = (progress - 0.40) / 0.60
-                  scale = LUNGE_PX * (1 - p)
+                  const t = (progress - H) / (1 - H)
+                  nudgeX = nx * LUNGE_PX * (1 - t)
+                  nudgeY = ny * LUNGE_PX * (1 - t)
                 }
-                nudgeX = nx * scale
-                nudgeY = ny * scale
               } else if (unit.attackModifiers.some(m => m.id === 'shadow_punch_empowered')) {
                 // CCW cock → continue winding CCW during pause → CW lunge → return
                 const H          = WINDUP_HIT_FRACTION
@@ -1342,26 +1347,6 @@ export class UnitLayer {
             nudgeX += apexX * ease
             nudgeY += apexY * ease
             spriteRotate += 10 * Math.PI / 180 * ease
-          }
-        } else if (anim.type === 'squash_launch') {
-          // Phase 1 (0-10): squash wide and flat
-          // Phase 2 (10-20): snap tall and thin to emphasize launch
-          // Phase 3 (20-28): ease back to normal
-          const elapsed = anim.total - anim.remaining
-          const SQUASH_END  = 10
-          const STRETCH_END = 20
-          if (elapsed < SQUASH_END) {
-            const t = elapsed / SQUASH_END
-            nudgeScaleX = 1 + t * 0.35
-            nudgeScaleY = 1 - t * 0.30
-          } else if (elapsed < STRETCH_END) {
-            const t = (elapsed - SQUASH_END) / (STRETCH_END - SQUASH_END)
-            nudgeScaleX = 1.35 - t * 0.65
-            nudgeScaleY = 0.70 + t * 0.75
-          } else {
-            const t = (elapsed - STRETCH_END) / (anim.total - STRETCH_END)
-            nudgeScaleX = 0.70 + t * 0.30
-            nudgeScaleY = 1.45 - t * 0.45
           }
         }
       }

@@ -794,8 +794,8 @@ const TRAIT_COLOR: Record<string, string> = {
 //   pointy-top hexagon (grey/bronze/silver/gold) + trait glyph, overlapping a
 //   rounded banner with count box, trait name, and breakpoint row.
 
-const TRAIT_BADGE_HEIGHT = 62
-const TRAIT_BADGE_WIDTH  = 180
+const TRAIT_BADGE_HEIGHT = 56
+const TRAIT_BADGE_WIDTH  = 162
 
 // Pointy-top hexagon (matches hexagon-icon.png): vertices at top/bottom center
 const HEX_CLIP = 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)'
@@ -826,7 +826,7 @@ const GLYPH_OVERRIDES: Record<string, string> = {
 // 100%. Scales below are derived from each icon's measured opaque-pixel
 // bounding box (ImageMagick `-alpha extract -trim`); the hexagon clip-path
 // makes any transparent-margin overflow crop-safe.
-const GLYPH_BOX = 30
+const GLYPH_BOX = 27
 const GLYPH_SCALE_DEFAULT = 1.15
 const GLYPH_SCALE: Record<string, number> = {
   ascender:       1.00,
@@ -885,7 +885,7 @@ function traitBadgeHTML(trait: string, count: number): string {
   // invert(1) flips to white for the inactive state.
   const glyphFilter = active ? 'brightness(0)' : 'brightness(0) invert(1)'
 
-  const hexH = 58, hexW = Math.round(hexH * 0.866)  // pointy-top aspect
+  const hexH = 52, hexW = Math.round(hexH * 0.866)  // pointy-top aspect
 
   const hexagonHtml = `
     <div style="position:absolute;left:0;top:2px;width:${hexW}px;height:${hexH}px;
@@ -898,6 +898,13 @@ function traitBadgeHTML(trait: string, count: number): string {
       </div>
     </div>`
 
+  // The pill's width is content-driven (shrink-to-fit — no `right:0` stretch
+  // to the badge's edge), so "Rival" and "Old Growth" each get a pill sized
+  // to their own name instead of both filling the same full-width grey bar.
+  // Capped at pillMaxWidth so a genuinely long name still wraps/truncates
+  // inside the badge rather than overflowing into the next column.
+  const pillMaxWidth = TRAIT_BADGE_WIDTH - Math.round(hexW * 0.5) - 2
+
   let bannerHtml: string
   if (active) {
     // Highlight only the highest reached threshold (matches reference art)
@@ -907,29 +914,31 @@ function traitBadgeHTML(trait: string, count: number): string {
     `).join(`<span style="color:#9a9a9a;"> &gt; </span>`)
 
     bannerHtml = `
-      <div style="position:absolute;left:${Math.round(hexW * 0.5)}px;right:0;top:8px;bottom:8px;
-                  background:#58585c;border-radius:9px;z-index:0;
-                  display:flex;align-items:center;gap:7px;
-                  padding-left:${Math.round(hexW * 0.62)}px;box-sizing:border-box;">
-        <div style="flex-shrink:0;min-width:24px;height:30px;border-radius:6px;background:#909094;
+      <div style="position:absolute;left:${Math.round(hexW * 0.5)}px;top:7px;bottom:7px;
+                  width:fit-content;max-width:${pillMaxWidth}px;
+                  background:#58585c;border-radius:8px;z-index:0;
+                  display:flex;align-items:center;gap:6px;
+                  padding-left:${Math.round(hexW * 0.62)}px;padding-right:10px;box-sizing:border-box;">
+        <div style="flex-shrink:0;min-width:22px;height:27px;border-radius:5px;background:#909094;
                     display:flex;align-items:center;justify-content:center;
-                    font-size:16px;font-weight:bold;color:#ffffff;padding:0 3px;">${count}</div>
+                    font-size:14px;font-weight:bold;color:#ffffff;padding:0 3px;">${count}</div>
         <div style="display:flex;flex-direction:column;line-height:1.25;min-width:0;">
-          <span style="font-size:13px;font-weight:bold;color:#ffffff;
+          <span style="font-size:12px;font-weight:bold;color:#ffffff;
                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
-          <span style="font-size:11px;font-weight:bold;">${bpHtml}</span>
+          <span style="font-size:10px;font-weight:bold;">${bpHtml}</span>
         </div>
       </div>`
   } else {
     const next = thresholds.find(t => count < t) ?? thresholds[thresholds.length - 1]
     bannerHtml = `
-      <div style="position:absolute;left:${Math.round(hexW * 0.5)}px;right:0;top:8px;bottom:8px;
-                  background:#dcdcdc;border-radius:9px;z-index:0;
+      <div style="position:absolute;left:${Math.round(hexW * 0.5)}px;top:7px;bottom:7px;
+                  width:fit-content;max-width:${pillMaxWidth}px;
+                  background:#dcdcdc;border-radius:8px;z-index:0;
                   display:flex;flex-direction:column;justify-content:center;line-height:1.25;
-                  padding-left:${Math.round(hexW * 0.62)}px;box-sizing:border-box;">
-        <span style="font-size:13px;font-weight:bold;color:#999999;
+                  padding-left:${Math.round(hexW * 0.62)}px;padding-right:10px;box-sizing:border-box;">
+        <span style="font-size:12px;font-weight:bold;color:#999999;
                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
-        <span style="font-size:11px;font-weight:bold;color:#999999;">${count} / ${next}</span>
+        <span style="font-size:10px;font-weight:bold;color:#999999;">${count} / ${next}</span>
       </div>`
   }
 

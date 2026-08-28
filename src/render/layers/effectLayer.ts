@@ -509,7 +509,7 @@ interface DrainProjectile {
 
 export interface CastAnimation {
   unitId: string
-  type: 'shake' | 'hop' | 'dart' | 'hop_dart' | 'dart_rumble' | 'hold_hop' | 'flap' | 'bigShake' | 'cock_toss' | 'sway' | 'squash_launch' | 'hammer_swing' | 'spin' | 'unown_spin' | 'absol_slash' | 'claydol_gravity' | 'slam_land' | 'rune_charge_lunge' | 'ws_consume_shake' | 'dire_claw_swipe' | 'excadrill_land' | 'whirlpool_swirl' | 'apex_hop'
+  type: 'shake' | 'hop' | 'dart' | 'hop_dart' | 'dart_rumble' | 'hold_hop' | 'flap' | 'bigShake' | 'cock_toss' | 'sway' | 'hammer_swing' | 'spin' | 'unown_spin' | 'absol_slash' | 'claydol_gravity' | 'slam_land' | 'rune_charge_lunge' | 'ws_consume_shake' | 'dire_claw_swipe' | 'excadrill_land' | 'whirlpool_swirl' | 'apex_hop'
   targetAngle?: number  // radians — used by unown_spin
   startAngle?: number   // radians — used by absol_slash (blade start direction)
   remaining: number
@@ -908,10 +908,6 @@ export class EffectLayer {
           }
           // Vicious snap lunge: fast forward burst (apex at 7), slower recovery
           this.castAnimations.push({ unitId: ev.unitId, type: 'dart', remaining: 22, total: 22, apexAt: 7, dirX, dirY })
-        }
-        if (ev.abilityId === 'typhlosion_eruption') {
-          // Quick squash-then-stretch: squash down, snap tall to emphasize launch, recover
-          this.castAnimations.push({ unitId: ev.unitId, type: 'squash_launch', remaining: 28, total: 28 })
         }
         if (ev.abilityId === 'unown_hidden_power') {
           // Spin to a random angle (60°–180°, either direction) then snap back on launch
