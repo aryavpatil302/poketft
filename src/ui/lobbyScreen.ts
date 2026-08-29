@@ -22,6 +22,9 @@ import {
   SCREEN_YELLOW, SCREEN_OUTLINE_BLUE, SCREEN_FADE_MS,
 } from './screenChrome'
 import type { LobbySeatView } from '../net/protocol'
+import {
+  enterFullscreen, isFullscreenSupported, isFullscreenActive, shouldOfferFullscreenPrompt,
+} from './fullscreen'
 
 export interface LobbyScreenProps {
   shareUrl: string
@@ -106,6 +109,8 @@ function ensureRoot(): HTMLDivElement {
       </div>
 
       <div id="lobby-start-slot" style="display:flex;justify-content:center;min-height:52px;"></div>
+
+      <div id="lobby-fullscreen-slot" style="display:flex;justify-content:center;"></div>
 
       <div id="lobby-message" style="
         display:none;max-width:100%;text-align:center;
@@ -225,6 +230,35 @@ function renderStartControl(root: HTMLElement, props: LobbyScreenProps): void {
   wireButtonFeedback(button)
 }
 
+// ─── Fullscreen prompt ────────────────────────────────────────────────────────
+
+// A guest who opened a shared `?lobby=` link never clicked anything, so the
+// browser will refuse fullscreen for that tab on page load. This is the one
+// click that gives it back. The host already gets fullscreen from its own
+// "Start Multiplayer Game" click and must never see this control.
+function renderFullscreenControl(root: HTMLElement, props: LobbyScreenProps): void {
+  const slot = root.querySelector<HTMLElement>('#lobby-fullscreen-slot')
+  if (slot === null) return
+
+  if (!shouldOfferFullscreenPrompt(props.isHost, isFullscreenSupported(), isFullscreenActive())) {
+    // Assigning empty rather than early-returning is load-bearing:
+    // showLobbyScreen() runs a SECOND time when the welcome frame corrects
+    // isHost (src/main.ts, the host-refresh promotion), and a bare early
+    // return would leave a promoted host staring at a stale guest prompt.
+    slot.innerHTML = ''
+    return
+  }
+
+  slot.innerHTML = `<button id="btn-lobby-fullscreen" type="button" style="${screenButtonCss()}; min-width:200px; padding:8px 16px; font-size:clamp(12px, 1.3vw, 16px);">Enter Fullscreen</button>`
+  const button = slot.querySelector<HTMLButtonElement>('#btn-lobby-fullscreen')
+  if (button === null) return
+  // Cleared only on success — if the browser refused, the button stays on
+  // screen, which is the honest outcome; unlike the link bar's optimistic
+  // "Copied!", there is nothing here for the player to fall back on.
+  button.onclick = () => { void enterFullscreen().then(ok => { if (ok) slot.innerHTML = '' }) }
+  wireButtonFeedback(button)
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function showLobbyScreen(props: LobbyScreenProps): void {
@@ -243,6 +277,7 @@ export function showLobbyScreen(props: LobbyScreenProps): void {
   }
 
   renderStartControl(root, props)
+  renderFullscreenControl(root, props)
   renderBackControl(root, props)
   fadeScreenIn(root)
 }
