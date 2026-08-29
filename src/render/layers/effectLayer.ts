@@ -909,6 +909,38 @@ export class EffectLayer {
           // Vicious snap lunge: fast forward burst (apex at 7), slower recovery
           this.castAnimations.push({ unitId: ev.unitId, type: 'dart', remaining: 22, total: 22, apexAt: 7, dirX, dirY })
         }
+        if (ev.abilityId === 'typhlosion_eruption') {
+          // Lean toward the target the first fireball will hit — castTimeTicks is 15, so apexAt
+          // must be 15 too, or the lean peaks after the fireball has already launched. A
+          // multi-target Eruption can only visually aim at its primary target since one sprite
+          // cannot point at three hexes at once.
+          const caster = units?.get(ev.unitId)
+          const target = caster?.targetId ? units?.get(caster.targetId) : undefined
+          let dirX = 0, dirY = 0
+          if (caster && target) {
+            const dx = target.visualPos.x - caster.visualPos.x
+            const dy = target.visualPos.y - caster.visualPos.y
+            const d  = Math.sqrt(dx * dx + dy * dy)
+            if (d > 0) { dirX = dx / d; dirY = dy / d }
+          } else if (caster) {
+            // No target — lean toward nearest enemy
+            let nearest: import('../../core/types').Unit | undefined
+            let bestD = Infinity
+            for (const u of (units?.values() ?? [])) {
+              if (u.team === caster.team || u.state === 'dead') continue
+              const d = Math.hypot(u.visualPos.x - caster.visualPos.x, u.visualPos.y - caster.visualPos.y)
+              if (d < bestD) { bestD = d; nearest = u }
+            }
+            if (nearest) {
+              const dx = nearest.visualPos.x - caster.visualPos.x
+              const dy = nearest.visualPos.y - caster.visualPos.y
+              const d  = Math.hypot(dx, dy)
+              if (d > 0) { dirX = dx / d; dirY = dy / d }
+            }
+          }
+          // Lean out toward the target (15 ticks), then snap back (10 ticks)
+          this.castAnimations.push({ unitId: ev.unitId, type: 'dart', remaining: 25, total: 25, apexAt: 15, dirX, dirY })
+        }
         if (ev.abilityId === 'unown_hidden_power') {
           // Spin to a random angle (60°–180°, either direction) then snap back on launch
           const targetAngle = (Math.PI / 3 + Math.random() * (Math.PI * 2 / 3)) * (Math.random() < 0.5 ? 1 : -1)
