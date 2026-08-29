@@ -2463,7 +2463,7 @@ function leaveLobby(): void {
   run = loadRun() ?? newRun(botSeats())
   history.replaceState(null, '', location.origin + location.pathname)
   hideLobbyScreen()
-  showTitleScreen({ onSolo: () => { hideTitleScreen(); bootSolo() }, onMultiplayer })
+  showTitleScreen({ onSolo: () => { void enterFullscreen(); hideTitleScreen(); bootSolo() }, onMultiplayer })
 }
 
 // `opts.isHost` is a UI HINT ONLY — it decides which control the Lobby Screen
@@ -5912,6 +5912,11 @@ function onMultiplayer(): void {
   if (net !== null) return
   if (parseLobbyCode(location.search) !== null) return
 
+  // Both guards above are plain synchronous comparisons, so the gesture is
+  // still intact here. Placed after them (not at the very top) because both
+  // guarded paths are clicks that deliberately start no game (T-04-11), and
+  // a no-op click should not seize the screen.
+  void enterFullscreen()
   const code = newLobbyCode()
   history.replaceState(null, '', shareableLobbyUrl(location.origin, code))
   hideTitleScreen()
