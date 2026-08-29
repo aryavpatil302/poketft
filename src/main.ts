@@ -64,6 +64,7 @@ import {
 import { parseLobbyCode, partyHost, newLobbyCode, shareableLobbyUrl } from './net/lobbyUrl'
 import { escapeHtml } from './ui/escapeHtml'
 import { showTitleScreen, hideTitleScreen } from './ui/titleScreen'
+import { enterFullscreen } from './ui/fullscreen'
 import { showLobbyScreen, updateLobbyScreen, setLobbyMessage, hideLobbyScreen } from './ui/lobbyScreen'
 import { pickGuestName } from './net/guestNames'
 import { TRAIT_TOOLTIPS } from './data/traitTooltips'
@@ -2462,7 +2463,7 @@ function leaveLobby(): void {
   run = loadRun() ?? newRun(botSeats())
   history.replaceState(null, '', location.origin + location.pathname)
   hideLobbyScreen()
-  showTitleScreen({ onSolo: () => { hideTitleScreen(); bootSolo() }, onMultiplayer })
+  showTitleScreen({ onSolo: () => { void enterFullscreen(); hideTitleScreen(); bootSolo() }, onMultiplayer })
 }
 
 // `opts.isHost` is a UI HINT ONLY — it decides which control the Lobby Screen
@@ -5911,6 +5912,11 @@ function onMultiplayer(): void {
   if (net !== null) return
   if (parseLobbyCode(location.search) !== null) return
 
+  // Both guards above are plain synchronous comparisons, so the gesture is
+  // still intact here. Placed after them (not at the very top) because both
+  // guarded paths are clicks that deliberately start no game (T-04-11), and
+  // a no-op click should not seize the screen.
+  void enterFullscreen()
   const code = newLobbyCode()
   history.replaceState(null, '', shareableLobbyUrl(location.origin, code))
   hideTitleScreen()
@@ -5930,7 +5936,7 @@ if (bootLobbyCode !== null) {
   // makes a HOST'S OWN REFRESH land back on a Start button.
   bootNetworked(bootLobbyCode, { isHost: false })
 } else {
-  showTitleScreen({ onSolo: () => { hideTitleScreen(); bootSolo() }, onMultiplayer })
+  showTitleScreen({ onSolo: () => { void enterFullscreen(); hideTitleScreen(); bootSolo() }, onMultiplayer })
 }
 
 // Starts unconditionally in both branches, so the canvas is already warm
