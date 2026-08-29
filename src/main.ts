@@ -64,6 +64,7 @@ import {
 import { parseLobbyCode, partyHost, newLobbyCode, shareableLobbyUrl } from './net/lobbyUrl'
 import { escapeHtml } from './ui/escapeHtml'
 import { showTitleScreen, hideTitleScreen } from './ui/titleScreen'
+import { enterFullscreen } from './ui/fullscreen'
 import { showLobbyScreen, updateLobbyScreen, setLobbyMessage, hideLobbyScreen } from './ui/lobbyScreen'
 import { pickGuestName } from './net/guestNames'
 import { TRAIT_TOOLTIPS } from './data/traitTooltips'
@@ -5930,7 +5931,7 @@ if (bootLobbyCode !== null) {
   // makes a HOST'S OWN REFRESH land back on a Start button.
   bootNetworked(bootLobbyCode, { isHost: false })
 } else {
-  showTitleScreen({ onSolo: () => { hideTitleScreen(); bootSolo() }, onMultiplayer })
+  showTitleScreen({ onSolo: () => { void enterFullscreen(); hideTitleScreen(); bootSolo() }, onMultiplayer })
 }
 
 // Starts unconditionally in both branches, so the canvas is already warm
