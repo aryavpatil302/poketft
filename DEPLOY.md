@@ -268,6 +268,8 @@ curl http://127.0.0.1:1999/parties/main/healthcheck
 
 This should return a small JSON status object — the exact same contract
 `scripts/roomHarness.ts` already polls in this project's own automated tests.
+For subsequent redeploys after this initial setup, see "Updating the server
+after a code change" below.
 
 ### 7. Set up Caddy for TLS
 
@@ -330,6 +332,25 @@ sudo systemctl restart poketft-room
 This step is optional but recommended — everything above works without it, since
 non-browser clients (this project's own test harness, curl, a native app) never send an
 `Origin` header and are unaffected either way.
+
+### Updating the server after a code change
+
+`deploy/update-server.sh` does everything steps 5, 6, and the loopback check above do,
+in one command:
+
+```sh
+./deploy/update-server.sh
+```
+
+> **Push first.** The box pulls from the repo's git remote, never from this machine —
+> running the script against a commit you haven't pushed yet succeeds and restarts the
+> service, but deploys nothing new. This is the failure mode most likely to waste time.
+
+Overridable via environment variables (defaults already match this deployment):
+`SSH_HOST`, `SSH_KEY`, `REMOTE_APP_DIR`, `SERVICE_NAME`, `SERVICE_USER`, `ROOM_PORT`.
+
+On failure, the script prints the tail of `journalctl -u poketft-room` and exits
+non-zero, so a red run already carries its own diagnosis.
 
 ### Troubleshooting (AWS path)
 
