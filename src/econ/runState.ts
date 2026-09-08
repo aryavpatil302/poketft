@@ -12,6 +12,7 @@ export interface BenchedUnit {
   definitionId: string
   tier: 1 | 2 | 3
   item?: string   // equipped item id (one per unit)
+  isShiny?: boolean   // instant 2★ shop offer; zero-migration like item above
 }
 
 export interface BoardEntry {
@@ -19,6 +20,7 @@ export interface BoardEntry {
   tier: 1 | 2 | 3
   hexPos: { col: number; row: number }   // player-half coords (rows 4-7)
   item?: string   // equipped item id (one per unit)
+  isShiny?: boolean   // instant 2★ shop offer; zero-migration like item above
 }
 
 // One seat at the table — the human and every bot share this shape so the
@@ -36,6 +38,7 @@ export interface PlayerEcon {
   board: BoardEntry[]
   itemBench: string[]        // uncommitted items (the item bench inventory)
   shop: (string | null)[]    // definitionId per slot; null = bought/empty
+  shopShiny: boolean[]       // parallel to shop, same length; true = that slot's offer is shiny
   shopLocked: boolean
   eliminated: boolean
   cliffPositions?: Record<string, { col: number; row: number }>   // human only: remembered Ascender pillar hexes
@@ -99,6 +102,7 @@ export function emptyEcon(name: string, personaId: string | null): PlayerEcon {
     board: [],
     itemBench: [],
     shop: Array(SHOP_SLOTS).fill(null),
+    shopShiny: Array(SHOP_SLOTS).fill(false),
     shopLocked: false,
     eliminated: false,
     cliffPositions: {},
@@ -146,6 +150,8 @@ export function loadRun(storage: EconStorage | null = defaultStorage()): RunStat
     for (const p of parsed.state.players) if (typeof p.cliffPositions !== 'object' || p.cliffPositions === null) p.cliffPositions = {}
     // Migrate saves from before the per-seat next-opponent announcement.
     for (const p of parsed.state.players) if (typeof p.nextOpponent !== 'number') p.nextOpponent = -1
+    // Migrate saves from before the shiny shop-slot flag array.
+    for (const p of parsed.state.players) if (!Array.isArray(p.shopShiny)) p.shopShiny = Array(SHOP_SLOTS).fill(false)
     return parsed.state as RunState
   } catch {
     return null

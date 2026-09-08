@@ -91,4 +91,57 @@ describe('runState', () => {
     run.players[3].eliminated = true
     expect(livingPlayers(run)).toEqual([0, 1, 2, 4, 5])
   })
+
+  it('emptyEcon defaults shopShiny to an all-false array of length SHOP_SLOTS', () => {
+    const run = newRun(BOT_SEATS)
+    for (const p of run.players) {
+      expect(p.shopShiny).toHaveLength(SHOP_SLOTS)
+      expect(p.shopShiny.every(v => v === false)).toBe(true)
+    }
+  })
+
+  it('each seat gets its own shopShiny array instance', () => {
+    const run = newRun(BOT_SEATS)
+    run.players[0].shopShiny[0] = true
+    expect(run.players[1].shopShiny[0]).toBe(false)
+  })
+
+  it('loadRun backfills a missing shopShiny to an all-false array of length SHOP_SLOTS', () => {
+    const storage = fakeStorage()
+    saveRun(newRun(BOT_SEATS), storage)
+    const parsed = JSON.parse(storage.data.get('pokeTFT_run_v1')!)
+    for (const p of parsed.state.players) delete p.shopShiny
+    storage.setItem('pokeTFT_run_v1', JSON.stringify(parsed))
+
+    const loaded = loadRun(storage)
+    expect(loaded).not.toBeNull()
+    for (const p of loaded!.players) {
+      expect(p.shopShiny).toHaveLength(SHOP_SLOTS)
+      expect(p.shopShiny.every(v => v === false)).toBe(true)
+    }
+  })
+
+  it('loadRun repairs a non-array shopShiny (corrupt/hostile save) to an all-false array', () => {
+    const storage = fakeStorage()
+    saveRun(newRun(BOT_SEATS), storage)
+    const parsed = JSON.parse(storage.data.get('pokeTFT_run_v1')!)
+    parsed.state.players[0].shopShiny = null
+    storage.setItem('pokeTFT_run_v1', JSON.stringify(parsed))
+
+    const loaded = loadRun(storage)
+    expect(loaded).not.toBeNull()
+    expect(loaded!.players[0].shopShiny).toHaveLength(SHOP_SLOTS)
+    expect(loaded!.players[0].shopShiny.every(v => v === false)).toBe(true)
+  })
+
+  it('save/load round trip preserves an already-populated shopShiny unchanged', () => {
+    const storage = fakeStorage()
+    const run = newRun(BOT_SEATS)
+    run.players[0].shopShiny = [true, false, false, false, false]
+    saveRun(run, storage)
+
+    const loaded = loadRun(storage)
+    expect(loaded).not.toBeNull()
+    expect(loaded!.players[0].shopShiny).toEqual([true, false, false, false, false])
+  })
 })
