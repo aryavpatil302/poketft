@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  SHOP_ODDS, POOL_COPIES, XP_TO_NEXT, MAX_LEVEL,
+  SHOP_ODDS, POOL_COPIES, XP_TO_NEXT, MAX_LEVEL, LEVEL_FOR_COST,
   streakBonus, sellValue, copiesHeld, hpLoss, stageLabel,
 } from './constants'
 
@@ -76,6 +76,15 @@ describe('econ constants', () => {
     expect(hpLoss(1, 0)).toBe(0)
     // A surviving 3★ hurts 3× a surviving 1★
     expect(hpLoss(10, 9) - hpLoss(10, 3)).toBe(6)
+  })
+
+  it('LEVEL_FOR_COST matches the lowest level each cost tier hits ≥5% odds', () => {
+    expect(LEVEL_FOR_COST).toEqual({ 1: 1, 2: 3, 3: 4, 4: 6, 5: 9 })
+    for (const [cost, level] of Object.entries(LEVEL_FOR_COST)) {
+      const idx = Number(cost) - 1
+      expect(SHOP_ODDS[level][idx]).toBeGreaterThanOrEqual(5)
+      if (level > 1) expect(SHOP_ODDS[level - 1][idx]).toBeLessThan(5)
+    }
   })
 
   it('stage labels', () => {

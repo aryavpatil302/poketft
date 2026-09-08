@@ -40,6 +40,24 @@ export const SHOP_ODDS: Record<number, readonly [number, number, number, number,
   10: [5, 10, 20, 40, 25],
 }
 
+// For each cost tier, the lowest level at which that cost's shop odds reach
+// ≥5% — i.e. "the level this cost tier actually becomes gettable," derived
+// from SHOP_ODDS rather than hand-guessed. Used to estimate what level a
+// catalog composition's most expensive core unit realistically needs.
+export const LEVEL_FOR_COST: Record<number, number> = (() => {
+  const COST_IDX: Record<number, number> = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4 }
+  const out: Record<number, number> = {}
+  for (const cost of [1, 2, 3, 4, 5]) {
+    const idx = COST_IDX[cost]
+    let level = MAX_LEVEL
+    for (let l = 1; l <= MAX_LEVEL; l++) {
+      if (SHOP_ODDS[l][idx] >= 5) { level = l; break }
+    }
+    out[cost] = level
+  }
+  return out
+})()
+
 // Copies of each unit in the shared pool, by unit cost
 export const POOL_COPIES: Record<number, number> = { 1: 30, 2: 25, 3: 18, 4: 10, 5: 9 }
 
