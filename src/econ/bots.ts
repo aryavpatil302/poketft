@@ -25,8 +25,10 @@ import {
   boardTraitSignature, establishedTraits, traitPairKey, unitContextKey,
   traitDepthLevel, traitDepthKey, breadthKey,
   catalogKey, catalogEntriesForUnit, traitPoolAvailable, nextBreakpointReachable,
+  nearMissCatalogEntries, catalogEntryLevelNeeded,
 } from './compositionSignature'
 import { LEARNED_CATALOG_BONUS } from './learnedCatalogAffinities'
+import { pickRandomNames } from './botNames'
 
 // Identity only — id/name/lines are never evolved, so each persona stays a
 // recognizable "character" across runs regardless of how its numbers train.
@@ -46,8 +48,14 @@ export const PERSONAS: BotPersona[] = [
   { id: 'vex',   name: 'Vex',                lines: ['ruiner', 'crashout', 'volcanic'] },
 ]
 
+// Display names are randomized per game from a human-character name bank
+// (src/econ/botNames.ts) — cosmetic only. personaId is the real identity: it's
+// what every behavior/training lookup keys off, so bots keep their actual
+// persona (playstyle, trained genome, learned tables) regardless of which
+// name they're wearing this game.
 export function botSeats(): Array<{ personaId: string; name: string }> {
-  return PERSONAS.map(p => ({ personaId: p.id, name: p.name }))
+  const names = pickRandomNames(PERSONAS.length)
+  return PERSONAS.map((p, i) => ({ personaId: p.id, name: names[i] ?? p.name }))
 }
 
 export function personaById(id: string | null): BotPersona | null {
@@ -966,6 +974,29 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
     : stage >= 3 ? Math.min(MAX_LEVEL, Math.max(genome.targetLevel, 8))
     : Math.min(MAX_LEVEL, genome.targetLevel + Math.floor(state.round / 10))
 
+  // Tempo: if the board is exactly one unit away from a real catalog comp
+  // that needs a higher level than currently planned — and that missing
+  // piece is still actually gettable from the shared pool — chase the level
+  // jump THIS round instead of drifting up on the generic persona curve.
+  // Purely additive: only ever raises the target, never lowers it, and the
+  // "one piece away + still in pool" condition is the real gate against
+  // speculative bumps (existing gold affordability below caps how big a jump
+  // can actually happen in one round).
+  let levelTarget = effectiveTarget
+  {
+    const ownedDefIds = new Set<string>(
+      [...econ.board, ...econ.bench.filter((b): b is NonNullable<typeof b> => b !== null)]
+        .map(u => u.definitionId),
+    )
+    for (const { entry, missing } of nearMissCatalogEntries(ownedDefIds, 1)) {
+      const needed = catalogEntryLevelNeeded(entry)
+      if (needed <= levelTarget) continue
+      if ((state.pool[missing[0]] ?? 0) <= 0) continue
+      levelTarget = Math.min(MAX_LEVEL, needed)
+    }
+  }
+  const tempoBump = levelTarget > effectiveTarget
+
   // ─── Economy: bank for interest, spend only on a real trigger ────────────────
   // Interest is min(MAX_INTEREST, floor(gold/10)) — holding 50g is +5g/round, by far
   // the biggest income lever, so spending to zero every round quietly starves a bot.
@@ -1063,6 +1094,10 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
 
   reserve   = bank
   xpReserve = bank
+  // Tempo bump (see above): a genuine one-piece-away spike is worth chasing
+  // over holding the XP reserve this round — gold `reserve` for rerolling is
+  // left untouched.
+  if (tempoBump) xpReserve = 0
 
   // ─── Roll only AT your plan's level ──────────────────────────────────────────
   // Every comp has a level where its shop odds peak, and rolling before you get
@@ -1132,9 +1167,9 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
     }
   }
 
-  // XP purchases toward the persona's target level
+  // XP purchases toward the persona's target level (bumped by tempo, see above)
   while (
-    econ.level < effectiveTarget &&
+    econ.level < levelTarget &&
     econ.gold - XP_BUY_COST >= xpReserve &&
     buyXp(econ)
   ) { log.xpBought++ }

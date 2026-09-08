@@ -55,8 +55,12 @@ describe('bots', () => {
     for (const seed of [8, 23, 77]) {
       const { bot } = runSoloRounds(4, 14, seed)
       const species = new Set(bot.board.map(u => u.definitionId))
-      // At most one forced duplicate — distinct units open more trait trees
-      expect(species.size).toBeGreaterThanOrEqual(bot.board.length - 1)
+      // At most two forced duplicates — distinct units open more trait trees.
+      // Tolerance is 2 (not 1) because tempo-aware leveling (bots.ts's
+      // near-miss catalog bump) can now jump boardCap up faster than usual in
+      // a single round, briefly outpacing how many distinct fresh picks are
+      // available that same round.
+      expect(species.size).toBeGreaterThanOrEqual(bot.board.length - 2)
     }
   })
 
@@ -252,6 +256,44 @@ describe('bots', () => {
       const normalScore = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, false)
       const shinyScore = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, true)
       expect(shinyScore).toBeGreaterThan(normalScore)
+    })
+  })
+
+  describe('tempo-aware leveling (near-miss catalog spike)', () => {
+    // "carry|latios|var|charizard" (charizard + latios, latios cost 5 → needs
+    // level 9) is a real two-core catalog entry. Owning charizard already
+    // (bench) puts the bot exactly one piece away from it.
+    it('bumps the level target to chase a real one-piece-away spike', () => {
+      const run = newRun(botSeats())
+      const bot = run.players[1]
+      bot.gold = 1000
+      bot.bench[0] = { definitionId: 'charizard', tier: 1 }
+      run.round = 1
+      botPlanRound(run, bot, 0, seededRng(1))
+      expect(bot.level).toBeGreaterThanOrEqual(9)
+    })
+
+    it('does not chase the level jump without the partial comp owned', () => {
+      const run = newRun(botSeats())
+      const bot = run.players[1]
+      bot.gold = 1000
+      run.round = 1
+      botPlanRound(run, bot, 0, seededRng(1))
+      expect(bot.level).toBeLessThan(9)
+    })
+
+    it('does not chase the level jump if no near-miss piece is left in the pool', () => {
+      const run = newRun(botSeats())
+      const bot = run.players[1]
+      bot.gold = 1000
+      bot.bench[0] = { definitionId: 'charizard', tier: 1 }
+      // Charizard co-occurs with several other 4/5-costs across the catalog
+      // (darmanitan, latios, typhlosion, ...), so zero the WHOLE pool rather
+      // than just latios — otherwise a different near-miss path still fires.
+      for (const id in run.pool) run.pool[id] = 0
+      run.round = 1
+      botPlanRound(run, bot, 0, seededRng(1))
+      expect(bot.level).toBeLessThan(9)
     })
   })
 })
