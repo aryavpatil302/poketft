@@ -162,6 +162,7 @@ export function applyAction(
         // bench, so shared-pool accounting is untouched.
         const benched: BenchedUnit = { definitionId: sourceEntry.definitionId, tier: sourceEntry.tier }
         if (sourceEntry.item) benched.item = sourceEntry.item
+        if (sourceEntry.isShiny) benched.isShiny = true
         econ.bench[slot] = benched
         econ.board.splice(sourceIdx, 1)
         return { ok: true }
@@ -220,11 +221,13 @@ export function applyAction(
         const destEntry = econ.board[destIdx]
         const displaced: BenchedUnit = { definitionId: destEntry.definitionId, tier: destEntry.tier }
         if (destEntry.item) displaced.item = destEntry.item
+        if (destEntry.isShiny) displaced.isShiny = true
         const placed: BoardEntry = {
           definitionId: benchUnit.definitionId, tier: benchUnit.tier,
           hexPos: { col: to.col, row: to.row },
         }
         if (benchUnit.item) placed.item = benchUnit.item
+        if (benchUnit.isShiny) placed.isShiny = true
         econ.board[destIdx] = placed
         econ.bench[action.benchIndex] = displaced
         return { ok: true }
@@ -240,6 +243,7 @@ export function applyAction(
         hexPos: { col: to.col, row: to.row },
       }
       if (benchUnit.item) placed.item = benchUnit.item
+      if (benchUnit.isShiny) placed.isShiny = true
       econ.bench[action.benchIndex] = null
       econ.board.push(placed)
       return { ok: true }
@@ -476,12 +480,13 @@ export interface FightLog {
 
 // Builds one combat-ready Unit from a board entry, mirroring the row
 // transform boardToSpecs(econ, true) applies for the enemy side.
-function buildUnit(entry: BoardEntry, team: 'player' | 'enemy'): Unit {
+export function buildUnit(entry: BoardEntry, team: 'player' | 'enemy'): Unit {
   const unit = makeUnit(entry.definitionId, team, entry.tier)
   const row = team === 'enemy' ? 7 - entry.hexPos.row : entry.hexPos.row
   unit.hexPos = { col: entry.hexPos.col, row }
   unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
   if (entry.item) unit.items = [entry.item]
+  if (entry.isShiny) unit.isShiny = true
   return unit
 }
 

@@ -5,7 +5,7 @@ import { botSeats } from '../econ/bots'
 import { copiesHeld, MAX_LEVEL, BENCH_SLOTS } from '../econ/constants'
 import { CREEP_ROUNDS } from '../econ/creeps'
 import { botOwnedItems } from '../econ/botItems'
-import { applyAction, startPlanning, resolveRound, recordFight, pairSeats } from './round'
+import { applyAction, startPlanning, resolveRound, recordFight, pairSeats, buildUnit } from './round'
 import type { GameAction, ActionReason } from './round'
 import '../core/systems/ability'   // register abilities for the headless sim
 
@@ -649,6 +649,91 @@ describe('applyAction', () => {
     })
   })
 
+  describe('isShiny preservation through move handlers', () => {
+    it('board -> bench relocation keeps a flagged unit flagged', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true }]
+      const result = applyAction(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 0 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].bench[0]).toEqual({ definitionId: 'zubat', tier: 1, isShiny: true })
+    })
+
+    it('bench -> occupied hex swap keeps the incoming bench unit flagged', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 1, row: 4 } }]
+      state.players[0].bench[0] = { definitionId: 'zubat', tier: 1, isShiny: true }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].board[0]).toEqual({
+        definitionId: 'zubat', tier: 1, hexPos: { col: 1, row: 4 }, isShiny: true,
+      })
+    })
+
+    it('bench -> occupied hex swap keeps the displaced board occupant flagged, independently of the incoming unit', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 1, row: 4 }, isShiny: true }]
+      state.players[0].bench[0] = { definitionId: 'zubat', tier: 1 }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].bench[0]).toEqual({ definitionId: 'tangela', tier: 1, isShiny: true })
+      expect(state.players[0].board[0]).toEqual({
+        definitionId: 'zubat', tier: 1, hexPos: { col: 1, row: 4 },
+      })
+    })
+
+    it('bench -> empty hex keeps a flagged unit flagged', () => {
+      const state = newRun(botSeats())
+      state.players[0].bench[0] = { definitionId: 'zubat', tier: 1, isShiny: true }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].board[0]).toEqual({
+        definitionId: 'zubat', tier: 1, hexPos: { col: 1, row: 4 }, isShiny: true,
+      })
+    })
+
+    it('survives a full board -> bench -> board round trip with the flag intact', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true }]
+      expect(applyAction(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 0 } })).toEqual({ ok: true })
+      expect(state.players[0].bench[0]).toEqual({ definitionId: 'zubat', tier: 1, isShiny: true })
+      expect(applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 0, row: 4 } })).toEqual({ ok: true })
+      expect(state.players[0].board[0]).toEqual({
+        definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true,
+      })
+    })
+
+    it('an unflagged unit never gains an isShiny own-property through any move handler', () => {
+      const state = newRun(botSeats())
+      state.players[0].level = 3   // headroom for the bench -> empty-hex add below; cap defaults to 1
+      state.players[0].board = [
+        { definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } },
+        { definitionId: 'tangela', tier: 1, hexPos: { col: 1, row: 4 } },
+      ]
+      state.players[0].bench[0] = { definitionId: 'oddish', tier: 1 }
+
+      // board -> bench
+      expect(applyAction(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 1 } })).toEqual({ ok: true })
+      expect(state.players[0].bench[1]).toEqual({ definitionId: 'zubat', tier: 1 })
+      expect(Object.prototype.hasOwnProperty.call(state.players[0].bench[1], 'isShiny')).toBe(false)
+
+      // bench -> occupied hex (swap)
+      expect(applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })).toEqual({ ok: true })
+      expect(state.players[0].board.find(e => e.definitionId === 'oddish')).toEqual({
+        definitionId: 'oddish', tier: 1, hexPos: { col: 1, row: 4 },
+      })
+      const displacedTangela = state.players[0].bench.find(b => b?.definitionId === 'tangela')!
+      expect(displacedTangela).toEqual({ definitionId: 'tangela', tier: 1 })
+      expect(Object.prototype.hasOwnProperty.call(displacedTangela, 'isShiny')).toBe(false)
+
+      // bench -> empty hex
+      state.players[0].bench[2] = { definitionId: 'poliwag', tier: 1 }
+      expect(applyAction(state, 0, { t: 'moveBench', benchIndex: 2, to: { col: 3, row: 4 } })).toEqual({ ok: true })
+      const poliwag = state.players[0].board.find(e => e.definitionId === 'poliwag')!
+      expect(poliwag).toEqual({ definitionId: 'poliwag', tier: 1, hexPos: { col: 3, row: 4 } })
+      expect(Object.prototype.hasOwnProperty.call(poliwag, 'isShiny')).toBe(false)
+    })
+  })
+
   describe('item semantics', () => {
     it('placing an item on a unit that already holds one leaves itemBench.length unchanged and returns the old item', () => {
       const state = newRun(botSeats())
@@ -1256,5 +1341,20 @@ describe('resolveRound — degenerate seat counts and round kinds', () => {
         expect(run.players[i].hp).toBe(hpBefore[i])
       }
     })
+  })
+})
+
+describe('buildUnit — BoardEntry -> combat Unit translation', () => {
+  it('a flagged BoardEntry produces a combat Unit with isShiny === true', () => {
+    const entry = { definitionId: 'zubat', tier: 1 as const, hexPos: { col: 0, row: 4 }, isShiny: true }
+    const unit = buildUnit(entry, 'player')
+    expect(unit.isShiny).toBe(true)
+  })
+
+  it('an unflagged BoardEntry produces a combat Unit with a falsy isShiny, item translation unaffected', () => {
+    const entry = { definitionId: 'zubat', tier: 1 as const, hexPos: { col: 0, row: 4 }, item: 'charcoal' }
+    const unit = buildUnit(entry, 'player')
+    expect(unit.isShiny).toBeFalsy()
+    expect(unit.items).toEqual(['charcoal'])
   })
 })
