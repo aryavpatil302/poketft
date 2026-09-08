@@ -24,6 +24,7 @@ export const TANGELA: UnitDefinition = {
     scaling: { shieldAmount: [400, 525, 685], durationSeconds: [4, 4, 4] },
   },
   spritePath: '/visuals/sprites/jungle/tangela-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/jungle/shiny_tangela.png',
   spriteScale: 0.7,
 }
 
@@ -45,6 +46,7 @@ export const RIBOMBEE: UnitDefinition = {
     scaling: { healAmount: [100, 175, 300], damageAmount: [200, 275, 400] },
   },
   spritePath: '/visuals/sprites/jungle/ribombee-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/jungle/shiny_ribombee.webp',
 }
 
 export const VENUSAUR: UnitDefinition = {
@@ -65,6 +67,7 @@ export const VENUSAUR: UnitDefinition = {
     scaling: { targetCount: [2, 2, 3], damagePerSec: [80, 100, 120], healPerSec: [40, 50, 60] },
   },
   spritePath: '/visuals/sprites/jungle/venusaur-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/jungle/shiny_venusaur.png',
 }
 
 export const VIGOROTH: UnitDefinition = {
@@ -85,6 +88,7 @@ export const VIGOROTH: UnitDefinition = {
     scaling: { shieldAmount: [200, 350, 500], atkSpdBonus: [0.20, 0.30, 0.50], atkDmgBonus: [50, 75, 100] },
   },
   spritePath: '/visuals/sprites/jungle/vigeroth-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/jungle/shiny_vigoroth.webp',
 }
 
 export const VIKAVOLT: UnitDefinition = {
@@ -105,6 +109,7 @@ export const VIKAVOLT: UnitDefinition = {
     scaling: { damage: [400, 500, 675], stunSeconds: [1.5, 2.0, 3.0] },
   },
   spritePath: '/visuals/sprites/jungle/vikavolt-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/jungle/shiny_vikavolt.png',
 }
 
 export const TOUCANNON: UnitDefinition = {
@@ -125,6 +130,7 @@ export const TOUCANNON: UnitDefinition = {
     scaling: { mainDamage: [700, 1500, 3000], allyHeal: [100, 200, 500], splashDamage: [300, 400, 600] },
   },
   spritePath: '/visuals/sprites/jungle/toucannon-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/jungle/shiny_toucannon.png',
 }
 
 export const TROPIUS: UnitDefinition = {
@@ -145,6 +151,7 @@ export const TROPIUS: UnitDefinition = {
     scaling: { damage: [200, 275, 800], knockUpSeconds: [2, 2, 5], shieldPerHit: [200, 350, 1000] },
   },
   spritePath: '/visuals/sprites/jungle/tropius-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/jungle/shiny_tropius.png',
   spriteScale: 0.75,
 }
 
@@ -166,6 +173,7 @@ export const TAPU_BULU: UnitDefinition = {
     scaling: { armorMr: [30, 50, 500], trueDmgPct: [0.05, 0.08, 0.50], thirdAtkHeal: [300, 500, 2000] },
   },
   spritePath: '/visuals/sprites/jungle/tapu-bulu-sprite.png',
+  shinySpritePath: '/visuals/shiny_sprites/jungle/shiny_tapu_bulu.webp',
   spriteScale: 0.90,
 }
 
@@ -191,6 +199,7 @@ export const KINGLER: UnitDefinition = {
     scaling: { damage: [200, 350, 500] },
   },
   spritePath: '/visuals/sprites/beachy/kingler-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/beachy/shiny_kingler.webp',
 }
 
 export const A_RAICHU: UnitDefinition = {

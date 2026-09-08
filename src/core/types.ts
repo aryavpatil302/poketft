@@ -42,6 +42,7 @@ export interface UnitDefinition {
   baseStats: UnitBaseStats
   ability?: AbilityDefinition   // optional — dummies and special units may have none
   spritePath: string
+  shinySpritePath?: string  // optional per-unit bespoke shiny art; falls back to spritePath when absent
   spriteScale?: number  // multiplier on top of default SPRITE_HALF (default 1.0)
   isDummy?: boolean     // stationary, non-attacking target dummy for testing
 }
