@@ -406,5 +406,34 @@ describe('shop', () => {
       expect(e.gold).toBe(goldBefore)
       expect(run.pool['tangela']).toBe(poolBefore)
     })
+
+    it('(d) chains into a 3★ that keeps the shiny flag, composing with buy accounting', () => {
+      const run = newRun(BOT_SEATS)
+      const e = run.players[0]
+      e.gold = 100
+      e.bench[0] = { definitionId: 'tangela', tier: 2 }
+      e.bench[1] = { definitionId: 'tangela', tier: 2 }
+      e.shop[0] = 'tangela'
+      e.shopShiny[0] = true
+      run.pool['tangela'] = Math.max(run.pool['tangela'], copiesHeld(SHINY_TIER))
+      const goldBefore = e.gold
+      const poolBefore = run.pool['tangela']
+
+      const res = buyUnit(run, e, 0)
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.combined?.upgrades).toContainEqual(
+          expect.objectContaining({ definitionId: 'tangela', from: 2, to: 3 }),
+        )
+      }
+      const tangelas = [...e.bench.filter(b => b?.definitionId === 'tangela'),
+        ...e.board.filter(u => u.definitionId === 'tangela')]
+      expect(tangelas).toHaveLength(1)
+      expect(tangelas[0]!.tier).toBe(3)
+      expect(tangelas[0]!.isShiny).toBe(true)
+      expect(e.gold).toBe(goldBefore - shinyPrice(UNIT_MAP.get('tangela')!.cost))
+      expect(run.pool['tangela']).toBe(poolBefore - copiesHeld(SHINY_TIER))
+    })
   })
 })
