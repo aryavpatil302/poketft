@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { newRun, emptyEcon, freshPool, shopEligibleUnits } from './runState'
-import { rollShop, reroll, buyUnit, sellFromBench, sellFromBoard, returnAllToPool } from './shop'
+import { rollShop, reroll, buyUnit, sellFromBench, sellFromBoard, returnAllToPool, hasShinyOwned } from './shop'
 import { UNIT_MAP } from '../data/units'
-import { REROLL_COST, SHOP_SLOTS, POOL_COPIES } from './constants'
+import { REROLL_COST, SHOP_SLOTS, POOL_COPIES, SHINY_COST_ODDS, SHINY_TIER, copiesHeld } from './constants'
 
 const BOT_SEATS = [
   { personaId: 'a', name: 'A' }, { personaId: 'b', name: 'B' },
@@ -18,6 +18,30 @@ function seededRng(seed: number): () => number {
     return s / 0x100000000
   }
 }
+
+// Scripted rng: delegates to seededRng(seed) on every call, except that a
+// call whose zero-based index has an entry in `overrides` returns the forced
+// value instead. Exposes a live `callCount` so a test can assert exactly how
+// many draws a path consumed (e.g. proving the shiny ownership gate returns
+// before the chance draw, rather than merely that no shiny appeared).
+//
+// Call-index map with a fresh pool (established once here, reused by every
+// shiny test below): the existing per-slot loop draws exactly 2 per slot
+// (one cost pick, one within-bucket id pick), so the normal pass consumes
+// 2 * SHOP_SLOTS draws and the shiny pass begins at index 2 * SHOP_SLOTS.
+// The shiny pass's four draws, in order: [chance check, cost-tier pick,
+// within-tier id pick, slot index].
+function scriptedRng(seed: number, overrides: Record<number, number>): (() => number) & { callCount: number } {
+  const base = seededRng(seed)
+  const rng = (() => {
+    const idx = rng.callCount++
+    return idx in overrides ? overrides[idx] : base()
+  }) as (() => number) & { callCount: number }
+  rng.callCount = 0
+  return rng
+}
+
+const SHINY_PASS_START = 2 * SHOP_SLOTS
 
 describe('shop', () => {
   it('level 1 shops contain only 1-cost units', () => {
@@ -184,5 +208,132 @@ describe('shop', () => {
     e.bench[0] = { definitionId: 'unown', tier: 1, item: 'metronome' }
     sellFromBench(run, e, 0)
     expect(e.itemBench).toEqual(['metronome', 'metronome'])
+  })
+
+  describe('shiny shop roll', () => {
+    it('(a) forces a shiny at the forced chance and cost-tier draws', () => {
+      const pool = freshPool()
+      const e = emptyEcon('t', null)
+      e.level = 5
+      const level5Odds = SHINY_COST_ODDS[5]   // [40, 55, 5, 0, 0]
+      // Derive a draw that lands inside tier 2's cumulative range from the
+      // table itself, rather than hardcoding a magic number: tier 1 covers
+      // [0, cum1), tier 2 covers [cum1, cum2) — the midpoint always selects
+      // tier 2 regardless of the exact weights in that row.
+      const cum1 = level5Odds[0] / 100
+      const cum2 = (level5Odds[0] + level5Odds[1]) / 100
+      const tier2Draw = (cum1 + cum2) / 2
+      const rng = scriptedRng(9, {
+        [SHINY_PASS_START]: 0.01,       // chance check: below SHINY_ROLL_CHANCE
+        [SHINY_PASS_START + 1]: tier2Draw,   // cost-tier pick: forced to tier 2
+      })
+
+      rollShop(e, pool, rng)
+
+      const shinySlots = e.shopShiny.map((s, i) => (s ? i : -1)).filter(i => i >= 0)
+      expect(shinySlots).toHaveLength(1)
+      const def = UNIT_MAP.get(e.shop[shinySlots[0]]!)!
+      expect(def.cost).toBe(2)
+      expect(pool[def.id]).toBeGreaterThanOrEqual(copiesHeld(SHINY_TIER))
+    })
+
+    // Shared by (b)-(f): the same forced-tier-2 draw pair from (a), derived
+    // from the level-5 SHINY_COST_ODDS row's cumulative weights.
+    function tier2DrawAtLevel5(): number {
+      const level5Odds = SHINY_COST_ODDS[5]   // [40, 55, 5, 0, 0]
+      const cum1 = level5Odds[0] / 100
+      const cum2 = (level5Odds[0] + level5Odds[1]) / 100
+      return (cum1 + cum2) / 2
+    }
+
+    it('(b) ownership gate short-circuits before any shiny rng draw', () => {
+      const tier2Draw = tier2DrawAtLevel5()
+
+      const benchEcon = emptyEcon('t', null)
+      benchEcon.level = 5
+      benchEcon.bench[0] = { definitionId: 'tangela', tier: 2, isShiny: true }
+      const benchRng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2Draw })
+      expect(hasShinyOwned(benchEcon)).toBe(true)
+      rollShop(benchEcon, freshPool(), benchRng)
+      expect(benchEcon.shopShiny.every(s => s === false)).toBe(true)
+      // The gate returns before the chance draw: rng was consumed only by
+      // the normal per-slot loop (2 * SHOP_SLOTS), never reaching SHINY_PASS_START.
+      expect(benchRng.callCount).toBe(SHINY_PASS_START)
+
+      const boardEcon = emptyEcon('t', null)
+      boardEcon.level = 5
+      boardEcon.board.push({ definitionId: 'tangela', tier: 2, hexPos: { col: 0, row: 4 }, isShiny: true })
+      const boardRng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2Draw })
+      expect(hasShinyOwned(boardEcon)).toBe(true)
+      rollShop(boardEcon, freshPool(), boardRng)
+      expect(boardEcon.shopShiny.every(s => s === false)).toBe(true)
+      expect(boardRng.callCount).toBe(SHINY_PASS_START)
+    })
+
+    it('(c) a depleted cost tier yields no shiny and no cross-tier fallback', () => {
+      const pool = freshPool()
+      // Every 2-cost id's pool set to 2: enough for the normal per-slot roll
+      // (which only needs > 0) but below copiesHeld(SHINY_TIER) = 3, so no
+      // 2-cost id is shiny-eligible. 2 rather than 0 keeps the normal roll's
+      // rng consumption identical to test (a) — 0 would also zero the bucket
+      // for the normal roll and change what this test is measuring.
+      for (const def of shopEligibleUnits()) if (def.cost === 2) pool[def.id] = 2
+      const e = emptyEcon('t', null)
+      e.level = 5
+      const rng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2DrawAtLevel5() })
+
+      rollShop(e, pool, rng)
+
+      expect(e.shopShiny.every(s => s === false)).toBe(true)
+    })
+
+    it('(d) shopShiny resets on every call regardless of prior contents', () => {
+      const e = emptyEcon('t', null)
+      e.level = 5
+
+      e.shopShiny = e.shopShiny.map(() => true)   // stale all-true
+      const failRng = scriptedRng(9, { [SHINY_PASS_START]: 0.99 })   // forced above SHINY_ROLL_CHANCE
+      rollShop(e, freshPool(), failRng)
+      expect(e.shopShiny).toHaveLength(SHOP_SLOTS)
+      expect(e.shopShiny.every(s => s === false)).toBe(true)
+
+      e.shopShiny = e.shopShiny.map(() => true)   // stale all-true again
+      const successRng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2DrawAtLevel5() })
+      rollShop(e, freshPool(), successRng)
+      expect(e.shopShiny.filter(Boolean)).toHaveLength(1)
+    })
+
+    it('(e) level 10 reuses the level-9 SHINY_COST_ODDS row without crashing', () => {
+      const pool = freshPool()
+      const e = emptyEcon('t', null)
+      e.level = 10
+      const level9Odds = SHINY_COST_ODDS[9]   // [0, 0, 0, 60, 40]
+      // Derive a draw inside tier 4's cumulative range — the row's first
+      // nonzero bucket.
+      const cum3 = (level9Odds[0] + level9Odds[1] + level9Odds[2]) / 100
+      const cum4 = (level9Odds[0] + level9Odds[1] + level9Odds[2] + level9Odds[3]) / 100
+      const tier4Draw = (cum3 + cum4) / 2
+      const rng = scriptedRng(11, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier4Draw })
+
+      expect(() => rollShop(e, pool, rng)).not.toThrow()
+
+      const shinySlots = e.shopShiny.map((s, i) => (s ? i : -1)).filter(i => i >= 0)
+      expect(shinySlots).toHaveLength(1)
+      const def = UNIT_MAP.get(e.shop[shinySlots[0]]!)!
+      expect(def.cost).toBe(4)
+    })
+
+    it('(f) reroll inherits the shiny pass with no shiny-specific code of its own', () => {
+      const run = newRun(BOT_SEATS)
+      const e = run.players[0]
+      e.level = 5
+      e.gold = REROLL_COST
+      const rng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2DrawAtLevel5() })
+
+      const ok = reroll(e, run.pool, rng)
+
+      expect(ok).toBe(true)
+      expect(e.shopShiny.filter(Boolean)).toHaveLength(1)
+    })
   })
 })
