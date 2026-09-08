@@ -2789,6 +2789,7 @@ function startNetPlayback(log: FightLog): void {
     unit.hexPos = { ...e.hexPos }
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
     if (e.item) unit.items = [e.item]
+    if (e.isShiny) unit.isShiny = true
     placedUnits.set(hexId(unit.hexPos), unit)
   }
   preCombatSnapshot = getPlacedUnitsArray()
@@ -2798,6 +2799,7 @@ function startNetPlayback(log: FightLog): void {
       tier: u.tier as 1 | 2 | 3,
       hexPos: { ...u.hexPos },
       item: u.items[0],
+      isShiny: u.isShiny,
     }))
 
   // The win-prediction calibration loop is a SOLO learner fed by battles this
@@ -2860,7 +2862,10 @@ function boardIndexAtHex(hex: OffsetCoord): number {
 function syncBoardToRun(): void {
   humanEcon().board = [...placedUnits.values()]
     .filter(u => u.team === 'player' && !u.isDummy)
-    .map(u => ({ definitionId: u.definitionId, tier: u.tier as 1 | 2 | 3, hexPos: { ...u.hexPos }, item: u.items[0] }))
+    .map(u => ({
+      definitionId: u.definitionId, tier: u.tier as 1 | 2 | 3, hexPos: { ...u.hexPos },
+      item: u.items[0], isShiny: u.isShiny,
+    }))
 }
 
 // The open player-half hex nearest the bottom-left corner, or null if the
@@ -2986,6 +2991,7 @@ function autoFieldFromBench(): void {
     const unit = makeUnit(entry.definitionId, 'player', entry.tier)
     unit.hexPos = { ...hex }
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
+    if (entry.isShiny) unit.isShiny = true
     placedUnits.set(hexId(hex), unit)
     h.bench[slot] = null
   }
@@ -2999,6 +3005,7 @@ function syncRunToBoard(): void {
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
     unit.placedAt = ++placementCounter
     if (e.item) unit.items = [e.item]
+    if (e.isShiny) unit.isShiny = true
     placedUnits.set(hexId(unit.hexPos), unit)
   }
 }
@@ -4804,7 +4811,9 @@ let inspectedUnitId: string | null = null
 let playbackLog: FightLog | null = null
 let playbackIndex = 0
 
-interface UnitSnapshot { definitionId: string; tier: number; hexPos: { col: number; row: number }; item?: string }
+interface UnitSnapshot {
+  definitionId: string; tier: number; hexPos: { col: number; row: number }; item?: string; isShiny?: boolean
+}
 let preCombatSnapshot: UnitSnapshot[] = []
 let autoResetTimer: ReturnType<typeof setTimeout> | null = null
 let victoryCelebrationTs = 0   // performance.now() when combat ended; 0 = not celebrating
@@ -4939,6 +4948,7 @@ function startCombat(): void {
       unit.hexPos = { ...e.hexPos }
       unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
       if (e.item) unit.items = [e.item]
+      if (e.isShiny) unit.isShiny = true
       placedUnits.set(hexId(unit.hexPos), unit)
     }
     playerUnits = getPlacedUnitsArray().filter(u => u.team === 'player')
@@ -4947,6 +4957,7 @@ function startCombat(): void {
       tier: u.tier as 1 | 2 | 3,
       hexPos: { ...u.hexPos },
       item: u.items[0],
+      isShiny: u.isShiny,
     }))
     if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
 
@@ -4959,6 +4970,7 @@ function startCombat(): void {
         u.hexPos = { col: e2.hexPos.col, row: 7 - e2.hexPos.row }
         u.visualPos = hexToPixel(u.hexPos, HEX_SIZE)
         if (e2.item) u.items = [e2.item]
+        if (e2.isShiny) u.isShiny = true
         return u
       })
       calibParams = loadCalibration()
@@ -5033,6 +5045,7 @@ function restorePlayerBoard(): void {
     unit.hexPos    = { ...snap.hexPos }
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
     if (snap.item) unit.items = [snap.item]
+    if (snap.isShiny) unit.isShiny = true
     placedUnits.set(hexId(unit.hexPos), unit)
   }
 
