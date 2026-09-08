@@ -104,4 +104,23 @@ describe('combine', () => {
     expect(upgraded.item).toBe('metronome')
     expect(e.itemBench.sort()).toEqual(['leftovers', 'spell_tag'])
   })
+
+  it('a shiny among consumed copies carries onto the upgrade (board branch)', () => {
+    const e = emptyEcon('t', null)
+    e.bench[0] = { definitionId: 'tangela', tier: 2 }
+    e.bench[1] = { definitionId: 'tangela', tier: 2 }
+    e.board = [{ definitionId: 'tangela', tier: 2, hexPos: { col: 3, row: 5 }, isShiny: true }]
+    tryCombine(e)
+    expect(e.board).toHaveLength(1)
+    expect(e.board[0]).toEqual(
+      expect.objectContaining({ definitionId: 'tangela', tier: 3, hexPos: { col: 3, row: 5 }, isShiny: true }),
+    )
+  })
+
+  it('three plain non-shiny copies merge into an upgrade with no shiny property at all', () => {
+    const e = econWith([{ id: 'tangela', tier: 1 }, { id: 'tangela', tier: 1 }, { id: 'tangela', tier: 1 }])
+    tryCombine(e)
+    const upgraded = e.bench.find(b => b?.definitionId === 'tangela')
+    expect(upgraded).toEqual({ definitionId: 'tangela', tier: 2 })
+  })
 })

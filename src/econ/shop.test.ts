@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { newRun, emptyEcon, freshPool, shopEligibleUnits } from './runState'
 import { rollShop, reroll, buyUnit, sellFromBench, sellFromBoard, returnAllToPool, hasShinyOwned } from './shop'
 import { UNIT_MAP } from '../data/units'
-import { REROLL_COST, SHOP_SLOTS, POOL_COPIES, SHINY_COST_ODDS, SHINY_TIER, copiesHeld } from './constants'
+import { REROLL_COST, SHOP_SLOTS, POOL_COPIES, SHINY_COST_ODDS, SHINY_TIER, copiesHeld, shinyPrice } from './constants'
+import { wouldCombine } from './combine'
 
 const BOT_SEATS = [
   { personaId: 'a', name: 'A' }, { personaId: 'b', name: 'B' },
@@ -334,6 +335,105 @@ describe('shop', () => {
 
       expect(ok).toBe(true)
       expect(e.shopShiny.filter(Boolean)).toHaveLength(1)
+    })
+  })
+
+  describe('shiny buy', () => {
+    it('(a) happy path: 3x price, 3 pool copies, tier-2 shiny-flagged bench unit', () => {
+      const run = newRun(BOT_SEATS)
+      const e = run.players[0]
+      e.gold = 100
+      e.shop[0] = 'tangela'
+      e.shopShiny[0] = true
+      const goldBefore = e.gold
+      const poolBefore = run.pool['tangela']
+
+      const res = buyUnit(run, e, 0)
+
+      expect(res.ok).toBe(true)
+      const tangelas = e.bench.filter(b => b?.definitionId === 'tangela')
+      expect(tangelas).toHaveLength(1)
+      expect(tangelas[0]).toEqual({ definitionId: 'tangela', tier: 2, isShiny: true })
+      expect(e.gold).toBe(goldBefore - shinyPrice(UNIT_MAP.get('tangela')!.cost))
+      expect(run.pool['tangela']).toBe(poolBefore - copiesHeld(SHINY_TIER))
+      expect(e.shop[0]).toBeNull()
+      expect(e.shopShiny[0]).toBe(false)
+    })
+
+    it('(b) drained pool rejects cleanly with no partial mutation', () => {
+      const run = newRun(BOT_SEATS)
+      const e = run.players[0]
+      e.gold = 100
+      e.shop[0] = 'tangela'
+      e.shopShiny[0] = true
+      run.pool['tangela'] = copiesHeld(SHINY_TIER) - 1
+      const goldBefore = e.gold
+      const poolBefore = run.pool['tangela']
+
+      const res = buyUnit(run, e, 0)
+
+      expect(res).toEqual({ ok: false, reason: 'pool-empty' })
+      expect(e.gold).toBe(goldBefore)
+      expect(run.pool['tangela']).toBe(poolBefore)
+      expect(e.bench.every(b => b === null)).toBe(true)
+      expect(e.shop[0]).toBe('tangela')
+      expect(e.shopShiny[0]).toBe(true)
+    })
+
+    it('(c) full bench rejects a shiny buy even when the tier-1 phantom merge would fire', () => {
+      const run = newRun(BOT_SEATS)
+      const e = run.players[0]
+      e.gold = 100
+      e.bench = [
+        { definitionId: 'tangela', tier: 1 }, { definitionId: 'tangela', tier: 1 },
+        ...Array(7).fill({ definitionId: 'zubat', tier: 1 }),
+      ]
+      e.shop[0] = 'tangela'
+      e.shopShiny[0] = true
+      const goldBefore = e.gold
+      const poolBefore = run.pool['tangela']
+
+      // Prove the guard is what rejects, not an absent precondition — a
+      // non-shiny buy right now WOULD combine via the tier-1 phantom path.
+      expect(wouldCombine(e, 'tangela')).toBe(true)
+
+      const res = buyUnit(run, e, 0)
+
+      expect(res).toEqual({ ok: false, reason: 'bench-full' })
+      const tangelas = e.bench.filter(b => b?.definitionId === 'tangela')
+      expect(tangelas).toHaveLength(2)
+      expect(tangelas.every(b => b?.tier === 1)).toBe(true)
+      expect(e.gold).toBe(goldBefore)
+      expect(run.pool['tangela']).toBe(poolBefore)
+    })
+
+    it('(d) chains into a 3★ that keeps the shiny flag, composing with buy accounting', () => {
+      const run = newRun(BOT_SEATS)
+      const e = run.players[0]
+      e.gold = 100
+      e.bench[0] = { definitionId: 'tangela', tier: 2 }
+      e.bench[1] = { definitionId: 'tangela', tier: 2 }
+      e.shop[0] = 'tangela'
+      e.shopShiny[0] = true
+      run.pool['tangela'] = Math.max(run.pool['tangela'], copiesHeld(SHINY_TIER))
+      const goldBefore = e.gold
+      const poolBefore = run.pool['tangela']
+
+      const res = buyUnit(run, e, 0)
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.combined?.upgrades).toContainEqual(
+          expect.objectContaining({ definitionId: 'tangela', from: 2, to: 3 }),
+        )
+      }
+      const tangelas = [...e.bench.filter(b => b?.definitionId === 'tangela'),
+        ...e.board.filter(u => u.definitionId === 'tangela')]
+      expect(tangelas).toHaveLength(1)
+      expect(tangelas[0]!.tier).toBe(3)
+      expect(tangelas[0]!.isShiny).toBe(true)
+      expect(e.gold).toBe(goldBefore - shinyPrice(UNIT_MAP.get('tangela')!.cost))
+      expect(run.pool['tangela']).toBe(poolBefore - copiesHeld(SHINY_TIER))
     })
   })
 })
