@@ -75,6 +75,7 @@ export function applyFrame(state: CombatState, frame: FightFrame): void {
     unit.visualPos = { x: uf.visualPos.x, y: uf.visualPos.y }    // the frame must stay replayable.
     unit.state = uf.state as typeof unit.state
     unit.items = [...uf.items]
+    unit.isShiny = uf.isShiny === true
     // Animation-driving fields — without these the renderer's windup/lunge/
     // squash-stretch math sees makeUnit's frozen zero/false/empty defaults
     // every frame, so nothing animates even though position and HP are

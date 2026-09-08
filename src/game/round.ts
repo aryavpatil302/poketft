@@ -395,10 +395,9 @@ export interface UnitFrame {
   maxMana: number
   state: string
   items: string[]
-  isShiny?: boolean   // visual-only replay/spectator marker; no producer or consumer wired yet
-                       // (captureFrame/playback apply are a deferred step — gameplay is
-                       // unaffected either way since combat outcomes are already baked
-                       // into recorded HP/shield values)
+  isShiny?: boolean   // visual-only replay/spectator marker, produced by captureFrame and
+                       // consumed by applyFrame — gameplay-inert since combat outcomes are
+                       // already baked into recorded HP/shield values
   // Animation-driving fields the render layer reads to compute windup/lunge/
   // squash-stretch progress and target-lock lines. Without these every unit
   // plays back frozen in its base pose — makeUnit's zero/false/empty
@@ -506,6 +505,7 @@ function captureFrame(cs: CombatState): FightFrame {
       definitionId: u.definitionId,
       team: u.team,
       tier: u.tier,
+      isShiny: u.isShiny === true,
       hexPos: { col: u.hexPos.col, row: u.hexPos.row },
       visualPos: { x: u.visualPos.x, y: u.visualPos.y },
       currentHp: u.currentHp,
