@@ -181,6 +181,41 @@ describe('recordFight', () => {
     expect(log.frames).toEqual([])
     expect(log.ticksElapsed).toBe(0)
   })
+
+  function shinyBoardsRun(): ReturnType<typeof newRun> {
+    const run = newRun(botSeats())
+    run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true }]
+    run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 } }]
+    return run
+  }
+
+  it('captureFrame emits isShiny true for a shiny player-team unit', () => {
+    const run = shinyBoardsRun()
+    const log = recordFight(run, 0, 1, 1)
+    const playerFrame = log.frames[0].units.find(uf => uf.team === 'player')
+    expect(playerFrame).toBeDefined()
+    expect(playerFrame!.isShiny).toBe(true)
+  })
+
+  it('captureFrame emits isShiny as a real false, not undefined, for a non-shiny enemy-team unit', () => {
+    const run = shinyBoardsRun()
+    const log = recordFight(run, 0, 1, 1)
+    const enemyFrame = log.frames[0].units.find(uf => uf.team === 'enemy')
+    expect(enemyFrame).toBeDefined()
+    expect(enemyFrame!.isShiny).toBe(false)
+  })
+
+  it('the shiny/non-shiny split holds across every frame of the recording, not just tick 0', () => {
+    const run = shinyBoardsRun()
+    const log = recordFight(run, 0, 1, 1)
+    expect(log.frames.length).toBeGreaterThan(0)
+    for (const frame of log.frames) {
+      const playerFrame = frame.units.find(uf => uf.team === 'player')
+      const enemyFrame = frame.units.find(uf => uf.team === 'enemy')
+      if (playerFrame) expect(playerFrame.isShiny).toBe(true)
+      if (enemyFrame) expect(enemyFrame.isShiny).toBe(false)
+    }
+  })
 })
 
 describe('resolveRound — log/settlement agreement', () => {
