@@ -12,7 +12,7 @@ import type { PlayerEcon, RunState } from './runState'
 import { rollShop, reroll, buyUnit, sellFromBench } from './shop'
 import { buyXp, boardCap } from './xp'
 import { wouldCombine } from './combine'
-import { REROLL_COST, XP_BUY_COST, MAX_LEVEL, MAX_INTEREST, STARTING_HP, stageOf, copiesHeld } from './constants'
+import { REROLL_COST, XP_BUY_COST, MAX_LEVEL, MAX_INTEREST, STARTING_HP, stageOf, copiesHeld, shinyPrice } from './constants'
 import { TRAINED_GENOMES } from './trainedGenomes'
 import { equipBotItems } from './botItems'
 import type { Rng } from './shop'
@@ -296,7 +296,7 @@ function computeTraitViability(econ: PlayerEcon, pool: Record<string, number>, r
 // copies dominate, then trait synergy with what it already owns, then raw
 // unit strength. The persona is only a soft bias — comps emerge from shops.
 // All the magnitudes are genome-driven (trained by src/econ/train.ts).
-function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGenome, defId: string, rerollTargetIds?: string[], catchUp = 0, concentrate = false, priorityTraits?: Map<string, number>, legendaryMode = false, stage = 0, explorationMode = false, rng: Rng = Math.random, traitViability?: Map<string, number>, catalogBiasIds?: Set<string>): number {
+export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGenome, defId: string, rerollTargetIds?: string[], catchUp = 0, concentrate = false, priorityTraits?: Map<string, number>, legendaryMode = false, stage = 0, explorationMode = false, rng: Rng = Math.random, traitViability?: Map<string, number>, catalogBiasIds?: Set<string>, shiny = false): number {
   const def = UNIT_MAP.get(defId)
   if (!def) return -1
   let score = 0
@@ -339,7 +339,15 @@ function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGenome, def
     return species !== undefined && [...species].some(s => s !== defId)
   })
   const starUpMult = (hasEstablishedComp && !connectsToRoster) ? 0.5 : 1
-  if (copies1 >= 2) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult   // completes a 2★ right now
+  // Shiny is exclusive with the tier-1 star terms below, not additive on top of
+  // them: a shiny lands at tier 2 directly, so it never completes a tier-1
+  // triple (copies1-based terms describe an upgrade that cannot happen on this
+  // buy). PLACEHOLDER weighting pending self-play tuning data — not defended.
+  // Deliberately "completed-2★ scoring, net the extra gold" rather than a free
+  // 2★: reuses the copies1>=2 term byte-for-byte, then subtracts the
+  // incremental gold a shiny costs over a normal buy.
+  if (shiny) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult - (shinyPrice(def.cost) - def.cost)
+  else if (copies1 >= 2) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult   // completes a 2★ right now
   else if (copies1 === 1) score += (genome.starPairBonus + def.cost * 0.5) * starUpMult // forms a pair
   if (has2Star) score += (genome.star3LongRunBonus + def.cost * 0.8) * starUpMult       // chasing a costly 3★ is worth more
 
@@ -856,6 +864,33 @@ function benchUpgradeWaiting(econ: PlayerEcon): boolean {
   return false
 }
 
+// Is this shop slot worth spending a decision cycle on? Mirrors buyUnit's gold
+// and bench gates (src/econ/shop.ts) exactly, so the shop scan never selects a
+// buy that buyUnit will then reject — a shiny is priced at shinyPrice(cost)
+// and never routed through the tier-1 phantom-copy bench-full path.
+// Advisory only: never mutates econ, so a wrong answer here can waste a
+// decision cycle but can never corrupt gold/pool/bench (buyUnit re-checks all
+// three itself).
+export function botCanAttemptBuy(econ: PlayerEcon, slot: number): boolean {
+  const id = econ.shop[slot]
+  if (!id) return false
+  const def = UNIT_MAP.get(id)
+  if (!def) return false
+  // Strict comparison: a legacy save's backfilled shopShiny array is the only
+  // thing guaranteeing the index exists (mirrors buyUnit's own strict check).
+  const shiny = econ.shopShiny[slot] === true
+  if (econ.gold < (shiny ? shinyPrice(def.cost) : def.cost)) return false
+  const benchFree = econ.bench.some(b => b === null)
+  if (benchFree) return true
+  // Bench full: a shiny is always tier 2+, so the tier-1-only phantom-copy
+  // path below must never be consulted for a shiny — reaching it would charge
+  // 3x and hand back an ordinary 2★ from an unrelated tier-1 merge, silently
+  // destroying the shiny. This guard MUST run before wouldCombine, mirroring
+  // buyUnit's own shiny early-return ahead of its wouldCombine call.
+  if (shiny) return false
+  return wouldCombine(econ, id)
+}
+
 // ─── The per-round brain ──────────────────────────────────────────────────────
 
 const MAX_ROLLS_PER_ROUND = 8
@@ -1073,11 +1108,8 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
       for (let s = 0; s < econ.shop.length; s++) {
         const id = econ.shop[s]
         if (!id) continue
-        const def = UNIT_MAP.get(id)
-        if (!def || econ.gold - def.cost < 0) continue
-        const benchFree = econ.bench.some(b => b === null)
-        if (!benchFree && !wouldCombine(econ, id)) continue
-        const sc = scoreUnit(econ, persona, genome, id, rerollTarget?.defIds, catchUp, concentrate, priorityTraits, legendaryMode, stage, explorationMode, rng, traitViability, catalogBiasIds)
+        if (!botCanAttemptBuy(econ, s)) continue
+        const sc = scoreUnit(econ, persona, genome, id, rerollTarget?.defIds, catchUp, concentrate, priorityTraits, legendaryMode, stage, explorationMode, rng, traitViability, catalogBiasIds, econ.shopShiny[s] === true)
         if (sc > bestScore) { runnerUpSlot = bestSlot; runnerUpScore = bestScore; bestScore = sc; bestSlot = s }
         else if (sc > runnerUpScore) { runnerUpScore = sc; runnerUpSlot = s }
       }
