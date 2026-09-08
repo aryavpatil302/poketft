@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { newRun } from './runState'
-import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides } from './bots'
+import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides, botCanAttemptBuy } from './bots'
 import { settleRound } from './income'
 import { UNIT_MAP } from '../data/units'
 import { boardCap } from './xp'
@@ -204,5 +204,40 @@ describe('bots', () => {
       return (def.cost === 1 ? 30 : def.cost === 2 ? 25 : def.cost === 3 ? 18 : def.cost === 4 ? 10 : 9) - n
     }))
     expect(maxDrain).toBeGreaterThanOrEqual(3)
+  })
+
+  describe('botCanAttemptBuy — shiny awareness', () => {
+    it('refuses a shiny slot when gold clears the normal price but not shinyPrice; the same gold clears the non-shiny control', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      econ.shop = ['tangela', null, null, null, null]
+      econ.shopShiny = [true, false, false, false, false]
+      econ.gold = 2   // clears tangela's cost (1) but misses shinyPrice(1) = 3
+      econ.bench = Array(9).fill(null)
+      econ.board = []
+      expect(botCanAttemptBuy(econ, 0)).toBe(false)
+
+      econ.shopShiny = [false, false, false, false, false]   // non-shiny control, same gold
+      expect(botCanAttemptBuy(econ, 0)).toBe(true)
+    })
+
+    it('refuses a shiny slot when the bench is full and 2 tier-1 copies are held (wouldCombine would be true); the same setup is allowed when not shiny', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      econ.shop = ['tangela', null, null, null, null]
+      econ.shopShiny = [true, false, false, false, false]
+      econ.gold = 99
+      // Full bench: 2 tangela tier-1 copies (would combine on a 3rd) plus filler.
+      econ.bench = [
+        { definitionId: 'tangela', tier: 1 },
+        { definitionId: 'tangela', tier: 1 },
+        ...Array(7).fill(null).map(() => ({ definitionId: 'charizard', tier: 1 as const })),
+      ]
+      econ.board = []
+      expect(botCanAttemptBuy(econ, 0)).toBe(false)
+
+      econ.shopShiny = [false, false, false, false, false]   // non-shiny control, same bench/gold
+      expect(botCanAttemptBuy(econ, 0)).toBe(true)
+    })
   })
 })
