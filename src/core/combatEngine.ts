@@ -12,6 +12,7 @@ import { tickProjectiles } from './projectile'
 import { tickMarks } from './systems/marks'
 import { tickPersistentAoEZones } from './systems/persistentAoE'
 import { initTraitEffects } from './systems/traitEffects'
+import { initShinyEffects } from './systems/shinyEffects'
 import { initItemPassives } from '../data/items'
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ export function createCombatState(
   initAbilityPassives(state)
   initItemPassives(state)
   initTraitEffects(state)
+  initShinyEffects(state)
   return state
 }
 
