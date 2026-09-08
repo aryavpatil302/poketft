@@ -2072,7 +2072,7 @@ econPhase = run.gameOver ? 'gameOver' : 'planning'
 // bench slot or board hex, no GameAction is dispatched, and no state changes
 // until the drop. The source slot only *renders* empty, via the two lift
 // markers below. See heldUnitEl below.
-let heldUnit: { definitionId: string; tier: 1 | 2 | 3; item?: string } | null = null
+let heldUnit: { definitionId: string; tier: 1 | 2 | 3; item?: string; shiny?: boolean } | null = null
 // Where heldUnit was picked up from — the `from` half of the move action the
 // drop dispatches, and the reason a drop onto an occupied slot can be
 // expressed as a swap (applyAction's moveBoard/moveBench do the swapping).
@@ -3087,10 +3087,11 @@ document.addEventListener('mousemove', (e) => {
   updateShopSellHover()
 })
 
-function pickUpUnit(definitionId: string, tier: 1 | 2 | 3, from: { kind: 'bench'; slot: number } | { kind: 'board'; hex: OffsetCoord }, item?: string): void {
-  heldUnit = { definitionId, tier, item }
+function pickUpUnit(definitionId: string, tier: 1 | 2 | 3, from: { kind: 'bench'; slot: number } | { kind: 'board'; hex: OffsetCoord }, item?: string, shiny?: boolean): void {
+  heldUnit = { definitionId, tier, item, shiny }
   heldFrom = from
-  heldUnitEl.src = UNIT_MAP.get(definitionId)?.spritePath ?? ''
+  const def = UNIT_MAP.get(definitionId)
+  heldUnitEl.src = (shiny ? (def?.shinySpritePath ?? def?.spritePath) : def?.spritePath) ?? ''
   // Toggling display:none → block restarts any CSS animation whose class is
   // still attached — clear a leftover rejection flash so it doesn't replay
   // on a fresh pickup that hasn't been rejected.
@@ -4014,7 +4015,7 @@ function renderBenchRow(): void {
       const b = h.bench[slot]
       if (b && target.classList.contains('bench-unit-sprite')) {
         liftedBenchSlot = slot
-        pickUpUnit(b.definitionId, b.tier, { kind: 'bench', slot }, b.item)
+        pickUpUnit(b.definitionId, b.tier, { kind: 'bench', slot }, b.item, b.isShiny)
         renderBenchRow()
       }
     })
@@ -4754,7 +4755,7 @@ function econBoardClick(hex: OffsetCoord, _clientX: number, _clientY: number): b
   const unit = placedUnits.get(key)
   if (unit && unit.team === 'player') {
     liftedBoardHexKey = key
-    pickUpUnit(unit.definitionId, unit.tier as 1 | 2 | 3, { kind: 'board', hex }, unit.items[0])
+    pickUpUnit(unit.definitionId, unit.tier as 1 | 2 | 3, { kind: 'board', hex }, unit.items[0], unit.isShiny)
     renderBenchRow()   // empty bench slots light up as drop targets
     return true
   }
