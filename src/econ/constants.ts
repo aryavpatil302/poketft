@@ -83,6 +83,41 @@ export function copiesHeld(tier: 1 | 2 | 3): number {
   return Math.pow(3, tier - 1)
 }
 
+// ─── Shiny Pokémon ─────────────────────────────────────────────────────────
+// Grouped for the shiny-Pokémon feature: an instant-2★ shop offer modeled on
+// TFT Set 4's "Chosen" mechanic. SHINY_PRICE_MULT is deliberately pinned to
+// copiesHeld(2) = 3 for economy safety — a shiny buy must cost and consume
+// exactly what a real three-copy 2★ combine does, because sellValue and
+// copiesHeld are both tier-derived; pricing or pooling a shiny as a single
+// copy would let buy-then-sell mint gold and duplicate pool copies through
+// those existing formulas, so this value is not independently tunable.
+// SHINY_COST_ODDS is shaped identically to SHOP_ODDS above
+// (Record<level, [pct1c..pct5c]>) specifically so the shop roll can reuse
+// whatever weighted-bucket picker SHOP_ODDS already feeds, rather than
+// growing a second one. Both SHINY_ROLL_CHANCE and SHINY_COST_ODDS come from
+// TFT Set 4's real Chosen mechanic (confirmed reference data), not from
+// guesswork — but remain tunable for this game's own pool sizes and pacing.
+export const SHINY_ROLL_CHANCE = 0.50   // probability an eligible shop roll produces a shiny
+
+// This table stops at level 9 because TFT Set 4 capped players at level 9,
+// whereas MAX_LEVEL here is 10 — a bare SHINY_COST_ODDS[10] lookup resolves
+// to undefined. Ships verbatim as approved; the shop-roll step (step 2) must
+// handle the level-10 case deliberately instead of discovering it as a crash.
+export const SHINY_COST_ODDS: Record<number, readonly [number, number, number, number, number]> = {
+  1: [100, 0, 0, 0, 0],
+  2: [100, 0, 0, 0, 0],
+  3: [100, 0, 0, 0, 0],
+  4: [80, 20, 0, 0, 0],
+  5: [40, 55, 5, 0, 0],
+  6: [0, 60, 40, 0, 0],
+  7: [0, 40, 58, 2, 0],
+  8: [0, 0, 60, 40, 0],
+  9: [0, 0, 0, 60, 40],
+}
+export const SHINY_PRICE_MULT = 3       // buy price multiplier; MUST equal copiesHeld(SHINY_TIER) — see comment above
+export function shinyPrice(cost: number): number { return cost * SHINY_PRICE_MULT }
+export const SHINY_TIER = 2 as const
+
 // HP lost by the loser of a round, TFT-style:
 //   base damage by stage  +  each surviving enemy unit deals its STAR level.
 export const STAGE_BASE_DAMAGE = [0, 0, 1, 2, 8, 15, 30] as const

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   SHOP_ODDS, POOL_COPIES, XP_TO_NEXT, MAX_LEVEL, LEVEL_FOR_COST,
   streakBonus, sellValue, copiesHeld, hpLoss, stageLabel,
+  SHINY_ROLL_CHANCE, SHINY_COST_ODDS, SHINY_PRICE_MULT, shinyPrice, SHINY_TIER,
 } from './constants'
 
 describe('econ constants', () => {
@@ -94,5 +95,45 @@ describe('econ constants', () => {
     expect(stageLabel(9)).toBe('2-6')   // Delibird
     expect(stageLabel(10)).toBe('3-1')
     expect(stageLabel(15)).toBe('3-6')  // Delibird
+  })
+
+  it('SHINY_ROLL_CHANCE is a valid probability', () => {
+    expect(SHINY_ROLL_CHANCE).toBeGreaterThan(0)
+    expect(SHINY_ROLL_CHANCE).toBeLessThanOrEqual(1)
+  })
+
+  it('SHINY_COST_ODDS has a 5-number row summing to 100 for every level 1-9', () => {
+    for (let level = 1; level <= 9; level++) {
+      const row = SHINY_COST_ODDS[level]
+      expect(row, `level ${level}`).toBeDefined()
+      expect(row, `level ${level}`).toHaveLength(5)
+      expect(row.reduce((a, b) => a + b, 0), `level ${level}`).toBe(100)
+    }
+  })
+
+  it('SHINY_COST_ODDS never offers a cost tier SHOP_ODDS has not already unlocked at that level or below', () => {
+    for (let level = 1; level <= 9; level++) {
+      const row = SHINY_COST_ODDS[level]
+      for (let idx = 0; idx < 5; idx++) {
+        if (row[idx] > 0) {
+          const reachable = Array.from({ length: level }, (_, i) => i + 1)
+            .some(l => SHOP_ODDS[l][idx] > 0)
+          expect(reachable, `level ${level} cost-tier ${idx + 1}`).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('shinyPrice(cost) equals cost * copiesHeld(SHINY_TIER) — the economy-safety invariant', () => {
+    expect(SHINY_PRICE_MULT).toBe(copiesHeld(SHINY_TIER))
+    for (let cost = 1; cost <= 5; cost++) {
+      expect(shinyPrice(cost)).toBe(cost * copiesHeld(SHINY_TIER))
+    }
+  })
+
+  it('SHINY_TIER is a valid star tier accepted by sellValue and copiesHeld', () => {
+    expect(() => sellValue(3, SHINY_TIER)).not.toThrow()
+    expect(() => copiesHeld(SHINY_TIER)).not.toThrow()
+    expect(copiesHeld(SHINY_TIER)).toBe(3)
   })
 })
