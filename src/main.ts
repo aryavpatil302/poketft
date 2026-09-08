@@ -3070,6 +3070,19 @@ heldUnitEl.style.cssText = `
 `
 document.body.appendChild(heldUnitEl)
 
+// Sparkle overlay riding on top of heldUnitEl for shiny pickups, mirroring
+// the bench/shop/board shiny treatment. Kept in lockstep with heldUnitEl's
+// position, display and rejection/sell-mode classes everywhere those are set.
+const heldShinyEl = document.createElement('img')
+heldShinyEl.id = 'held-unit-shiny-overlay'
+heldShinyEl.src = SHINY_EFFECT_GIF
+heldShinyEl.style.cssText = `
+  position:fixed;left:0;top:0;pointer-events:none;z-index:201;display:none;
+  width:${BENCH_SPRITE_W}px;height:${BENCH_SPRITE_H}px;object-fit:contain;image-rendering:pixelated;
+  transform:translate(-50%,-50%);
+`
+document.body.appendChild(heldShinyEl)
+
 // Tracked independent of whether a unit is currently held, so a pickup
 // triggered by a click (which fires no mousemove of its own) can still snap
 // the cursor sprite to the right spot immediately instead of rendering at
@@ -3084,6 +3097,8 @@ document.addEventListener('mousemove', (e) => {
   if (!heldUnit) return
   heldUnitEl.style.left = `${e.clientX}px`
   heldUnitEl.style.top = `${e.clientY}px`
+  heldShinyEl.style.left = `${e.clientX}px`
+  heldShinyEl.style.top = `${e.clientY}px`
   updateShopSellHover()
 })
 
@@ -3096,9 +3111,15 @@ function pickUpUnit(definitionId: string, tier: 1 | 2 | 3, from: { kind: 'bench'
   // still attached — clear a leftover rejection flash so it doesn't replay
   // on a fresh pickup that hasn't been rejected.
   heldUnitEl.classList.remove('held-unit-rejected')
+  heldShinyEl.classList.remove('held-unit-rejected')
   heldUnitEl.style.left = `${lastMouseX}px`
   heldUnitEl.style.top = `${lastMouseY}px`
+  heldShinyEl.style.left = `${lastMouseX}px`
+  heldShinyEl.style.top = `${lastMouseY}px`
   heldUnitEl.style.display = 'block'
+  // Explicit else (not fall-through): a previous shiny drag must not leave
+  // the sparkle visible on the next non-shiny pickup.
+  heldShinyEl.style.display = shiny ? 'block' : 'none'
 }
 
 // Ends the gesture: puts the cursor sprite away and lets the source slot
@@ -3111,7 +3132,9 @@ function dropHeldUnit(): void {
   liftedBoardHexKey = null
   liftedBenchSlot = null
   heldUnitEl.classList.remove('held-unit-rejected', 'held-unit-sell-mode')
+  heldShinyEl.classList.remove('held-unit-rejected', 'held-unit-sell-mode')
   heldUnitEl.style.display = 'none'
+  heldShinyEl.style.display = 'none'
   hoveringShopToSell = false
   hideShopSellOverlay()
   // The board redraws itself every animation frame, so clearing the lift marker
@@ -3226,11 +3249,16 @@ function updateShopSellHover(): void {
     lastMouseX >= rect.left && lastMouseX <= rect.right &&
     lastMouseY >= rect.top && lastMouseY <= rect.bottom
   if (over) {
-    if (!hoveringShopToSell) { hoveringShopToSell = true; heldUnitEl.classList.add('held-unit-sell-mode') }
+    if (!hoveringShopToSell) {
+      hoveringShopToSell = true
+      heldUnitEl.classList.add('held-unit-sell-mode')
+      heldShinyEl.classList.add('held-unit-sell-mode')
+    }
     showShopSellOverlay(rect!)
   } else if (hoveringShopToSell) {
     hoveringShopToSell = false
     heldUnitEl.classList.remove('held-unit-sell-mode')
+    heldShinyEl.classList.remove('held-unit-sell-mode')
     hideShopSellOverlay()
   }
 }
@@ -3257,8 +3285,11 @@ function sellHeldUnit(): void {
 // already mid-animation from a rapid double-click.
 function flashHeldUnitRejected(): void {
   heldUnitEl.classList.remove('held-unit-rejected')
+  heldShinyEl.classList.remove('held-unit-rejected')
   void heldUnitEl.offsetWidth
+  void heldShinyEl.offsetWidth
   heldUnitEl.classList.add('held-unit-rejected')
+  heldShinyEl.classList.add('held-unit-rejected')
 }
 
 // Safety net: if planning ends (combat starts, phase transitions, mode swap)
