@@ -47,12 +47,17 @@ function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
   // bench items; the upgraded unit keeps the first, extras return to the item bench.
   const boardItems: string[] = []
   const benchItems: string[] = []
+  // True when ANY of the three consumed copies carried the shiny flag — there
+  // can only ever be one shiny owned at a time, so "any" and "the one" copy
+  // coincide, but "any" is the safer rule to encode.
+  let carriedShiny = false
 
   // Bench copies first
   for (let i = 0; i < econ.bench.length && toRemove > 0; i++) {
     const b = econ.bench[i]
     if (b && b.definitionId === definitionId && b.tier === tier) {
       if (b.item) benchItems.push(b.item)
+      if (b.isShiny) carriedShiny = true
       econ.bench[i] = null
       freedBenchSlots.push(i)
       toRemove--
@@ -70,7 +75,11 @@ function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
   let boardPos: { col: number; row: number } | null = null
   if (boardIdxs.length > 0) {
     boardPos = { ...econ.board[boardIdxs[0]].hexPos }
-    for (const bi of boardIdxs) { const it = econ.board[bi].item; if (it) boardItems.push(it) }
+    for (const bi of boardIdxs) {
+      const it = econ.board[bi].item
+      if (it) boardItems.push(it)
+      if (econ.board[bi].isShiny) carriedShiny = true
+    }
     for (let i = boardIdxs.length - 1; i >= 0; i--) econ.board.splice(boardIdxs[i], 1)
     toRemove -= boardIdxs.length
   }
@@ -81,9 +90,9 @@ function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
 
   const newTier = (tier + 1) as 2 | 3
   if (boardPos) {
-    econ.board.push({ definitionId, tier: newTier, hexPos: boardPos, item: keptItem })
+    econ.board.push({ definitionId, tier: newTier, hexPos: boardPos, item: keptItem, ...(carriedShiny && { isShiny: true }) })
   } else {
-    econ.bench[freedBenchSlots[0]] = { definitionId, tier: newTier, item: keptItem }
+    econ.bench[freedBenchSlots[0]] = { definitionId, tier: newTier, item: keptItem, ...(carriedShiny && { isShiny: true }) }
   }
 
   return { definitionId, from: tier, to: newTier, placedOnBoard: boardPos !== null }
