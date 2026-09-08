@@ -12,6 +12,7 @@ export interface BenchedUnit {
   definitionId: string
   tier: 1 | 2 | 3
   item?: string   // equipped item id (one per unit)
+  isShiny?: boolean   // instant 2★ shop offer; zero-migration like item above
 }
 
 export interface BoardEntry {
@@ -19,6 +20,7 @@ export interface BoardEntry {
   tier: 1 | 2 | 3
   hexPos: { col: number; row: number }   // player-half coords (rows 4-7)
   item?: string   // equipped item id (one per unit)
+  isShiny?: boolean   // instant 2★ shop offer; zero-migration like item above
 }
 
 // One seat at the table — the human and every bot share this shape so the

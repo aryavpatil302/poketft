@@ -391,6 +391,10 @@ export interface UnitFrame {
   maxMana: number
   state: string
   items: string[]
+  isShiny?: boolean   // visual-only replay/spectator marker; no producer or consumer wired yet
+                       // (captureFrame/playback apply are a deferred step — gameplay is
+                       // unaffected either way since combat outcomes are already baked
+                       // into recorded HP/shield values)
   // Animation-driving fields the render layer reads to compute windup/lunge/
   // squash-stretch progress and target-lock lines. Without these every unit
   // plays back frozen in its base pose — makeUnit's zero/false/empty

@@ -281,6 +281,7 @@ export interface Unit {
   abilityDamageMult?: number   // multiplies this unit's ability (non-auto) damage (Life Orb)
 
   items: string[]             // ItemDefinition IDs (max 3)
+  isShiny?: boolean            // instant 2★ shop offer; set by RunState→Unit translation, consumed by the shiny-effect registry (both later steps)
   types: string[]             // TraitDefinition IDs
 
   statusEffects: StatusEffect[]
