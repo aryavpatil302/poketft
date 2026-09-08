@@ -42,6 +42,7 @@ import {
   type SeatFightResult,
 } from './game/round'
 import { createPlaybackState, applyFrame, playbackLength, playbackWinner } from './game/playback'
+import { frameDeltaSeconds, planCatchUp } from './game/playbackClock'
 // The viewer-perspective transform (plan 04-00). Sits strictly between
 // decodeFightLog and createPlaybackState and is presentational only — see the
 // module header for why `winner` is remapped in exactly one place.
@@ -2467,6 +2468,9 @@ function leaveLobby(): void {
   run = loadRun() ?? newRun(botSeats())
   history.replaceState(null, '', location.origin + location.pathname)
   hideLobbyScreen()
+  // Restores what bootNetworked() hides below — a guest backing out and then
+  // starting a solo game must get the test-mode/combat controls back.
+  document.getElementById('combat-bar')!.style.display = 'flex'
   showTitleScreen({ onSolo: () => { void enterFullscreen(); hideTitleScreen(); bootSolo() }, onMultiplayer })
 }
 
@@ -2477,6 +2481,12 @@ function leaveLobby(): void {
 // into existence in devtools would still be refused. This flag is never the
 // authority; it is a guess the welcome frame below then corrects.
 function bootNetworked(code: string, opts: { isHost: boolean }): void {
+  // Test Mode (free placement) and the start/pause/reset/speed controls it
+  // lives alongside are all solo/local-sim concepts — a networked round is
+  // entirely server-driven, so none of them apply or do anything meaningful
+  // once connected. leaveLobby() restores this if a guest backs out to solo.
+  document.getElementById('combat-bar')!.style.display = 'none'
+
   const shareUrl = shareableLobbyUrl(location.origin, code)
   let isHost = opts.isHost
   seenServerSnapshot = false
@@ -2819,7 +2829,18 @@ function startNetPlayback(log: FightLog): void {
   document.getElementById('overtime-box')!.style.display = 'none'
   combatRunning = true
   accumulator = 0
-  lastTs = 0
+  // Anchored to NOW rather than to frame()'s lastTs === 0 sentinel, which
+  // means "start counting from the next rendered frame". That sentinel is
+  // right for solo combat (nothing else is waiting on it) but wrong here: a
+  // fight arrives over the socket, and socket messages are delivered to a
+  // BACKGROUNDED tab while requestAnimationFrame is not. A player who was on
+  // another tab when the round resolved would otherwise begin the fight at
+  // frame 0 whenever they happened to look back — however many seconds late —
+  // while the other player watched it on time. Seeding lastTs with the moment
+  // playback should have begun makes the first rendered frame measure that
+  // whole delay (rAF timestamps share performance.now's time origin), so the
+  // catch-up in frame() puts this tab where the room already is.
+  lastTs = performance.now()
 
   boardLayer.setCombatActive(true)
   setCombatBarState('running')
@@ -5660,11 +5681,27 @@ cEff.addEventListener('contextmenu', (e) => {
 
 const posCache = new Map<string, { x: number; y: number }>()
 
+// A backlog this large (in ticks) means the tab was not being rendered at all
+// — hidden, dragged, or a stalled main thread — rather than merely dropping a
+// frame or two. Above it, playback JUMPS instead of replaying. Sized well
+// above any legitimate gap (a 4x-speed 30fps callback is ~8 ticks) and well
+// below a real backgrounding (one second is 60), so ordinary jank still
+// replays every frame and every effect it fires.
+const PLAYBACK_CATCHUP_TICKS = 30
+
+// Ceiling on how much real time one rendered frame may advance the LIVE
+// test-mode simulation by. Playback is exempt (frameDeltaSeconds).
+const LIVE_TICK_CLAMP_SECONDS = 0.1
+
 function frame(ts: number): void {
   requestAnimationFrame(frame)
 
   if (lastTs === 0) lastTs = ts
-  const dt = Math.min((ts - lastTs) / 1000, 0.1) * speedMult * (inOvertime ? 2 : 1)
+  // Playback is deliberately exempt from the clamp that protects the live
+  // test-mode tick — see frameDeltaSeconds' header for why clamping playback
+  // is what desynced a backgrounded tab from the room.
+  const dtSeconds = frameDeltaSeconds((ts - lastTs) / 1000, playbackLog !== null, LIVE_TICK_CLAMP_SECONDS)
+  const dt = dtSeconds * speedMult * (inOvertime ? 2 : 1)
   lastTs = ts
 
   let done = false
@@ -5672,6 +5709,61 @@ function frame(ts: number): void {
     accumulator += dt
     const step = 1 / TICK_RATE
     const testMode = (document.getElementById('chk-test-mode') as HTMLInputElement).checked
+
+    // ─── Catch-up after a gap in rendering ──────────────────────────────────
+    // Only playback can do this, and only playback needs to. applyFrame is an
+    // ABSOLUTE reconcile — it rebuilds the unit set from the frame (deleting
+    // ids the frame omits), overwrites every recorded field, clears and
+    // rebuilds hexOccupancy, replaces the projectile map wholesale, and
+    // assigns (never merges) events/terrain/tailwind. It derives nothing from
+    // the previous frame, so applying frame N alone lands on exactly the state
+    // that replaying 0..N would have. Jumping is therefore not an
+    // approximation of the catch-up, it IS the catch-up, in O(1).
+    //
+    // Doing it the other way — walking the gap tick by tick — would be wrong
+    // twice over: thousands of applyFrame + processEvents iterations in one
+    // synchronous burst is a visible hitch on the very frame the player just
+    // came back to, and it would fire every VFX of the skipped seconds at
+    // once, so returning to the tab would show a meaningless strobe of
+    // explosions for a stretch of fight nobody watched.
+    if (playbackLog) {
+      const jump = planCatchUp(
+        accumulator, step, playbackIndex, playbackLength(playbackLog), PLAYBACK_CATCHUP_TICKS,
+      )
+      if (jump) {
+        accumulator = jump.remainder
+        playbackIndex = jump.nextIndex   // past the last frame ⇒ the loop below ends the fight
+        const f = playbackLog.frames[jump.targetIndex]
+        applyFrame(combatState, f)
+
+        // Anything mid-animation belongs to a frame that was skipped and will
+        // never be reached; without this the landing frame inherits cast
+        // flourishes for casts that, as far as this tab is concerned, finished
+        // seconds ago.
+        effectLayer.clearCastAnimations()
+
+        // The same panel refresh the per-tick playback branch does — the
+        // roster, and so the trait counts, can have changed across the skip.
+        renderTraitDisplay()
+        renderEnemyTraitDisplay()
+        renderDamageMeter()
+
+        // Overtime is latched off the frame actually reached, so a fight whose
+        // 2x threshold fell inside the skipped span still comes back speeding.
+        if (!inOvertime && f.tick >= 1800) {
+          inOvertime = true
+          document.getElementById('overtime-box')!.style.display = 'block'
+        }
+
+        // Seed the position cache from the landing frame so the events below
+        // anchor to where units ARE, not where they were before the gap. The
+        // skipped frames' own events are deliberately dropped: they describe a
+        // stretch of the fight this tab never showed.
+        for (const [id, u] of combatState.units) posCache.set(id, { ...u.visualPos })
+        effectLayer.processEvents(combatState.events, posCache, combatState.units)
+      }
+    }
+
     while (accumulator >= step && !done) {
       accumulator -= step
       if (playbackLog) {
