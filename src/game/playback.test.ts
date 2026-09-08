@@ -282,3 +282,111 @@ describe('wire survival', () => {
     expect(unitSnapshot(stateFromWire)).toEqual(unitSnapshot(stateFromOriginal))
   })
 })
+
+// ─── History independence ────────────────────────────────────────────────────
+
+// The invariant that licenses main.ts's catch-up jump. When a tab is
+// backgrounded mid-fight, requestAnimationFrame stops firing and playback
+// falls behind by however long the tab was away; on return it JUMPS straight
+// to the frame wall-clock says the fight is on rather than replaying the
+// thousands of frames it missed. That is only sound because applyFrame is an
+// absolute reconcile — it rebuilds the unit set from the frame, overwrites
+// every recorded field, clears and rebuilds occupancy, replaces the projectile
+// map wholesale, and assigns rather than merges events/terrain/tailwind.
+//
+// If anyone ever makes applyFrame incremental (accumulating damage, appending
+// events, retaining stale occupancy), the jump silently starts landing on a
+// WRONG state and two players desync with no error raised anywhere. These
+// tests fail loudly at that moment.
+describe('history independence (catch-up jump safety)', () => {
+  // Deliberately NOT realBoardsRun(): that fixture starts both units already
+  // adjacent, so no unit ever changes hex and every occupancy bug hides. Here
+  // the melee tangela must walk the length of the board to reach the ranged
+  // zubat, so hexPos, occupancy and targeting all genuinely churn mid-fight.
+  function movingBoardsRun(): ReturnType<typeof newRun> {
+    const run = newRun(botSeats())
+    run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 7 } }]
+    run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 5, row: 7 } }]
+    return run
+  }
+
+  function stateAtViaReplay(log: FightLog, index: number): CombatState {
+    const state = createPlaybackState(log)
+    for (let i = 0; i <= index; i++) applyFrame(state, log.frames[i])
+    return state
+  }
+
+  function stateAtViaJump(log: FightLog, index: number): CombatState {
+    const state = createPlaybackState(log)
+    applyFrame(state, log.frames[index])   // the skipped frames are never applied
+    return state
+  }
+
+  // Everything the renderer and the fight's outcome actually read.
+  function fullSnapshot(state: CombatState) {
+    return {
+      tick: state.tick,
+      units: unitSnapshot(state),
+      occupancy: [...state.hexOccupancy.entries()].sort(),
+      projectiles: [...state.projectiles.keys()].sort(),
+      terrain: state.terrain,
+      tailwind: state.tailwind,
+      events: state.events,
+    }
+  }
+
+  function sampleIndices(log: FightLog): number[] {
+    const last = playbackLength(log) - 1
+    return [...new Set([0, 1, Math.floor(last / 4), Math.floor(last / 2),
+                        Math.floor((last * 3) / 4), last - 1, last])]
+      .filter(i => i >= 0 && i <= last)
+  }
+
+  it('the fixture really does move units between hexes (guards the tests below)', () => {
+    const log = recordFight(movingBoardsRun(), 0, 1, 1)
+    const configs = new Set(
+      log.frames.map(f => f.units.map(u => `${u.id}@${u.hexPos.col},${u.hexPos.row}`).sort().join('|')),
+    )
+    expect(configs.size).toBeGreaterThan(1)
+  })
+
+  it('jumping straight to a frame lands on the same units as replaying every frame up to it', () => {
+    const log = recordFight(movingBoardsRun(), 0, 1, 1)
+    const target = Math.floor(playbackLength(log) / 2)
+
+    expect(unitSnapshot(stateAtViaJump(log, target)))
+      .toEqual(unitSnapshot(stateAtViaReplay(log, target)))
+  })
+
+  it('lands on a byte-identical state at every sampled point across the whole fight', () => {
+    const log = recordFight(movingBoardsRun(), 0, 1, 1)
+
+    for (const i of sampleIndices(log)) {
+      expect(fullSnapshot(stateAtViaJump(log, i)), `frame ${i}`)
+        .toEqual(fullSnapshot(stateAtViaReplay(log, i)))
+    }
+  })
+
+  it('carries no stale hex occupancy from the frames it skipped', () => {
+    const log = recordFight(movingBoardsRun(), 0, 1, 1)
+
+    for (const i of sampleIndices(log)) {
+      const jumped = stateAtViaJump(log, i)
+      // Exactly one entry per unit in the frame, and every entry points at a
+      // unit that is actually standing there right now.
+      expect([...jumped.hexOccupancy.entries()].sort())
+        .toEqual(log.frames[i].units.map(u => [`${u.hexPos.col},${u.hexPos.row}`, u.id]).sort())
+    }
+  })
+
+  it('does not leak units that existed only in skipped frames', () => {
+    // Summons and crawlers enter and leave mid-fight, so a jump that skipped a
+    // summon's entire lifetime must not show it on the landing frame.
+    const log = recordFight(movingBoardsRun(), 0, 1, 1)
+    const last = playbackLength(log) - 1
+    const jumped = stateAtViaJump(log, last)
+
+    expect([...jumped.units.keys()].sort())
+      .toEqual(log.frames[last].units.map(u => u.id).sort())
+  })
+})
