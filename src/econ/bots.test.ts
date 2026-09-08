@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { newRun } from './runState'
-import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides, botCanAttemptBuy } from './bots'
+import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides, botCanAttemptBuy, scoreUnit } from './bots'
 import { settleRound } from './income'
 import { UNIT_MAP } from '../data/units'
 import { boardCap } from './xp'
@@ -238,6 +238,20 @@ describe('bots', () => {
 
       econ.shopShiny = [false, false, false, false, false]   // non-shiny control, same bench/gold
       expect(botCanAttemptBuy(econ, 0)).toBe(true)
+    })
+  })
+
+  describe('scoreUnit — shiny valuation', () => {
+    it('ranks a shiny slot strictly above the same non-shiny unit on a fresh econ (every other arg identical)', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById(econ.personaId)!
+      const genome = resolveGenome(persona.id)
+      econ.bench = Array(9).fill(null)   // empty — keeps hasEstablishedComp false, starUpMult at 1
+      econ.board = []
+      const normalScore = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, false)
+      const shinyScore = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, true)
+      expect(shinyScore).toBeGreaterThan(normalScore)
     })
   })
 })
