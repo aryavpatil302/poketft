@@ -296,7 +296,7 @@ function computeTraitViability(econ: PlayerEcon, pool: Record<string, number>, r
 // copies dominate, then trait synergy with what it already owns, then raw
 // unit strength. The persona is only a soft bias — comps emerge from shops.
 // All the magnitudes are genome-driven (trained by src/econ/train.ts).
-function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGenome, defId: string, rerollTargetIds?: string[], catchUp = 0, concentrate = false, priorityTraits?: Map<string, number>, legendaryMode = false, stage = 0, explorationMode = false, rng: Rng = Math.random, traitViability?: Map<string, number>, catalogBiasIds?: Set<string>): number {
+export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGenome, defId: string, rerollTargetIds?: string[], catchUp = 0, concentrate = false, priorityTraits?: Map<string, number>, legendaryMode = false, stage = 0, explorationMode = false, rng: Rng = Math.random, traitViability?: Map<string, number>, catalogBiasIds?: Set<string>, shiny = false): number {
   const def = UNIT_MAP.get(defId)
   if (!def) return -1
   let score = 0
@@ -339,7 +339,15 @@ function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGenome, def
     return species !== undefined && [...species].some(s => s !== defId)
   })
   const starUpMult = (hasEstablishedComp && !connectsToRoster) ? 0.5 : 1
-  if (copies1 >= 2) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult   // completes a 2★ right now
+  // Shiny is exclusive with the tier-1 star terms below, not additive on top of
+  // them: a shiny lands at tier 2 directly, so it never completes a tier-1
+  // triple (copies1-based terms describe an upgrade that cannot happen on this
+  // buy). PLACEHOLDER weighting pending self-play tuning data — not defended.
+  // Deliberately "completed-2★ scoring, net the extra gold" rather than a free
+  // 2★: reuses the copies1>=2 term byte-for-byte, then subtracts the
+  // incremental gold a shiny costs over a normal buy.
+  if (shiny) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult - (shinyPrice(def.cost) - def.cost)
+  else if (copies1 >= 2) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult   // completes a 2★ right now
   else if (copies1 === 1) score += (genome.starPairBonus + def.cost * 0.5) * starUpMult // forms a pair
   if (has2Star) score += (genome.star3LongRunBonus + def.cost * 0.8) * starUpMult       // chasing a costly 3★ is worth more
 
@@ -1101,7 +1109,7 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
         const id = econ.shop[s]
         if (!id) continue
         if (!botCanAttemptBuy(econ, s)) continue
-        const sc = scoreUnit(econ, persona, genome, id, rerollTarget?.defIds, catchUp, concentrate, priorityTraits, legendaryMode, stage, explorationMode, rng, traitViability, catalogBiasIds)
+        const sc = scoreUnit(econ, persona, genome, id, rerollTarget?.defIds, catchUp, concentrate, priorityTraits, legendaryMode, stage, explorationMode, rng, traitViability, catalogBiasIds, econ.shopShiny[s] === true)
         if (sc > bestScore) { runnerUpSlot = bestSlot; runnerUpScore = bestScore; bestScore = sc; bestSlot = s }
         else if (sc > runnerUpScore) { runnerUpScore = sc; runnerUpSlot = s }
       }
