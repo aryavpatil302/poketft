@@ -268,6 +268,49 @@ describe('replay fidelity', () => {
   })
 })
 
+// ─── Shiny round-trip ────────────────────────────────────────────────────────
+
+describe('shiny round-trip (record → replay)', () => {
+  it('a shiny board entry survives to the replayed live Unit', () => {
+    const run = newRun(botSeats())
+    run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true }]
+    run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 } }]
+    const log = recordFight(run, 0, 1, 1)
+
+    const state = replayLog(log)
+    const playerUnit = [...state.units.values()].find(u => u.team === 'player')
+    expect(playerUnit).toBeDefined()
+    expect(playerUnit!.isShiny).toBe(true)
+  })
+
+  it('the recorded UnitFrame carries isShiny independent of replay', () => {
+    const run = newRun(botSeats())
+    run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true }]
+    run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 } }]
+    const log = recordFight(run, 0, 1, 1)
+
+    const playerFrame = log.frames[0].units.find(uf => uf.team === 'player')
+    expect(playerFrame).toBeDefined()
+    expect(playerFrame!.isShiny).toBe(true)
+  })
+
+  it('a non-shiny opponent does not leak isShiny in the same frame', () => {
+    const run = newRun(botSeats())
+    run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true }]
+    run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 } }]
+    const log = recordFight(run, 0, 1, 1)
+
+    const enemyFrame = log.frames[0].units.find(uf => uf.team === 'enemy')
+    expect(enemyFrame).toBeDefined()
+    expect(enemyFrame!.isShiny).toBe(false)
+
+    const state = replayLog(log)
+    const enemyUnit = [...state.units.values()].find(u => u.team === 'enemy')
+    expect(enemyUnit).toBeDefined()
+    expect(enemyUnit!.isShiny).not.toBe(true)
+  })
+})
+
 // ─── Wire survival ───────────────────────────────────────────────────────────
 
 describe('wire survival', () => {
