@@ -332,6 +332,7 @@ export const GRAVELER: UnitDefinition = {
     scaling: { shieldBase: [200, 350, 500], hpPct: [10, 20, 30], defGain: [10, 20, 50] },
   },
   spritePath: '/visuals/sprites/volcano/graveler-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/volcano/shiny_graveler.png',
 }
 
 export const TYPHLOSION: UnitDefinition = {
@@ -352,6 +353,7 @@ export const TYPHLOSION: UnitDefinition = {
     scaling: { targetCount: [1, 2, 3], damage: [200, 350, 500] },
   },
   spritePath: '/visuals/sprites/volcano/typhlosion-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/volcano/shiny_typhlosion.webp',
   spriteScale: 0.8,
 }
 
@@ -373,6 +375,7 @@ export const TORKOAL: UnitDefinition = {
     scaling: { healAmount: [200, 300, 450], damage: [100, 150, 250], blindDuration: [2, 2, 3] },
   },
   spritePath: '/visuals/sprites/volcano/torkoal-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/volcano/shiny_torkoal.png',
 }
 
 export const GIBLE: UnitDefinition = {
@@ -393,6 +396,7 @@ export const GIBLE: UnitDefinition = {
     scaling: { damage: [300, 400, 550], stunSeconds: [1.5, 2, 2.5] },
   },
   spritePath: '/visuals/sprites/volcano/gible-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/volcano/shiny_gible.png',
   spriteScale: 0.70,
 }
 
