@@ -5,32 +5,53 @@
 import { UNIT_MAP } from '../data/units'
 import type { PlayerEcon, RunState } from './runState'
 import { shopEligibleUnits } from './runState'
-import { SHOP_SLOTS, SHOP_ODDS, REROLL_COST, sellValue, copiesHeld } from './constants'
+import {
+  SHOP_SLOTS, SHOP_ODDS, REROLL_COST, sellValue, copiesHeld,
+  SHINY_ROLL_CHANCE, SHINY_COST_ODDS, SHINY_TIER,
+} from './constants'
 import { tryCombine, wouldCombine, type CombineResult } from './combine'
 
 export type Rng = () => number
+
+// Weighted pick over a fixed set of buckets (1-indexed in the return value).
+// Returns 0 when every weight is non-positive — WITHOUT drawing from rng in
+// that case, so an all-zero call costs nothing in the rng sequence. Shared by
+// rollCost's odds pass/fallback pass and the shiny cost-tier pick.
+function pickWeightedIndex(weights: readonly number[], rng: Rng): number {
+  const total = weights.reduce((a, b) => a + b, 0)
+  if (total <= 0) return 0
+  let r = rng() * total
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i]
+    if (r < 0) return i + 1
+  }
+  return weights.length
+}
+
+// Weighted pick of one id from candidates carrying remaining pool copies.
+// Defaults to the last candidate (mirrors the original inline walk) in the
+// unreachable case where floating-point drift leaves r >= 0 after the loop.
+function pickWeightedId(candidates: Array<{ id: string; copies: number }>, rng: Rng): string {
+  const total = candidates.reduce((a, u) => a + u.copies, 0)
+  let r = rng() * total
+  let picked = candidates[candidates.length - 1].id
+  for (const u of candidates) {
+    r -= u.copies
+    if (r < 0) { picked = u.id; break }
+  }
+  return picked
+}
 
 // Roll one cost bucket by the level's odds, renormalizing over buckets that
 // still have pool copies. Returns 0 when the entire pool is empty.
 function rollCost(level: number, bucketWeights: number[], rng: Rng): number {
   const odds = SHOP_ODDS[Math.max(1, Math.min(10, level))]
   const weights = odds.map((p, i) => (bucketWeights[i] > 0 ? p : 0))
-  const totalW = weights.reduce((a, b) => a + b, 0)
-  if (totalW <= 0) {
-    // odds-eligible buckets are all empty — fall back to ANY non-empty bucket
-    const any: number[] = bucketWeights.map(w => (w > 0 ? 1 : 0))
-    const t = any.reduce((a, b) => a + b, 0)
-    if (t === 0) return 0
-    let r = rng() * t
-    for (let i = 0; i < 5; i++) { r -= any[i]; if (r < 0) return i + 1 }
-    return 5
-  }
-  let r = rng() * totalW
-  for (let i = 0; i < 5; i++) {
-    r -= weights[i]
-    if (r < 0) return i + 1
-  }
-  return 5
+  const picked = pickWeightedIndex(weights, rng)
+  if (picked !== 0) return picked
+  // odds-eligible buckets are all empty — fall back to ANY non-empty bucket
+  const any: number[] = bucketWeights.map(w => (w > 0 ? 1 : 0))
+  return pickWeightedIndex(any, rng)
 }
 
 // Total pool copies remaining per cost bucket [1c..5c]
@@ -40,6 +61,14 @@ function bucketTotals(pool: Record<string, number>): number[] {
     totals[def.cost - 1] += pool[def.id] ?? 0
   }
   return totals
+}
+
+// True when a shiny is already owned anywhere — bench or board. TFT Set 4's
+// rule: never offer a second shiny (Chosen) while holding one.
+export function hasShinyOwned(econ: PlayerEcon): boolean {
+  if (econ.bench.some(b => b?.isShiny)) return true
+  if (econ.board.some(u => u.isShiny)) return true
+  return false
 }
 
 // Fill every shop slot. Slots roll independently (TFT-style); a unit's draw
@@ -56,16 +85,29 @@ export function rollShop(econ: PlayerEcon, pool: Record<string, number>, rng: Rn
   for (let slot = 0; slot < SHOP_SLOTS; slot++) {
     const cost = rollCost(econ.level, totals, rng)
     if (cost === 0) { econ.shop[slot] = null; continue }
-    const bucket = byCost[cost]
-    const totalCopies = bucket.reduce((a, u) => a + u.copies, 0)
-    let r = rng() * totalCopies
-    let picked = bucket[bucket.length - 1].id
-    for (const u of bucket) {
-      r -= u.copies
-      if (r < 0) { picked = u.id; break }
-    }
-    econ.shop[slot] = picked
+    econ.shop[slot] = pickWeightedId(byCost[cost], rng)
   }
+
+  // ─── Shiny pass ────────────────────────────────────────────────────────
+  // Independently-rolled instant-2★ offer (TFT Set 4 "Chosen"-style), run
+  // AFTER the normal per-slot loop above and BEFORE any early return so
+  // shopShiny always resets in sync with a fresh shop. Order below is
+  // load-bearing for test determinism: reset -> ownership gate -> chance
+  // roll -> cost tier -> candidate id -> slot. No cross-tier fallback: a
+  // depleted or empty tier is a normal outcome, not retried against
+  // another tier.
+  for (let i = 0; i < SHOP_SLOTS; i++) econ.shopShiny[i] = false
+  if (hasShinyOwned(econ)) return
+  if (rng() >= SHINY_ROLL_CHANCE) return
+  const shinyOdds = SHINY_COST_ODDS[Math.max(1, Math.min(9, econ.level))]
+  const shinyCost = pickWeightedIndex(shinyOdds, rng)
+  if (shinyCost === 0) return
+  const shinyCandidates = byCost[shinyCost].filter(u => u.copies >= copiesHeld(SHINY_TIER))
+  if (shinyCandidates.length === 0) return
+  const shinyId = pickWeightedId(shinyCandidates, rng)
+  const shinySlot = Math.min(SHOP_SLOTS - 1, Math.floor(rng() * SHOP_SLOTS))
+  econ.shop[shinySlot] = shinyId
+  econ.shopShiny[shinySlot] = true
 }
 
 // Paid (or free) reroll. Clears the lock (TFT behavior).
