@@ -242,6 +242,7 @@ export const PALOSSAND: UnitDefinition = {
     scaling: { targetCount: [3, 3, 4], damage: [75, 150, 300] },
   },
   spritePath: '/visuals/sprites/beachy/palossand-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/beachy/shiny_palossand.webp',
   spriteScale:0.9,
 }
 
@@ -263,6 +264,7 @@ export const A_EXEGGUTOR: UnitDefinition = {
     scaling: { damage: [600, 800, 1000] },
   },
   spritePath: '/visuals/sprites/beachy/a-exeggutor-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/beachy/shiny_a_exeggutor.png',
 }
 
 export const BLASTOISE: UnitDefinition = {
@@ -283,6 +285,7 @@ export const BLASTOISE: UnitDefinition = {
     scaling: { attackSpeedBonus: [50, 75, 2000], shotRatio: [75, 150, 500] },
   },
   spritePath: '/visuals/sprites/beachy/blastoise-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/beachy/shiny_blastoise.png',
   spriteScale: 1.1,
 }
 
@@ -304,6 +307,7 @@ export const TAPU_FINI: UnitDefinition = {
     scaling: { damagePerSec: [100, 150, 5000], healPct: [75, 75, 200], reductionPct: [2, 3, 20] },
   },
   spritePath: '/visuals/sprites/beachy/tapu-fini-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/beachy/shiny_tapu_fini.webp',
 }
 
 
