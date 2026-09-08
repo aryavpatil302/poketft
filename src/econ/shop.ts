@@ -7,7 +7,7 @@ import type { PlayerEcon, RunState } from './runState'
 import { shopEligibleUnits } from './runState'
 import {
   SHOP_SLOTS, SHOP_ODDS, REROLL_COST, sellValue, copiesHeld,
-  SHINY_ROLL_CHANCE, SHINY_COST_ODDS, SHINY_TIER,
+  SHINY_ROLL_CHANCE, SHINY_COST_ODDS, SHINY_TIER, shinyPrice,
 } from './constants'
 import { tryCombine, wouldCombine, type CombineResult } from './combine'
 
@@ -130,20 +130,39 @@ export function buyUnit(state: RunState, econ: PlayerEcon, slot: number): BuyRes
   if (!defId) return { ok: false, reason: 'empty-slot' }
   const def = UNIT_MAP.get(defId)
   if (!def) return { ok: false, reason: 'empty-slot' }
-  if (econ.gold < def.cost) return { ok: false, reason: 'no-gold' }
-  if ((state.pool[defId] ?? 0) <= 0) return { ok: false, reason: 'pool-empty' }
+
+  // A shiny buy is priced and pooled as exactly a three-copy 2★: charging
+  // shinyPrice(cost) and removing copiesHeld(SHINY_TIER) pool copies keeps
+  // the tier-derived sellValue/copiesHeld formulas honest on the eventual
+  // sell-back. strict === true because a legacy save's backfilled shopShiny
+  // array is the only thing guaranteeing the index exists.
+  const shiny = econ.shopShiny[slot] === true
+  const price = shiny ? shinyPrice(def.cost) : def.cost
+  const copies = shiny ? copiesHeld(SHINY_TIER) : 1
+  const tier = shiny ? SHINY_TIER : 1
+
+  if (econ.gold < price) return { ok: false, reason: 'no-gold' }
+  // Re-checked here (not just at roll time) because the pool is shared —
+  // another seat can drain the id between roll and buy.
+  if ((state.pool[defId] ?? 0) < copies) return { ok: false, reason: 'pool-empty' }
 
   const benchSlot = econ.bench.findIndex(b => b === null)
-  if (benchSlot === -1 && !wouldCombine(econ, defId)) {
-    return { ok: false, reason: 'bench-full' }
+  if (benchSlot === -1) {
+    // A shiny is always tier 2+, so the tier-1-only phantom-copy path below
+    // must never be consulted for a shiny buy — reaching it would charge 3x
+    // and hand back an ordinary 2★ from an unrelated tier-1 merge, silently
+    // destroying the shiny. This guard MUST run before wouldCombine.
+    if (shiny) return { ok: false, reason: 'bench-full' }
+    if (!wouldCombine(econ, defId)) return { ok: false, reason: 'bench-full' }
   }
 
-  econ.gold -= def.cost
-  state.pool[defId]--
+  econ.gold -= price
+  state.pool[defId] -= copies
   econ.shop[slot] = null
+  econ.shopShiny[slot] = false
 
   if (benchSlot !== -1) {
-    econ.bench[benchSlot] = { definitionId: defId, tier: 1 }
+    econ.bench[benchSlot] = { definitionId: defId, tier, ...(shiny && { isShiny: true }) }
     return { ok: true, combined: tryCombine(econ, defId) }
   }
 
