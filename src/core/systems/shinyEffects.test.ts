@@ -97,3 +97,38 @@ describe('shinyEffects — dispatch', () => {
     expect(() => initShinyEffects(state!)).not.toThrow()
   })
 })
+
+// ─── initShinyEffects: universal stat passive ──────────────────────────────────
+
+describe('shinyEffects — universal stat passive', () => {
+
+  it('(a) shiny 1-star Tangela gets exactly +5% on the six base stats; non-shiny control is unaffected', () => {
+    const shiny = makeUnit('tangela', 'player', 1)
+    shiny.isShiny = true
+    const control = makeUnit('tangela', 'player', 1)
+    const enemy = makeUnit('dummy', 'enemy', 1)
+
+    const state = makeState([shiny, control], [enemy])
+
+    const shinyUnit = state.units.get(shiny.id)!
+    const controlUnit = state.units.get(control.id)!
+
+    // 5% of the raw 1-star Tangela base (hp 600, attack 40, special 100, defense 50, spDefense 50, attackSpeed 0.50)
+    expect(shinyUnit.maxHp).toBe(630)
+    expect(shinyUnit.currentHp).toBe(630)
+    expect(shinyUnit.attack).toBe(42)
+    expect(shinyUnit.special).toBe(105)
+    expect(shinyUnit.defense).toBe(53)
+    expect(shinyUnit.spDefense).toBe(53)
+    expect(shinyUnit.attackSpeed).toBeCloseTo(0.525, 10)
+
+    // Control is untouched — no leakage from the shiny pass.
+    expect(controlUnit.maxHp).toBe(600)
+    expect(controlUnit.currentHp).toBe(600)
+    expect(controlUnit.attack).toBe(40)
+    expect(controlUnit.special).toBe(100)
+    expect(controlUnit.defense).toBe(50)
+    expect(controlUnit.spDefense).toBe(50)
+    expect(controlUnit.attackSpeed).toBeCloseTo(0.50, 10)
+  })
+})
