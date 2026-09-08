@@ -24,7 +24,7 @@ export const TANGELA: UnitDefinition = {
     scaling: { shieldAmount: [400, 525, 685], durationSeconds: [4, 4, 4] },
   },
   spritePath: '/visuals/sprites/jungle/tangela-sprite.webp',
-  spriteScale: 0.7,
+  spriteScale: 1.1,
 }
 
 export const RIBOMBEE: UnitDefinition = {
@@ -101,8 +101,8 @@ export const VIKAVOLT: UnitDefinition = {
   ability: {
     id: 'vikavolt_discharge',
     name: 'Discharge',
-    description: 'Deal 400/500/675 damage to all enemies in the most populated row, stunning them for 1.5/2/3 seconds. Does 33% extra damage to shields.',
-    scaling: { damage: [400, 500, 675], stunSeconds: [1.5, 2.0, 3.0] },
+    description: 'Deal 250/400/675 damage to all enemies in the most populated row, stunning them for 1.5/2/3 seconds. Does 33% extra damage to shields.',
+    scaling: { damage: [250, 400, 675], stunSeconds: [1.5, 2.0, 3.0] },
   },
   spritePath: '/visuals/sprites/jungle/vikavolt-sprite.webp',
 }
@@ -114,7 +114,7 @@ export const TOUCANNON: UnitDefinition = {
   types: ['jungle','spellweaver'],
   role: 'attack caster',
   baseStats: {
-    hp: 800, startMana: 20, maxMana: 65,
+    hp: 800, startMana: 20, maxMana: 40,
     attack: 75, special: 100, defense: 30, spDefense: 30,
     attackSpeed: 0.75, critChance: 0.25, critDamage: 1.40, range: 4,
   },
@@ -145,7 +145,7 @@ export const TROPIUS: UnitDefinition = {
     scaling: { damage: [200, 275, 800], knockUpSeconds: [2, 2, 5], shieldPerHit: [200, 350, 1000] },
   },
   spritePath: '/visuals/sprites/jungle/tropius-sprite.webp',
-  spriteScale: 0.75,
+  spriteScale: 0.85,
 }
 
 export const TAPU_BULU: UnitDefinition = {
@@ -191,6 +191,7 @@ export const KINGLER: UnitDefinition = {
     scaling: { damage: [200, 350, 500] },
   },
   spritePath: '/visuals/sprites/beachy/kingler-sprite.webp',
+  spriteScale: 0.85,
 }
 
 export const A_RAICHU: UnitDefinition = {
@@ -231,6 +232,7 @@ export const PALOSSAND: UnitDefinition = {
     scaling: { targetCount: [3, 3, 4], damage: [75, 150, 300] },
   },
   spritePath: '/visuals/sprites/beachy/palossand-sprite.webp',
+  spriteScale:0.9,
 }
 
 export const A_EXEGGUTOR: UnitDefinition = {
@@ -271,7 +273,7 @@ export const BLASTOISE: UnitDefinition = {
     scaling: { attackSpeedBonus: [50, 75, 2000], shotRatio: [75, 150, 500] },
   },
   spritePath: '/visuals/sprites/beachy/blastoise-sprite.webp',
-  spriteScale: 0.80,
+  spriteScale: 1.1,
 }
 
 export const TAPU_FINI: UnitDefinition = {
@@ -439,6 +441,7 @@ export const WHEEZING: UnitDefinition = {
     scaling: { damagePerPuff: [8, 10, 12], healPerHit: [50, 75, 200] },
   },
   spritePath: '/visuals/sprites/volcano/weezing-sprite.webp',
+  spriteScale:1.1,
 }
 
 export const CHARIZARD: UnitDefinition = {
@@ -493,7 +496,7 @@ export const WAILORD: UnitDefinition = {
   role: 'tank',
   baseStats: {
     hp: 800, startMana: 0, maxMana: 40,
-    attack: 60, special: 100, defense: 50, spDefense: 50,
+    attack: 60, special: 100, defense: 50, spDefense: 40,
     attackSpeed: 0.55, critChance: 0.25, critDamage: 1.40, range: 1,
   },
   ability: {
@@ -523,6 +526,7 @@ export const TALONFLAME: UnitDefinition = {
     scaling: { damage: [350, 565, 715] },
   },
   spritePath: '/visuals/sprites/sky_strikers/talonflame-sprite.webp',
+  spriteScale:0.85,
 }
 
 export const NOIVERN: UnitDefinition = {
@@ -587,6 +591,7 @@ export const ZUBAT: UnitDefinition = {
     scaling: { damage: [200, 350, 600], poisonTotal: [20, 50, 75] },
   },
   spritePath: '/visuals/sprites/cave_crawlers/zubat-sprite.webp',
+  spriteScale:0.8,
 }
 
 export const DRUDDIGON: UnitDefinition = {
@@ -627,6 +632,7 @@ export const SABLEYE: UnitDefinition = {
     scaling: { shieldAmount: [250, 325, 425], damage: [200, 300, 550] },
   },
   spritePath: '/visuals/sprites/cave_crawlers/sableye-sprite.webp',
+  spriteScale:0.85,
 }
 
 export const FERROTHORN: UnitDefinition = {
@@ -647,6 +653,7 @@ export const FERROTHORN: UnitDefinition = {
     scaling: { durabilityPct: [25, 30, 40], retaliationDamage: [75, 150, 225] },
   },
   spritePath: '/visuals/sprites/cave_crawlers/ferrothron-sprite.webp',
+  spriteScale:1.1,
 }
 
 export const EXCADRILL: UnitDefinition = {
@@ -707,8 +714,8 @@ export const BELLIBOLT: UnitDefinition = {
   ability: {
     id: 'bellibolt_electrophoresis',
     name: 'Electrophoresis',
-    description: 'Passive: Gain 1 charge (max 10) whenever Bellibolt is hit; each charge grants +5 Defense and +5 Sp. Def. On cast, discharge in a 1-hex radius dealing 50/90/120% of total Defense + Sp. Def as magic damage, then lose all charges.',
-    scaling: { scalingPct: [50, 90, 120] },
+    description: 'Passive: Gain 1 charge (max 10) whenever Bellibolt is hit; each charge grants +5 Defense and +5 Sp. Def. On cast, heal for 300/400/600 and discharge in a 1-hex radius dealing 50/90/120% of total Defense + Sp. Def as magic damage, then lose all charges.',
+    scaling: { scalingPct: [50, 90, 120], healAmount: [300, 400, 600] },
   },
   spritePath: '/visuals/sprites/river/belliboilt-sprite.webp',
   spriteScale: 0.8,
@@ -909,7 +916,7 @@ export const STONJOURNER: UnitDefinition = {
   types: ['ruiner','bruiser'],
   role: 'tank',
   baseStats: {
-    hp: 900, startMana: 30, maxMana: 80,
+    hp: 900, startMana: 30, maxMana: 120,
     attack: 55, special: 100, defense: 60, spDefense: 30,
     attackSpeed: 0.55, critChance: 0.25, critDamage: 1.40, range: 1,
   },
@@ -980,6 +987,7 @@ export const CLAYDOL: UnitDefinition = {
     scaling: { damage: [400, 600, 1000], maxHpPct: [5, 8, 10] },
   },
   spritePath: '/visuals/sprites/ruiner/Claydol-sprite.png',
+  spriteScale:0.9,
 }
 
 export const SPIRITOMB: UnitDefinition = {
@@ -1100,7 +1108,7 @@ export const AERODACTYL: UnitDefinition = {
   ability: {
     id: 'aerodactyl_ancient_power',
     name: 'Ancient Power',
-    description: 'Boost attack, special, attack speed, defense, spDef, and move speed by 30/45/80% for the rest of combat. Gain +1 range and 25% omnivamp. Each attack also launches a rock from the target to the furthest enemy, dealing 30/40/100% attack damage.',
+    description: 'Dash 1 hex behind, dropping aggro for the dash (can be targeted again on landing). Boost attack, special, attack speed, defense, spDef, and move speed by 30/45/80% for the rest of combat. Gain +1 range and 25% omnivamp. Each attack also launches a rock from the target to the furthest enemy, dealing 30/40/100% attack damage.',
     scaling: { statBonus: [0.30, 0.45, 0.80], rockDamagePct: [0.50, 0.75, 3] },
   },
   spritePath: '/visuals/sprites/ascenders/Aerodactyl-sprite.webp',
@@ -1231,6 +1239,7 @@ export const SNORUNT: UnitDefinition = {
     scaling: { shieldAmount: [150, 200, 300] },
   },
   spritePath: '/visuals/sprites/froststone/Snorunt-sprite.webp',
+  spriteScale:0.8,
 }
 
 export const FROSLASS: UnitDefinition = {
@@ -1251,6 +1260,7 @@ export const FROSLASS: UnitDefinition = {
     scaling: { baseDamage: [100, 200, 400] },
   },
   spritePath: '/visuals/sprites/froststone/Froslass-sprite.webp',
+  spriteScale:0.85,
 }
 
 export const WEAVILE: UnitDefinition = {
@@ -1271,6 +1281,7 @@ export const WEAVILE: UnitDefinition = {
     scaling: { firstDmg: [135, 200, 335], spinDmg: [150, 200, 300], hpPercent: [0.10, 0.10, 0.15] },
   },
   spritePath: '/visuals/sprites/froststone/Weavile-sprite.webp',
+  spriteScale: 0.85,
 }
 
 export const H_AVALUGG: UnitDefinition = {
@@ -1280,7 +1291,7 @@ export const H_AVALUGG: UnitDefinition = {
   types: ['froststone','bruiser'],
   role: 'tank',
   baseStats: {
-    hp: 1200, startMana: 40, maxMana: 90,
+    hp: 900, startMana: 40, maxMana: 90,
     attack: 70, special: 100, defense: 80, spDefense: 40,
     attackSpeed: 0.55, critChance: 0.25, critDamage: 1.40, range: 1,
   },
@@ -1327,8 +1338,8 @@ export const MAMOSWINE: UnitDefinition = {
   ability: {
     id: 'mamoswine_thick_fat',
     name: 'Ice Rider',
-    description: 'Gain 40/60/100 armor and MR for 5 seconds. During this time, become a passive attack handler - each auto deals your defense + MR as bonus special damage.',
-    scaling: { armorMr: [40, 60, 100] },
+    description: 'Gain 50/75/200 Defense and Sp. Def for 5 seconds; while active, autos deal 100 bonus magic damage but Mamoswine cannot gain mana. When the buff ends, heal for 30/45/100% of the damage taken during it, scaled by Special.',
+    scaling: { armorMr: [50, 75, 200], healPct: [0.30, 0.45, 1.00] },
   },
   spritePath: '/visuals/sprites/froststone/Mamoswine-sprite.webp',
 }
