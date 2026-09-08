@@ -34,6 +34,7 @@ import { displayedOpponentSeat, displayedRound } from './econ/opponentView'
 import {
   REROLL_COST, XP_BUY_COST, sellValue, stageLabel, SHOP_ODDS,
   BASE_INCOME_BY_ROUND, BASE_INCOME_CAP, MAX_INTEREST, streakBonus, WIN_BONUS, XP_PER_ROUND,
+  shinyPrice,
 } from './econ/constants'
 import {
   startPlanning, resolveRound, pairSeats, applyAction,
@@ -612,6 +613,9 @@ const BENCH_CELL_W = 91
 // Anchored to the bottom edge (see benchCellHTML), so the row's bottom stays
 // flush against the shop bar as this shrinks.
 const BENCH_CELL_H = Math.round(BENCH_CELL_W * 0.25)
+// Animated sparkle overlay composited over a shiny unit's sprite at every DOM render site.
+const SHINY_EFFECT_GIF = '/visuals/shiny_sprites/shiny_effect.gif'
+
 // Sprite size for a bench unit — the visible size of the pokemon on the bench.
 const BENCH_SPRITE_W = 76
 const BENCH_SPRITE_H = 60
@@ -3347,7 +3351,8 @@ function benchCellHTML(slot: number): string {
             <div style="height:100%;width:${manaPct}%;background:#3377ff;"></div>
           </div>
         </div>
-        <img class="bench-unit-sprite" src="${def.spritePath}" style="width:${BENCH_SPRITE_W}px;height:${BENCH_SPRITE_H}px;object-fit:contain;image-rendering:pixelated;margin-top:3px;pointer-events:auto;cursor:pointer;" onerror="this.style.display='none'">
+        <img class="bench-unit-sprite" src="${b.isShiny ? (def.shinySpritePath ?? def.spritePath) : def.spritePath}" style="width:${BENCH_SPRITE_W}px;height:${BENCH_SPRITE_H}px;object-fit:contain;image-rendering:pixelated;margin-top:3px;pointer-events:auto;cursor:pointer;" onerror="this.style.display='none'">
+        ${b.isShiny ? `<img src="${SHINY_EFFECT_GIF}" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:${BENCH_SPRITE_W}px;height:${BENCH_SPRITE_H}px;object-fit:contain;pointer-events:none;">` : ''}
         ${b.item ? `<img src="${ITEM_MAP.get(b.item)?.iconPath ?? ''}" style="position:absolute;right:0;bottom:8px;width:20px;height:20px;object-fit:contain;image-rendering:pixelated;pointer-events:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">` : ''}
       </div>`
   }
@@ -3452,7 +3457,9 @@ function shopCardHTML(slot: number): string {
   const def = UNIT_MAP.get(defId)
   if (!def) return ''
   const border = COST_BORDER[def.cost] ?? '#9aa0a6'
-  const affordable = h.gold >= def.cost
+  const isShinySlot = h.shopShiny[slot] === true
+  const displayCost = isShinySlot ? shinyPrice(def.cost) : def.cost
+  const affordable = h.gold >= displayCost
   const traitRows = def.types.slice(0, 3).map(cardTraitRowHTML).join('')
 
   // Already owned (bench or board) → small pokeball marker, upper-left.
@@ -3460,10 +3467,12 @@ function shopCardHTML(slot: number): string {
 
   // Buying this card would complete a combine right now → pulse in size AND
   // glow the tier color it's about to become (silver = 2★, gold = 3★).
+  // A shiny buy lands directly at 2-star, so it can never consume 1-star copies
+  // to reach 2-star — a shiny slot's pulse is driven by c2 alone (3-star only).
   let c1 = 0, c2 = 0
   for (const b of h.bench) if (b && b.definitionId === defId) { if (b.tier === 1) c1++; else if (b.tier === 2) c2++ }
   for (const u of h.board) if (u.definitionId === defId) { if (u.tier === 1) c1++; else if (u.tier === 2) c2++ }
-  const starUpTier = c1 === 2 ? (c2 === 2 ? 3 : 2) : null
+  const starUpTier = isShinySlot ? (c2 === 2 ? 3 : null) : (c1 === 2 ? (c2 === 2 ? 3 : 2) : null)
   const tierPulseClass = starUpTier === 3 ? 'tier-pulse-gold' : starUpTier === 2 ? 'tier-pulse-silver' : ''
   const starUpPulseClass = starUpTier ? 'shop-card-owned' : ''
   const tierBgPulseClass = starUpTier === 3 ? 'tier-bg-pulse-gold' : starUpTier === 2 ? 'tier-bg-pulse-silver' : ''
@@ -3482,9 +3491,10 @@ function shopCardHTML(slot: number): string {
       background:linear-gradient(180deg, rgba(26,32,48,0.96), rgba(10,14,24,0.96));
     ">
       ${tierBgPulseClass ? `<div class="${tierBgPulseClass}" style="position:absolute;inset:0;z-index:0;"></div>` : ''}
-      <img src="${def.spritePath}" style="
+      <img src="${isShinySlot ? (def.shinySpritePath ?? def.spritePath) : def.spritePath}" style="
         position:absolute;right:2px;top:2px;
         width:86px;height:82px;object-fit:contain;image-rendering:pixelated;" onerror="this.style.display='none'">
+      ${isShinySlot ? `<img src="${SHINY_EFFECT_GIF}" style="position:absolute;right:2px;top:2px;width:86px;height:82px;object-fit:contain;pointer-events:none;">` : ''}
       ${starUpIconsHtml ? `<div style="position:absolute;right:3px;top:3px;display:flex;gap:2px;z-index:2;">${starUpIconsHtml}</div>` : ''}
       ${owned ? `<img src="/visuals/gui icons/pokeball_owned.png" style="
         position:absolute;left:3px;top:3px;width:16px;height:16px;object-fit:contain;
@@ -3495,7 +3505,7 @@ function shopCardHTML(slot: number): string {
       <div style="background:${border};color:#0a0e1a;font-size:10px;font-weight:bold;
         display:flex;justify-content:space-between;align-items:center;padding:2px 6px;position:relative;z-index:1;">
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:112px;">${def.name}</span>
-        <span style="display:inline-flex;align-items:center;gap:4px;">${goldIconHTML(11)}${def.cost}</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;">${goldIconHTML(11)}${displayCost}</span>
       </div>
     </div>
   </div>`
@@ -3532,7 +3542,7 @@ function keenEyeRegenBonus(defId: string, team: 'player' | 'enemy' = 'player'): 
 // `liveUnit` sources actual current HP/mana from a real Unit (fielded during
 // planning or mid-combat) so the card stays live-accurate; omitted for shop/
 // bench previews, which show a full-health, start-mana snapshot instead.
-function unitCardHTML(defId: string, tier: 1 | 2 | 3, liveUnit?: Unit): string {
+function unitCardHTML(defId: string, tier: 1 | 2 | 3, liveUnit?: Unit, isShiny: boolean = false): string {
   const def = UNIT_MAP.get(defId)
   if (!def) return ''
   const preview = makeUnit(defId, 'player', tier)
@@ -3585,7 +3595,8 @@ function unitCardHTML(defId: string, tier: 1 | 2 | 3, liveUnit?: Unit): string {
       <div style="position:relative;width:56px;height:56px;flex-shrink:0;">
         <div style="position:absolute;inset:0;border:2px solid ${border};border-radius:6px;
           background:#0a0e1a;overflow:hidden;display:flex;align-items:center;justify-content:center;">
-          <img src="${def.spritePath}" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;" onerror="this.style.display='none'">
+          <img src="${isShiny ? (def.shinySpritePath ?? def.spritePath) : def.spritePath}" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;" onerror="this.style.display='none'">
+          ${isShiny ? `<img src="${SHINY_EFFECT_GIF}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;">` : ''}
         </div>
         <div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);white-space:nowrap;">${starPips(tier)}</div>
         <div style="position:absolute;bottom:-5px;left:-5px;background:${border};color:#0a0e1a;
@@ -3660,7 +3671,7 @@ function showShopCardTooltip(card: HTMLElement): void {
   if (!defId) { tooltipHiddenReset(); return }
   ensureTooltipShown(`shop:${slot}:${defId}`)
   tooltipEl.style.width = `${UNIT_CARD_WIDTH}px`
-  tooltipEl.innerHTML = unitCardHTML(defId, 1)
+  tooltipEl.innerHTML = unitCardHTML(defId, 1, undefined, humanEcon().shopShiny[slot] === true)
   positionTooltipAboveRect(card.getBoundingClientRect())
 }
 
@@ -3670,7 +3681,7 @@ function showBenchCardTooltip(cell: HTMLElement): void {
   if (!b) { tooltipHiddenReset(); return }
   ensureTooltipShown(`bench:${slot}:${b.definitionId}:${b.tier}`)
   tooltipEl.style.width = `${UNIT_CARD_WIDTH}px`
-  tooltipEl.innerHTML = unitCardHTML(b.definitionId, b.tier)
+  tooltipEl.innerHTML = unitCardHTML(b.definitionId, b.tier, undefined, b.isShiny === true)
   // The bench unit's visual (bars + sprite) is bottom-anchored and overflows
   // above the cell's own (short) box — anchor to the actual top of the bar
   // stack, not the cell's bounding rect, so the tooltip starts above the
@@ -3687,7 +3698,7 @@ function showBenchCardTooltip(cell: HTMLElement): void {
 function showBoardUnitCardAt(defId: string, tier: 1 | 2 | 3, x: number, y: number, sourceKey: string, liveUnit?: Unit): void {
   ensureTooltipShown(sourceKey)
   tooltipEl.style.width = `${UNIT_CARD_WIDTH}px`
-  tooltipEl.innerHTML = unitCardHTML(defId, tier, liveUnit)
+  tooltipEl.innerHTML = unitCardHTML(defId, tier, liveUnit, liveUnit?.isShiny === true)
   positionTooltipNearPoint(x, y)
 }
 
@@ -4023,7 +4034,7 @@ function renderBenchRow(): void {
 // (no click/sell/drag, no drop-target highlight, no star-up flash — that's a
 // human-only mechanic). Takes the bench entry directly since it isn't reading
 // from humanEcon().
-function enemyBenchCellHTML(entry: { definitionId: string; tier: 1 | 2 | 3; item?: string } | null, slot: number): string {
+function enemyBenchCellHTML(entry: { definitionId: string; tier: 1 | 2 | 3; item?: string; isShiny?: boolean } | null, slot: number): string {
   const def = entry ? UNIT_MAP.get(entry.definitionId) : undefined
   const borderColor = entry ? (COST_BORDER[def?.cost ?? 1] ?? '#9aa0a6') : '#2c3850'
   const fill = entry ? '#141c2e' : 'rgba(12,18,32,0.6)'
@@ -4051,7 +4062,8 @@ function enemyBenchCellHTML(entry: { definitionId: string; tier: 1 | 2 | 3; item
             <div style="height:100%;width:${manaPct}%;background:#3377ff;"></div>
           </div>
         </div>
-        <img src="${def.spritePath}" style="width:${E_BENCH_SPRITE_W}px;height:${E_BENCH_SPRITE_H}px;object-fit:contain;image-rendering:pixelated;margin-top:${E_BENCH_SPRITE_MARGIN_TOP}px;" onerror="this.style.display='none'">
+        <img src="${entry.isShiny ? (def.shinySpritePath ?? def.spritePath) : def.spritePath}" style="width:${E_BENCH_SPRITE_W}px;height:${E_BENCH_SPRITE_H}px;object-fit:contain;image-rendering:pixelated;margin-top:${E_BENCH_SPRITE_MARGIN_TOP}px;" onerror="this.style.display='none'">
+        ${entry.isShiny ? `<img src="${SHINY_EFFECT_GIF}" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:${E_BENCH_SPRITE_W}px;height:${E_BENCH_SPRITE_H}px;object-fit:contain;pointer-events:none;">` : ''}
         ${entry.item ? `<img src="${ITEM_MAP.get(entry.item)?.iconPath ?? ''}" style="position:absolute;right:0;bottom:${s80(8)}px;width:${E_BENCH_ITEM}px;height:${E_BENCH_ITEM}px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">` : ''}
       </div>`
   }

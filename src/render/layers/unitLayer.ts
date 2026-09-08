@@ -153,6 +153,11 @@ cliffRImg.src = '/visuals/trait icons/cliff-r.png'
 const megaEvoImg = new Image()
 megaEvoImg.src = '/visuals/sprites/sky_strikers/mega-evo-sprite.png'
 
+// Shiny sparkle overlay — animated GIF; browser advances its frames on its own once loaded,
+// so drawImage() against it samples the current frame with no DOM attachment needed.
+const shinyEffectImg = new Image()
+shinyEffectImg.src = '/visuals/shiny_sprites/shiny_effect.gif'
+
 const iceMarkImg = new Image()
 iceMarkImg.src = '/visuals/trait icons/ice-mark.png'
 
@@ -207,10 +212,30 @@ async function loadSprite(definitionId: string, url: string): Promise<void> {
 }
 
 /** Returns the current drawable for this sprite. */
-function getSprite(definitionId: string): HTMLImageElement | HTMLVideoElement | null | undefined {
+function getSprite(definitionId: string, shiny: boolean = false): HTMLImageElement | HTMLVideoElement | null | undefined {
+  const def = UNIT_MAP.get(definitionId)
+
+  // Shiny lookup: only resolve against a distinct 'shiny:' cache key when the unit's
+  // definition actually has bespoke shiny art — otherwise delegate to the normal sprite
+  // so a shiny unit with no bespoke art still renders its normal sprite (never hidden/broken).
+  if (shiny && def?.shinySpritePath) {
+    const shinyKey = `shiny:${definitionId}`
+    const cached = spriteCache.get(shinyKey)
+    if (cached === undefined) {
+      spriteCache.set(shinyKey, { kind: 'loading' })
+      loadSprite(shinyKey, def.shinySpritePath)
+      return undefined
+    }
+    switch (cached.kind) {
+      case 'loading': return undefined
+      case 'error':   return null
+      case 'static':  return cached.img
+      case 'video':   return cached.video
+    }
+  }
+
   const cached = spriteCache.get(definitionId)
   if (cached === undefined) {
-    const def = UNIT_MAP.get(definitionId)
     if (!def?.spritePath) { spriteCache.set(definitionId, { kind: 'error' }); return null }
     spriteCache.set(definitionId, { kind: 'loading' })
     loadSprite(definitionId, def.spritePath)
@@ -1978,7 +2003,7 @@ export class UnitLayer {
       ctx.stroke()
     }
 
-    const sprite = getSprite(unit.definitionId)
+    const sprite = getSprite(unit.definitionId, unit.isShiny === true)
 
     if (sprite) {
       // Undo Y-perspective compression for the sprite so it stands upright.
@@ -2424,6 +2449,15 @@ export class UnitLayer {
         ctx.filter = `saturate(${(1 + starFlashP * 2.2).toFixed(2)}) brightness(${(1 + starFlashP * 0.2).toFixed(2)})`
       }
       ctx.drawImage(finalSprite, -finalDw / 2, -finalDh / 2, finalDw, finalDh)
+
+      // Shiny sparkle overlay — continuously animating over the sprite box for shiny units.
+      // Reset filter so the sparkle is not recolored by any tint block set above.
+      if (unit.isShiny === true && shinyEffectImg.complete && shinyEffectImg.naturalWidth > 0) {
+        ctx.save()
+        ctx.filter = 'none'
+        ctx.drawImage(shinyEffectImg, -finalDw / 2, -finalDh / 2, finalDw, finalDh)
+        ctx.restore()
+      }
 
       // Mega evo flash overlay (fades in then out over 36-tick evo shake)
       if (unit.definitionId === 'rayquaza') {
