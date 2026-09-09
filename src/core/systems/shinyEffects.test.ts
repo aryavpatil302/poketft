@@ -18,11 +18,14 @@ function makeState(players: Unit[], enemies: Unit[]): CombatState {
 
 // Registry hygiene: SHINY_EFFECT_REGISTRY is module-global and shared across
 // test files in the same worker. Every test that registers an entry removes
-// it here, and we assert it returns to empty so a leaked entry fails loudly
-// here rather than corrupting an unrelated suite.
+// it here. NOTE: the registry is no longer empty at rest — real per-species
+// shiny effects (e.g. zubat, druddigon, sableye, excadrill, ...) register
+// themselves permanently via the shinyEffects/index barrel import (wired
+// through combatEngine.ts), so we assert the test's own 'tangela' entry was
+// removed rather than asserting the whole registry is empty.
 afterEach(() => {
   SHINY_EFFECT_REGISTRY.delete('tangela')
-  expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+  expect(SHINY_EFFECT_REGISTRY.has('tangela')).toBe(false)
 })
 
 // ─── initShinyEffects: dispatch ────────────────────────────────────────────────
