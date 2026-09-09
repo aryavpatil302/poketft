@@ -4,6 +4,7 @@ import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
 import { tickLeapPixel } from '../systems/movement'
 import { tickStatusEffects } from '../systems/statusEffect'
+import { AbsolAbility } from './absol'
 import type { Unit, CombatState } from '../types'
 import '../systems/ability'
 
@@ -154,5 +155,68 @@ describe('Absol – Night Slash', () => {
     // All neighbors occupied — Absol cannot dash, fires slash immediately
     expect(caster.state).not.toBe('leaping')
     expect(state.events.some(e => e.type === 'damage')).toBe(true)
+  })
+})
+
+describe('Shiny Absol — dash attack stacking', () => {
+  // Every test sets unit.isShiny = true on exactly the caster that should
+  // trigger the effect, and includes one explicit non-shiny control case
+  // proving the effect does NOT fire without it.
+
+  it('grants +10 attack per real dash, stacking across multiple dashes (3 dashes = +30)', () => {
+    const caster = makeUnit('absol', 'player', 1)
+    caster.hexPos = { col: 3, row: 5 }
+    caster.isShiny = true
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    enemy.hexPos = { col: 3, row: 4 }  // adjacent — guarantees a valid dash dest every call
+    const state = createCombatState([caster], [enemy])
+    const baseAttack = caster.attack
+
+    AbsolAbility.onCast(caster, state, 1)
+    AbsolAbility.onCast(caster, state, 1)
+    AbsolAbility.onCast(caster, state, 1)
+
+    expect(caster.attack).toBe(baseAttack + 30)
+  })
+
+  it('does NOT grant the attack bonus on the no-dash slash-in-place fallback, even when shiny', () => {
+    const caster = makeUnit('absol', 'player', 1)
+    caster.hexPos = { col: 3, row: 5 }
+    caster.isShiny = true
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    enemy.hexPos = { col: 3, row: 4 }
+    // Pack all 6 neighbors with allies so no valid leap target is available
+    const neighbors = [
+      { col: 3, row: 4 }, { col: 4, row: 4 },
+      { col: 2, row: 5 }, { col: 4, row: 5 },
+      { col: 3, row: 6 }, { col: 4, row: 6 },
+    ]
+    const allies = neighbors.map((pos, i) => {
+      const a = makeUnit('dummy', 'player', 1)
+      a.hexPos = pos
+      a.id = `ally_${i}`
+      return a
+    })
+    const state = createCombatState([caster, ...allies], [enemy])
+    const baseAttack = caster.attack
+
+    AbsolAbility.onCast(caster, state, 1)
+
+    expect(caster.state).not.toBe('leaping')
+    expect(caster.attack).toBe(baseAttack)
+  })
+
+  it('does NOT grant the attack bonus on a real dash when Absol is not shiny (control case)', () => {
+    const caster = makeUnit('absol', 'player', 1)
+    caster.hexPos = { col: 3, row: 5 }
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    enemy.hexPos = { col: 3, row: 4 }
+    const state = createCombatState([caster], [enemy])
+    const baseAttack = caster.attack
+
+    AbsolAbility.onCast(caster, state, 1)
+
+    expect(caster.state).toBe('leaping')  // real dash did happen
+    expect(caster.attack).toBe(baseAttack)  // but no bonus without isShiny
   })
 })
