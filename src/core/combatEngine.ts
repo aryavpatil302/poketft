@@ -13,6 +13,15 @@ import { tickMarks } from './systems/marks'
 import { tickPersistentAoEZones } from './systems/persistentAoE'
 import { initTraitEffects } from './systems/traitEffects'
 import { initShinyEffects } from './systems/shinyEffects'
+// Side-effect import: registers every per-species shiny effect. Deliberately
+// a SIBLING import here, not nested inside shinyEffects.ts itself — each
+// species file imports `registerShinyEffect` FROM shinyEffects.ts, so
+// importing the barrel from inside shinyEffects.ts would create a cycle
+// that breaks module evaluation order (see the comment in shinyEffects.ts).
+// Importing it here instead means shinyEffects.ts always finishes evaluating
+// (defining the registry) as a plain, non-circular dependency before any
+// species file's top-level registerShinyEffect(...) call runs.
+import './systems/shinyEffects/index'
 import { initItemPassives } from '../data/items'
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
