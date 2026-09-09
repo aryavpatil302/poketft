@@ -31,3 +31,10 @@ import './quagsire'
 // Barraskewda's shiny effect (Fishous Rend armor pierce) is Category B — it
 // lives entirely inside the existing ability file's tickEffect, not a new
 // onCombatStart registration here. See src/core/abilities/barraskewda.ts.
+// Ruiner: Unown, Stonjourner, Xatu, Claydol (Absol and Spiritomb hook their
+// own ability files directly; Runerigus's shiny effect lives in ability.ts
+// already — no per-species file needed for either).
+import './unown'
+import './stonjourner'
+import './xatu'
+import './claydol'

@@ -168,3 +168,71 @@ describe('Spiritomb – Destiny Bond', () => {
     expect(state.events.some(e => e.type === 'vfx' && (e as any).effectId === 'spiritomb_mark_apply')).toBe(false)
   })
 })
+
+describe('Shiny Spiritomb — Destiny Bond amplified 1.5x', () => {
+  // Every test sets unit.isShiny = true on exactly the caster that should
+  // trigger the effect, and includes one explicit non-shiny control case
+  // proving the effect does NOT fire without it.
+
+  it('amplifies aura damage and heal by 1.5x (tier 1: 75 -> 113, 20 -> 30)', () => {
+    const caster = makeUnit('spiritomb', 'player', 1)
+    caster.hexPos = { col: 3, row: 5 }
+    caster.isShiny = true
+    caster.spDefense = 0; caster._computedStats = null
+    const nearEnemy = makeUnit('dummy', 'enemy', 1)
+    nearEnemy.hexPos = { col: 3, row: 4 }
+    nearEnemy.spDefense = 0; nearEnemy._computedStats = null
+    const state = createCombatState([caster], [nearEnemy])
+
+    cast(caster, state)
+    const fx = caster.statusEffects.find(f => f.stackId === 'spiritomb_destiny_aura')!
+    caster.currentHp = 500
+    const hpBefore = nearEnemy.currentHp
+    fx.tickEffect!(caster, state)
+
+    // 75 * 1.5 = 112.5 -> Math.round = 113
+    expect(hpBefore - nearEnemy.currentHp).toBeGreaterThanOrEqual(113 - 1)
+    // 20 * 1.5 = 30
+    expect(caster.currentHp).toBeGreaterThanOrEqual(500 + 30 - 1)
+  })
+
+  it('amplifies mark damage and heal by 1.5x (tier 1: 75 -> 113, 20 -> 30)', () => {
+    const caster = makeUnit('spiritomb', 'player', 1)
+    caster.hexPos = { col: 3, row: 5 }
+    caster.isShiny = true
+    const farEnemy = makeUnit('dummy', 'enemy', 1)
+    farEnemy.hexPos = { col: 0, row: 0 }
+    farEnemy.spDefense = 0; farEnemy._computedStats = null
+    const state = createCombatState([caster], [farEnemy])
+
+    cast(caster, state)
+    const fx = farEnemy.statusEffects.find(f => f.stackId === 'spiritomb_destiny_mark')!
+    caster.currentHp = 500
+    const hpBefore = farEnemy.currentHp
+    fx.tickEffect!(farEnemy, state)
+
+    expect(hpBefore - farEnemy.currentHp).toBeGreaterThanOrEqual(113 - 1)
+    expect(caster.currentHp).toBeGreaterThanOrEqual(500 + 30 - 1)
+  })
+
+  it('does NOT amplify aura damage/heal when Spiritomb is not shiny (control case)', () => {
+    const caster = makeUnit('spiritomb', 'player', 1)
+    caster.hexPos = { col: 3, row: 5 }
+    caster.spDefense = 0; caster._computedStats = null
+    const nearEnemy = makeUnit('dummy', 'enemy', 1)
+    nearEnemy.hexPos = { col: 3, row: 4 }
+    nearEnemy.spDefense = 0; nearEnemy._computedStats = null
+    const state = createCombatState([caster], [nearEnemy])
+
+    cast(caster, state)
+    const fx = caster.statusEffects.find(f => f.stackId === 'spiritomb_destiny_aura')!
+    caster.currentHp = 500
+    const hpBefore = nearEnemy.currentHp
+    fx.tickEffect!(caster, state)
+
+    // Plain tier-1 values (75 dmg / 20 heal), no 1.5x amplification.
+    expect(hpBefore - nearEnemy.currentHp).toBeGreaterThanOrEqual(75 - 1)
+    expect(hpBefore - nearEnemy.currentHp).toBeLessThan(113 - 1)
+    expect(caster.currentHp).toBe(500 + 20)
+  })
+})

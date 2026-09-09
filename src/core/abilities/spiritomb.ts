@@ -32,8 +32,16 @@ export const SpiritombAbility: AbilityHandler = {
   onCast(unit: Unit, state: CombatState, tier: number): void {
     const dmgValues  = [75,  100, 500] as const
     const healValues = [20,  40,  100] as const
-    const dmg  = dmgValues[tier - 1]
-    const heal = healValues[tier - 1]
+    let dmg: number  = dmgValues[tier - 1]
+    let heal: number = healValues[tier - 1]
+    // Shiny Spiritomb: Destiny Bond aura's damage AND healing amplified
+    // ×1.5. Both the passive aura tick and the per-mark tick below close
+    // over these same locals, so this one insertion point covers both
+    // consumers.
+    if (unit.isShiny) {
+      dmg  = Math.round(dmg * 1.5)
+      heal = Math.round(heal * 1.5)
+    }
     const spiritombId = unit.id
 
     // ── Passive aura (permanent, set up once per cast to refresh closure over tier) ──

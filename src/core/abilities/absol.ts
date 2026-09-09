@@ -78,6 +78,15 @@ export const AbsolAbility: AbilityHandler = {
     const dest = findDashDest(unit, state)
 
     if (dest) {
+      // Shiny Absol: every REAL dash (this branch only — never the no-dash
+      // slash-in-place fallback below) grants a permanent, for-this-fight
+      // +10 attack, stacking across multiple dashes. Mirrors Armor Cannon's
+      // existing in-combat pattern.
+      if (unit.isShiny) {
+        unit.attack += 10
+        unit._computedStats = null
+      }
+
       const capturedTier = tier
       startLeap(unit, dest, state, 10.0, (u, _s) => {
         // Drop pre-dash target so tickTargeting re-acquires from the new hex position.
