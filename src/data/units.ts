@@ -418,6 +418,7 @@ export const ARMAROUGE: UnitDefinition = {
     scaling: { damage: [250, 300, 350], atkBonusPerHit: [7, 10, 15], atkSpdBonus: [35, 50, 75], aoePct: [15, 25, 33] },
   },
   spritePath: '/visuals/sprites/volcano/armarouge-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/volcano/shiny_armarouge.png',
   spriteScale: 0.90,
 }
 
@@ -439,6 +440,7 @@ export const A_MAROWAK: UnitDefinition = {
     scaling: { firstTwoDamage: [300, 450, 700], thirdDamage: [450, 600, 850] },
   },
   spritePath: '/visuals/sprites/volcano/a-marowack-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/volcano/shiny_a_marowak.png',
 }
 
 export const WHEEZING: UnitDefinition = {
@@ -459,6 +461,7 @@ export const WHEEZING: UnitDefinition = {
     scaling: { damagePerPuff: [8, 10, 12], healPerHit: [50, 75, 200] },
   },
   spritePath: '/visuals/sprites/volcano/weezing-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/volcano/shiny_weezing.png',
   spriteScale:1.1,
 }
 
@@ -480,6 +483,7 @@ export const CHARIZARD: UnitDefinition = {
     scaling: { fireballCount: [3, 4, 10], fireballDamage: [375, 625, 2500], killCount: [1, 1, 10], detonateDamage: [625, 875, 3750] },
   },
   spritePath: '/visuals/sprites/volcano/charizard-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/volcano/shiny_charizard.png',
 }
 
 
@@ -504,6 +508,7 @@ export const PIDGEOTTO: UnitDefinition = {
     scaling: { damagePercent: [120, 150, 250] },
   },
   spritePath: '/visuals/sprites/sky_strikers/pidgeotto-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/sky_strikers/shiny_pidgeotto.png',
 }
 
 export const WAILORD: UnitDefinition = {
@@ -524,6 +529,7 @@ export const WAILORD: UnitDefinition = {
     scaling: { shield: [75, 150, 300], stunSeconds: [1, 1, 1.5], damage: [80, 120, 180] },
   },
   spritePath: '/visuals/sprites/sky_strikers/wailord-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/sky_strikers/shiny_wailord.png',
 }
 
 export const TALONFLAME: UnitDefinition = {
@@ -544,6 +550,7 @@ export const TALONFLAME: UnitDefinition = {
     scaling: { damage: [350, 565, 715] },
   },
   spritePath: '/visuals/sprites/sky_strikers/talonflame-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/sky_strikers/shiny_talonflame.png',
   spriteScale:0.85,
 }
 
@@ -565,6 +572,7 @@ export const NOIVERN: UnitDefinition = {
     scaling: { damage: [500, 700, 2000] },
   },
   spritePath: '/visuals/sprites/sky_strikers/noivern-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/sky_strikers/shiny_noivern.png',
 }
 
 export const RAYQUAZA: UnitDefinition = {
@@ -585,6 +593,7 @@ export const RAYQUAZA: UnitDefinition = {
     scaling: { damage: [300, 450, 9999], hpPercent: [2, 5, 999] },
   },
   spritePath: '/visuals/sprites/sky_strikers/rayquaza-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/sky_strikers/shiny_rayquaza.png',
 }
 
 
@@ -609,6 +618,7 @@ export const ZUBAT: UnitDefinition = {
     scaling: { damage: [200, 350, 600], poisonTotal: [20, 50, 75] },
   },
   spritePath: '/visuals/sprites/cave_crawlers/zubat-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/cave_crawler/shiny_zubat.png',
   spriteScale:0.8,
 }
 
@@ -630,6 +640,7 @@ export const DRUDDIGON: UnitDefinition = {
     scaling: { damage: [450, 550, 650] },
   },
   spritePath: '/visuals/sprites/cave_crawlers/druddigon-sprite.png',
+  shinySpritePath: '/visuals/shiny_sprites/cave_crawler/shiny_druddigon.png',
 }
 
 export const SABLEYE: UnitDefinition = {
@@ -650,6 +661,7 @@ export const SABLEYE: UnitDefinition = {
     scaling: { shieldAmount: [250, 325, 425], damage: [200, 300, 550] },
   },
   spritePath: '/visuals/sprites/cave_crawlers/sableye-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/cave_crawler/shiny_sableye.png',
   spriteScale:0.85,
 }
 
@@ -671,6 +683,7 @@ export const FERROTHORN: UnitDefinition = {
     scaling: { durabilityPct: [25, 30, 40], retaliationDamage: [75, 150, 225] },
   },
   spritePath: '/visuals/sprites/cave_crawlers/ferrothron-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/cave_crawler/shiny_ferrothorn.png',
   spriteScale:1.1,
 }
 
@@ -692,6 +705,7 @@ export const EXCADRILL: UnitDefinition = {
     scaling: { damage: [385, 575, 770], bonusDamage: [170, 250, 460] },
   },
   spritePath: '/visuals/sprites/cave_crawlers/excadrill-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/cave_crawler/shiny_excadrill.png',
 }
 
 
@@ -716,6 +730,7 @@ export const DREDNAW: UnitDefinition = {
     scaling: { atkBonus: [20, 30, 50], bonusDamagePct: [170, 245, 360] },
   },
   spritePath: '/visuals/sprites/river/drednaw-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/river/shiny_drednaw.png',
 }
 
 export const BELLIBOLT: UnitDefinition = {
@@ -736,6 +751,7 @@ export const BELLIBOLT: UnitDefinition = {
     scaling: { scalingPct: [50, 90, 120], healAmount: [300, 400, 600] },
   },
   spritePath: '/visuals/sprites/river/belliboilt-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/river/shiny_bellibolt.png',
   spriteScale: 0.8,
 }
 
@@ -757,6 +773,7 @@ export const QUAGSIRE: UnitDefinition = {
     scaling: { shieldPerEnemy: [150, 200, 400], aoeDamage: [200, 350, 600] },
   },
   spritePath: '/visuals/sprites/river/quagsire-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/river/shiny_quagsire.png',
 }
 
 export const BARRASKEWDA: UnitDefinition = {
@@ -777,6 +794,7 @@ export const BARRASKEWDA: UnitDefinition = {
     scaling: { damage: [570, 860, 1285] },
   },
   spritePath: '/visuals/sprites/river/barraskewda-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/river/shiny_barraskewda.webp',
 }
 
 
@@ -801,6 +819,7 @@ export const MORGREM: UnitDefinition = {
     scaling: { shield: [350, 430, 550], baseDamage: [50, 100, 150], manaDrain: [2, 3, 5] },
   },
   spritePath: '/visuals/sprites/temporal_woods/Morgrem-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/temporal_woods/shiny_morgrem.png',
 }
 
 export const MORELULL: UnitDefinition = {
@@ -821,6 +840,7 @@ export const MORELULL: UnitDefinition = {
     scaling: { damage: [300, 450, 700], healPct: [85, 100, 130] },
   },
   spritePath: '/visuals/sprites/temporal_woods/Morelull-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/temporal_woods/shiny_morelull.png',
 }
 
 export const ORANGURU: UnitDefinition = {
@@ -841,6 +861,7 @@ export const ORANGURU: UnitDefinition = {
     scaling: { specialPct: [80, 100, 120], empBonus: [100, 175, 300], spGain: [1, 2, 5], atkSpdPct: [20, 25, 30] },
   },
   spritePath: '/visuals/sprites/temporal_woods/Oranguru-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/temporal_woods/shiny_oranguru.png',
 }
 
 export const CELEBI: UnitDefinition = {
@@ -861,6 +882,7 @@ export const CELEBI: UnitDefinition = {
     scaling: { damageMult: [10, 20, 30], detonationDamage: [450, 600, 900] },
   },
   spritePath: '/visuals/sprites/temporal_woods/Celebi-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/temporal_woods/shiny_celebi.png',
 }
 
 export const FEZANDIPITI: UnitDefinition = {
@@ -881,6 +903,7 @@ export const FEZANDIPITI: UnitDefinition = {
     scaling: { damagePerSec: [20, 30, 90], durabilityPct: [40, 50, 90], heal: [370, 516, 1589] },
   },
   spritePath: '/visuals/sprites/temporal_woods/Fezandipiti-sprite.png',
+  shinySpritePath: '/visuals/shiny_sprites/temporal_woods/shiny_fezandipiti.png',
 }
 
 export const TAPU_LELE: UnitDefinition = {
@@ -901,6 +924,7 @@ export const TAPU_LELE: UnitDefinition = {
     scaling: { targetCount: [4, 5, 10], damage: [500, 750, 5000], spDefPierce: [30, 45, 100] },
   },
   spritePath: '/visuals/sprites/temporal_woods/tapu-lele-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/temporal_woods/shiny_tapu_lele.webp',
 }
 
 
@@ -925,6 +949,7 @@ export const UNOWN: UnitDefinition = {
     scaling: { damage: [300, 450, 700] },
   },
   spritePath: '/visuals/sprites/ruiner/unown-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/ruiner/shiny_unown.webp',
 }
 
 export const STONJOURNER: UnitDefinition = {
@@ -945,6 +970,7 @@ export const STONJOURNER: UnitDefinition = {
     scaling: { healAmount: [250, 350, 450], borrowPercent: [0.33, 0.33, 0.33] },
   },
   spritePath: '/visuals/sprites/ruiner/Stonjourner-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/ruiner/shiny_stonjourner.png',
 }
 
 export const ABSOL: UnitDefinition = {
@@ -965,6 +991,7 @@ export const ABSOL: UnitDefinition = {
     scaling: { damage: [100, 150, 250], healPerHit: [50, 75, 100] },
   },
   spritePath: '/visuals/sprites/ruiner/Absol-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/ruiner/shiny_absol.png',
 }
 
 export const XATU: UnitDefinition = {
@@ -985,6 +1012,7 @@ export const XATU: UnitDefinition = {
     scaling: { shield: [400, 475, 600], scalingRatio: [90, 120, 150] },
   },
   spritePath: '/visuals/sprites/ruiner/Xatu-sprite.png',
+  shinySpritePath: '/visuals/shiny_sprites/ruiner/shiny_xatu.png',
 }
 
 export const CLAYDOL: UnitDefinition = {
@@ -1005,6 +1033,7 @@ export const CLAYDOL: UnitDefinition = {
     scaling: { damage: [400, 600, 1000], maxHpPct: [5, 8, 10] },
   },
   spritePath: '/visuals/sprites/ruiner/Claydol-sprite.png',
+  shinySpritePath: '/visuals/shiny_sprites/ruiner/shiny_claydol.png',
   spriteScale:0.9,
 }
 
@@ -1026,6 +1055,7 @@ export const SPIRITOMB: UnitDefinition = {
     scaling: { damage: [75, 100, 500], healPerHit: [20, 40, 100] },
   },
   spritePath: '/visuals/sprites/ruiner/Spiritomb-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/ruiner/shiny_spiritomb.png',
 }
 
 export const RUNERIGUS: UnitDefinition = {
@@ -1046,6 +1076,7 @@ export const RUNERIGUS: UnitDefinition = {
     scaling: { silenceDamage: [550, 875, 7000] },
   },
   spritePath: '/visuals/sprites/ruiner/Runerigus-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/ruiner/shiny_runerigus.webp',
 }
 
 
@@ -1070,6 +1101,7 @@ export const KLAWF: UnitDefinition = {
     scaling: { atkSpdBonus: [0.50, 0.75, 1.00], critBonus: [0.50, 0.50, 0.50] },
   },
   spritePath: '/visuals/sprites/ascenders/klawf-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/ascenders/shiny_klawf.png',
 }
 
 export const GOGOAT: UnitDefinition = {
@@ -1090,6 +1122,7 @@ export const GOGOAT: UnitDefinition = {
     scaling: { atkBonus: [50, 80, 120], selfHeal: [105, 145, 200] },
   },
   spritePath: '/visuals/sprites/ascenders/Gogoat-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/ascenders/shiny_gogoat.png',
 }
 
 export const SNEASLER: UnitDefinition = {
@@ -1110,6 +1143,7 @@ export const SNEASLER: UnitDefinition = {
     scaling: { damage: [285, 465, 750], poisonPerSec: [20, 50, 75] },
   },
   spritePath: '/visuals/sprites/ascenders/Sneasler-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/ascenders/shiny_sneasler.png',
 }
 
 export const AERODACTYL: UnitDefinition = {
@@ -1130,6 +1164,7 @@ export const AERODACTYL: UnitDefinition = {
     scaling: { statBonus: [0.30, 0.45, 0.80], rockDamagePct: [0.50, 0.75, 3] },
   },
   spritePath: '/visuals/sprites/ascenders/Aerodactyl-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/ascenders/shiny_aerodactyl.png',
 }
 
 export const SALAMENCE: UnitDefinition = {
@@ -1150,6 +1185,7 @@ export const SALAMENCE: UnitDefinition = {
     scaling: { rampPct: [5, 7, 50], damageReductionPct: [50, 50, 50] },
   },
   spritePath: '/visuals/sprites/misc/salamence_sprite.png',
+  shinySpritePath: '/visuals/shiny_sprites/misc/shiny_salamence.png',
 }
 
 export const DARMANITAN: UnitDefinition = {
@@ -1173,6 +1209,7 @@ export const DARMANITAN: UnitDefinition = {
     scaling: { damagePct: [500, 700, 1000] },
   },
   spritePath: '/visuals/sprites/misc/darmanitan_sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/misc/shiny_darmanitan.png',
 }
 
 export const LATIOS: UnitDefinition = {
@@ -1193,6 +1230,7 @@ export const LATIOS: UnitDefinition = {
     scaling: { damage: [250, 600, 3000], spDefShredPct: [50, 50, 50], shredSeconds: [3, 3, 3] },
   },
   spritePath: '/visuals/sprites/misc/latios_sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/misc/shiny_latios.png',
 }
 
 export const LATIAS: UnitDefinition = {
@@ -1213,6 +1251,7 @@ export const LATIAS: UnitDefinition = {
     scaling: { damage: [150, 250, 1000], healOverChannel: [300, 400, 2000], spAtkShredPct: [50, 50, 50] },
   },
   spritePath: '/visuals/sprites/misc/latias_sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/misc/shiny_latias.png',
 }
 
 export const TAPU_KOKO: UnitDefinition = {
@@ -1233,6 +1272,7 @@ export const TAPU_KOKO: UnitDefinition = {
     scaling: { surgeBonusPct: [250, 300, 2000], asPerAuto: [3, 5, 20], chainPct: [70, 85, 200] },
   },
   spritePath: '/visuals/sprites/misc/tapu_koko_sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/misc/shiny_tapu_koko.webp',
 }
 
 
@@ -1257,6 +1297,7 @@ export const SNORUNT: UnitDefinition = {
     scaling: { shieldAmount: [150, 200, 300] },
   },
   spritePath: '/visuals/sprites/froststone/Snorunt-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/froststone/shiny_snorunt.png',
   spriteScale:0.8,
 }
 
@@ -1278,6 +1319,7 @@ export const FROSLASS: UnitDefinition = {
     scaling: { baseDamage: [100, 200, 400] },
   },
   spritePath: '/visuals/sprites/froststone/Froslass-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/froststone/shiny_froslass.png',
   spriteScale:0.85,
 }
 
@@ -1299,6 +1341,7 @@ export const WEAVILE: UnitDefinition = {
     scaling: { firstDmg: [135, 200, 335], spinDmg: [150, 200, 300], hpPercent: [0.10, 0.10, 0.15] },
   },
   spritePath: '/visuals/sprites/froststone/Weavile-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/froststone/shiny_weavile.png',
   spriteScale: 0.85,
 }
 
@@ -1320,6 +1363,7 @@ export const H_AVALUGG: UnitDefinition = {
     scaling: { damage: [120, 175, 285], knockUpSeconds: [1.5, 2, 3] },
   },
   spritePath: '/visuals/sprites/froststone/h-Avalugg-sprite.png',
+  shinySpritePath: '/visuals/shiny_sprites/froststone/shiny_h_avalugg.png',
 }
 
 export const ABOMASNOW: UnitDefinition = {
@@ -1340,6 +1384,7 @@ export const ABOMASNOW: UnitDefinition = {
     scaling: { castDmg: [300, 500, 1000], tickDmg: [50, 75, 500] },
   },
   spritePath: '/visuals/sprites/froststone/Abomasnow-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/froststone/shiny_abomasnow.webp',
 }
 
 export const MAMOSWINE: UnitDefinition = {
@@ -1360,6 +1405,7 @@ export const MAMOSWINE: UnitDefinition = {
     scaling: { armorMr: [50, 75, 200], healPct: [0.30, 0.45, 1.00] },
   },
   spritePath: '/visuals/sprites/froststone/Mamoswine-sprite.webp',
+  shinySpritePath: '/visuals/shiny_sprites/froststone/shiny_mamoswine.webp',
 }
 
 
