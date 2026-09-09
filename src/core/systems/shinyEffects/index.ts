@@ -2,9 +2,10 @@
 // directory calls registerShinyEffect(...) at module load; importing this
 // barrel once triggers every registration.
 
-// Ruiner: Unown, Stonjourner, Xatu (Claydol joins below; Absol and
-// Spiritomb hook their own ability files directly; Runerigus's shiny effect
-// lives in ability.ts already — no per-species file needed for either).
+// Ruiner: Unown, Stonjourner, Xatu, Claydol (Absol and Spiritomb hook their
+// own ability files directly; Runerigus's shiny effect lives in ability.ts
+// already — no per-species file needed for either).
 import './unown'
 import './stonjourner'
 import './xatu'
+import './claydol'
