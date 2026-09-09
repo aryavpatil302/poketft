@@ -1365,7 +1365,7 @@ function applySpellweaver(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits        = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const spellweaverUnits = teamUnits.filter(u => u.types.includes('spellweaver'))
-    const n = new Set(spellweaverUnits.map(u => u.definitionId)).size
+    const n = traitMemberCount(teamUnits, 'spellweaver')
     if (n < 2) continue
 
     const unitAdaptive  = n >= 6 ? 80 : n >= 4 ? 35 : 20
@@ -1428,7 +1428,7 @@ function applyMystic(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits   = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const mysticUnits = teamUnits.filter(u => u.types.includes('mystic'))
-    const n = new Set(mysticUnits.map(u => u.definitionId)).size
+    const n = traitMemberCount(teamUnits, 'mystic')
     if (n < 2) continue
 
     const level = n >= 4 ? 4 : 2
@@ -1456,7 +1456,7 @@ function applyCrashout(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits     = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const crashoutUnits = teamUnits.filter(u => u.types.includes('crashout'))
-    const n = new Set(crashoutUnits.map(u => u.definitionId)).size
+    const n = traitMemberCount(teamUnits, 'crashout')
     if (n < 2) continue
 
     const amp = n >= 4 ? 0.08 : n >= 3 ? 0.06 : 0.05
