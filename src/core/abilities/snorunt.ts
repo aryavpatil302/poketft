@@ -11,7 +11,11 @@ export const SnorunAbility: AbilityHandler = {
   onCast(unit: Unit, state: CombatState, tier: number): void {
     const shieldValues = [150, 200, 300] as const
     const spMult       = (unit._computedStats ?? computeStats(unit)).special / 100
-    const shieldAmount = Math.round(shieldValues[tier - 1] * spMult)
+    const baseShield   = Math.round(shieldValues[tier - 1] * spMult)
+    // Shiny Snorunt: Ice Body shields for 1.5x as much (single computation
+    // site — see src/core/systems/shinyEffects/snorunt.ts for the registry
+    // entry documenting this).
+    const shieldAmount = unit.isShiny ? Math.round(baseShield * 1.5) : baseShield
 
     const shield: Shield = {
       id: `snorunt_ice_body_${unit.id}_${state.tick}`,
