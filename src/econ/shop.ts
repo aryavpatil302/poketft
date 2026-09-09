@@ -8,7 +8,7 @@ import { shopEligibleUnits } from './runState'
 import {
   SHOP_SLOTS, SHOP_ODDS, REROLL_COST, sellValue, copiesHeld,
   SHINY_ROLL_CHANCE, SHINY_COST_ODDS, SHINY_TIER, shinyPrice,
-  SHINY_PITY_ROLLS, CHOSEN_TRAIT_INELIGIBLE,
+  SHINY_PITY_ROLLS, CHOSEN_TRAIT_INELIGIBLE, SHINY_EXCLUSION_SHOPS,
 } from './constants'
 import { tryCombine, wouldCombine, type CombineResult } from './combine'
 
@@ -95,6 +95,27 @@ export function pickChosenTrait(defId: string, rng: Rng): string | null {
 // chance within its cost is weighted by its remaining pool copies. The pool
 // is NOT decremented on roll — copies leave the pool on BUY.
 export function rollShop(econ: PlayerEcon, pool: Record<string, number>, rng: Rng = Math.random): void {
+  // ─── Shiny species cooldown (bad-luck protection) ─────────────────────
+  // Read the OUTGOING shop's state before anything below mutates it. Buying
+  // a shiny clears shopShiny[slot] immediately (see buyUnit), so if the
+  // rightmost slot is still flagged shiny here, the offer sat unbought
+  // through an entire shop refresh — put that species on cooldown
+  // (overwrite, not stack: a fresh skip resets the cooldown to full). This
+  // must run before the per-slot loop and shiny-pass reset below, which is
+  // why it's the very first thing in the function.
+  if (econ.shopShiny[SHOP_SLOTS - 1] === true) {
+    const skippedId = econ.shop[SHOP_SLOTS - 1]
+    if (skippedId) econ.shinyExclusion[skippedId] = SHINY_EXCLUSION_SHOPS
+  }
+  // Decrement every cooldown by one real shop refresh — unconditionally, on
+  // every rollShop call (round-end roll or paid/free reroll), not just calls
+  // where a shiny pass actually fires. This is what makes "5 shops" count
+  // shop refreshes as the player experiences them.
+  for (const id in econ.shinyExclusion) {
+    econ.shinyExclusion[id]--
+    if (econ.shinyExclusion[id] <= 0) delete econ.shinyExclusion[id]
+  }
+
   const totals = bucketTotals(pool)
   const byCost: Record<number, Array<{ id: string; copies: number }>> = { 1: [], 2: [], 3: [], 4: [], 5: [] }
   for (const def of shopEligibleUnits()) {
@@ -129,6 +150,15 @@ export function rollShop(econ: PlayerEcon, pool: Record<string, number>, rng: Rn
   // branch -> cost tier -> candidate id -> chosen-trait pick. No cross-tier
   // fallback: a depleted or empty tier is a normal outcome, not retried
   // against another tier.
+  //
+  // Species cooldown (see top of function) is independent of the
+  // pity/ownership cadence above — it never affects WHETHER a shiny pass
+  // fires, only WHICH species gets picked once it does. A passed-on species
+  // is filtered out of the candidate pool for SHINY_EXCLUSION_SHOPS
+  // subsequent refreshes, with a same-tier fallback to the full pool if
+  // every candidate at the rolled cost happens to be on cooldown (see
+  // shinyCandidates/eligible below) — protection steers away from repeats
+  // but never suppresses an offer into nothing when candidates do exist.
   for (let i = 0; i < SHOP_SLOTS; i++) { econ.shopShiny[i] = false; econ.shopShinyTrait[i] = null }
 
   if (hasShinyOwned(econ)) {
@@ -145,7 +175,11 @@ export function rollShop(econ: PlayerEcon, pool: Record<string, number>, rng: Rn
   if (shinyCost === 0) return
   const shinyCandidates = byCost[shinyCost].filter(u => u.copies >= copiesHeld(SHINY_TIER))
   if (shinyCandidates.length === 0) return
-  const shinyId = pickWeightedId(shinyCandidates, rng)
+  // Steer away from species currently on cooldown, but never suppress an
+  // offer into nothing when candidates exist at this tier — fall back to
+  // the unfiltered pool in the rare case every candidate is excluded.
+  const eligible = shinyCandidates.filter(u => !(econ.shinyExclusion[u.id] > 0))
+  const shinyId = pickWeightedId(eligible.length > 0 ? eligible : shinyCandidates, rng)
   const chosenTrait = pickChosenTrait(shinyId, rng)
   const shinySlot = SHOP_SLOTS - 1
   econ.shop[shinySlot] = shinyId
