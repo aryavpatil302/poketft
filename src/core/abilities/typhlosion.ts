@@ -1,13 +1,43 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
+import { TICK_RATE } from '../constants'
 import { createProjectile } from '../projectile'
 import { findNearestEnemies } from '../systems/targeting'
 import { addStatusEffect } from '../systems/statusEffect'
+import { releaseHexes } from '../systems/movement'
 import { computeStats } from '../unitFactory'
 import { incrementSpellBuff } from '../systems/spellBuff'
 import { hexDistance } from '../hexGrid'
 
 const LAUNCH_STAGGER = 5  // ticks between successive fireball launches
+
+// Shiny Eruption: each fireball that lands burns its target for 5 seconds.
+// Hand-rolled here rather than reusing applyBurn (systems/statusEffect.ts),
+// whose duration is hardcoded to 4s — this needs 5s. Shape copied from the
+// tick-burn used by palossand.ts / traitEffects.ts's volcano-sun burn.
+const SHINY_BURN_DURATION_TICKS = 5 * TICK_RATE
+const SHINY_BURN_HP_PCT_PER_SEC = 0.01
+
+function applyShinyEruptionBurn(caster: Unit, target: Unit): void {
+  const burnPerSec = Math.max(1, Math.round(target.maxHp * SHINY_BURN_HP_PCT_PER_SEC))
+  addStatusEffect(target, {
+    id: 'burn',
+    sourceUnitId: caster.id,
+    durationTicks: SHINY_BURN_DURATION_TICKS,
+    magnitude: burnPerSec,
+    tickInterval: TICK_RATE,
+    tickEffect: (u, st) => {
+      u.currentHp = Math.max(0, u.currentHp - burnPerSec)
+      st.events.push({ type: 'damage', targetId: u.id, amount: burnPerSec, damageType: 'true', isCrit: false, sourceId: caster.id, abilityId: 'typhlosion_eruption' })
+      if (u.currentHp <= 0) {
+        u.currentHp = 0; u.state = 'dead'
+        releaseHexes(u, st)
+        st.events.push({ type: 'death', unitId: u.id, sourceId: caster.id, abilityId: 'typhlosion_eruption' })
+      }
+    },
+    stackId: `shiny_typhlosion_burn_${target.id}`,
+  })
+}
 
 export const TyphlosionAbility: AbilityHandler = {
   abilityId: 'typhlosion_eruption',
@@ -49,6 +79,12 @@ export const TyphlosionAbility: AbilityHandler = {
           launchDist,
           damagePayload: { baseAmount, damageType: 'physical', canCrit: false },
           abilityId: 'typhlosion_eruption',
+          onHit: unit.isShiny
+            ? (_source, hitTarget) => {
+                if (hitTarget.state === 'dead') return
+                applyShinyEruptionBurn(unit, hitTarget)
+              }
+            : undefined,
         })
         st.projectiles.set(proj.id, proj)
       }
