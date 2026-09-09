@@ -663,8 +663,7 @@ function applyRuiner(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const ruinerUnits = teamUnits.filter(u => u.types.includes('ruiner'))
-    const ruinerSpecies = new Set(ruinerUnits.map(u => u.definitionId))
-    const n = ruinerSpecies.size
+    const n = traitMemberCount(teamUnits, 'ruiner')
     const threshold = n >= 7 ? 7 : n >= 5 ? 5 : n >= 3 ? 3 : 0
     if (threshold === 0) continue
 
@@ -786,10 +785,7 @@ function applyRuiner(state: CombatState): void {
 function applyAscender(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const nonDummyUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const ascenderSpecies = new Set(
-      nonDummyUnits.filter(u => u.types.includes('ascender')).map(u => u.definitionId)
-    )
-    const n = ascenderSpecies.size
+    const n = traitMemberCount(nonDummyUnits, 'ascender')
     const level = n >= 4 ? 4 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -876,7 +872,7 @@ function applyCorkscrew(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits      = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const corkscrewUnits = teamUnits.filter(u => u.types.includes('corkscrew'))
-    const n              = new Set(corkscrewUnits.map(u => u.definitionId)).size
+    const n              = traitMemberCount(teamUnits, 'corkscrew')
     const level          = n >= 5 ? 5 : n >= 4 ? 4 : n >= 3 ? 3 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -982,7 +978,7 @@ function applyRoughneck(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits      = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const roughneckUnits = teamUnits.filter(u => u.types.includes('roughneck'))
-    const n              = new Set(roughneckUnits.map(u => u.definitionId)).size
+    const n              = traitMemberCount(teamUnits, 'roughneck')
     const level          = n >= 5 ? 5 : n >= 4 ? 4 : n >= 3 ? 3 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -1019,7 +1015,7 @@ function applyQuickclaw(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits      = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const quickclawUnits = teamUnits.filter(u => u.types.includes('quickclaw'))
-    const n              = new Set(quickclawUnits.map(u => u.definitionId)).size
+    const n              = traitMemberCount(teamUnits, 'quickclaw')
     const level          = n >= 5 ? 5 : n >= 4 ? 4 : n >= 3 ? 3 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
