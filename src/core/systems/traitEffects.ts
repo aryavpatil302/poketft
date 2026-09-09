@@ -26,6 +26,22 @@ function getJungleThreshold(count: number): [number, number] | null {
   return best
 }
 
+// A shiny unit counts as 2 members of its own "chosen" trait (its first
+// listed type, types[0]) for trait-threshold purposes — mirrors TFT's
+// Chosen mechanic. All other traits it has count normally (1). Counts
+// UNIQUE SPECIES same as every existing per-trait counter already does
+// (a shiny + non-shiny copy of the same species still only ever counts
+// once toward that species' own membership — the shiny bonus is about
+// which TRAIT gets double credit, not about counting more copies).
+function traitMemberCount(teamUnits: Unit[], trait: string): number {
+  const species = new Set(teamUnits.filter(u => u.types.includes(trait)).map(u => u.definitionId))
+  let count = species.size
+  for (const u of teamUnits) {
+    if (u.isShiny && u.types[0] === trait && u.types.includes(trait)) count += 1
+  }
+  return count
+}
+
 export function initTraitEffects(state: CombatState): void {
   applyRogue(state)
   applySoulBonded(state)
@@ -201,10 +217,7 @@ function applyTerrainEffects(state: CombatState): void {
 function applyJungle(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const jungleSpecies = new Set(
-      teamUnits.filter(u => u.types.includes('jungle')).map(u => u.definitionId)
-    )
-    const threshold = getJungleThreshold(jungleSpecies.size)
+    const threshold = getJungleThreshold(traitMemberCount(teamUnits, 'jungle'))
     if (!threshold) continue
 
     const [teamBonus, jungleBonus] = threshold
@@ -227,8 +240,7 @@ function applyVolcano(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const volcanoUnits = teamUnits.filter(u => u.types.includes('volcanic'))
-    const volcanoSpecies = new Set(volcanoUnits.map(u => u.definitionId))
-    const n = volcanoSpecies.size
+    const n = traitMemberCount(teamUnits, 'volcanic')
 
     let hpBonus = 0
     let adaptiveForce = 0
@@ -322,8 +334,7 @@ function applySkyStriker(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const skyUnits  = teamUnits.filter(u => u.types.includes('sky_striker'))
-    const skySpecies = new Set(skyUnits.map(u => u.definitionId))
-    const n = skySpecies.size
+    const n = traitMemberCount(teamUnits, 'sky_striker')
 
     let tailwindBonus = 0
     let executeThreshold = 0
@@ -421,8 +432,7 @@ function applyCaveCrawler(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits    = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const crawlerUnits = teamUnits.filter(u => u.types.includes('cave_crawler'))
-    const crawlerSpecies = new Set(crawlerUnits.map(u => u.definitionId))
-    const n = crawlerSpecies.size
+    const n = traitMemberCount(teamUnits, 'cave_crawler')
     if (n < 3) continue
 
     const totalStarPoints = crawlerUnits.reduce((sum, u) => sum + Math.pow(3, u.tier - 1), 0)
@@ -485,9 +495,7 @@ function applyCaveCrawler(state: CombatState): void {
 function applyRiver(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits   = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const riverUnits  = teamUnits.filter(u => u.types.includes('river'))
-    const riverSpecies = new Set(riverUnits.map(u => u.definitionId))
-    const n = riverSpecies.size
+    const n = traitMemberCount(teamUnits, 'river')
     if (n < 2) continue
 
     const omnivamp      = n >= 3 ? 0.25 : 0.15
@@ -591,10 +599,7 @@ function applyRiver(state: CombatState): void {
 function applyBruiser(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const bruiserSpecies = new Set(
-      teamUnits.filter(u => u.types.includes('bruiser')).map(u => u.definitionId)
-    )
-    const n = bruiserSpecies.size
+    const n = traitMemberCount(teamUnits, 'bruiser')
     if (n < 2) continue
     const pct = n >= 6 ? 0.60 : n >= 4 ? 0.40 : 0.25
 
@@ -612,10 +617,7 @@ function applyBruiser(state: CombatState): void {
 function applyBeachy(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const beachySpecies = new Set(
-      teamUnits.filter(u => u.types.includes('beachy')).map(u => u.definitionId)
-    )
-    const n = beachySpecies.size
+    const n = traitMemberCount(teamUnits, 'beachy')
     const hpBonus = n >= 6 ? 450 : n >= 4 ? 300 : n >= 2 ? 150 : 0
     if (hpBonus === 0) continue
 
@@ -631,10 +633,7 @@ function applyBeachy(state: CombatState): void {
 function applyTemporalWoods(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const twSpecies = new Set(
-      teamUnits.filter(u => u.types.includes('temporal_woods')).map(u => u.definitionId)
-    )
-    const n = twSpecies.size
+    const n = traitMemberCount(teamUnits, 'temporal_woods')
     const level = n >= 6 ? 6 : n >= 4 ? 4 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -663,8 +662,7 @@ function applyRuiner(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const ruinerUnits = teamUnits.filter(u => u.types.includes('ruiner'))
-    const ruinerSpecies = new Set(ruinerUnits.map(u => u.definitionId))
-    const n = ruinerSpecies.size
+    const n = traitMemberCount(teamUnits, 'ruiner')
     const threshold = n >= 7 ? 7 : n >= 5 ? 5 : n >= 3 ? 3 : 0
     if (threshold === 0) continue
 
@@ -786,10 +784,7 @@ function applyRuiner(state: CombatState): void {
 function applyAscender(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const nonDummyUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const ascenderSpecies = new Set(
-      nonDummyUnits.filter(u => u.types.includes('ascender')).map(u => u.definitionId)
-    )
-    const n = ascenderSpecies.size
+    const n = traitMemberCount(nonDummyUnits, 'ascender')
     const level = n >= 4 ? 4 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -876,7 +871,7 @@ function applyCorkscrew(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits      = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const corkscrewUnits = teamUnits.filter(u => u.types.includes('corkscrew'))
-    const n              = new Set(corkscrewUnits.map(u => u.definitionId)).size
+    const n              = traitMemberCount(teamUnits, 'corkscrew')
     const level          = n >= 5 ? 5 : n >= 4 ? 4 : n >= 3 ? 3 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -982,7 +977,7 @@ function applyRoughneck(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits      = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const roughneckUnits = teamUnits.filter(u => u.types.includes('roughneck'))
-    const n              = new Set(roughneckUnits.map(u => u.definitionId)).size
+    const n              = traitMemberCount(teamUnits, 'roughneck')
     const level          = n >= 5 ? 5 : n >= 4 ? 4 : n >= 3 ? 3 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -1019,7 +1014,7 @@ function applyQuickclaw(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits      = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const quickclawUnits = teamUnits.filter(u => u.types.includes('quickclaw'))
-    const n              = new Set(quickclawUnits.map(u => u.definitionId)).size
+    const n              = traitMemberCount(teamUnits, 'quickclaw')
     const level          = n >= 5 ? 5 : n >= 4 ? 4 : n >= 3 ? 3 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -1097,10 +1092,9 @@ function applyFroststoneMark(
 
 function applyFroststone(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
-    const froststoneUnits = [...state.units.values()].filter(u =>
-      u.team === team && !u.isDummy && u.types.includes('froststone')
-    )
-    const n = new Set(froststoneUnits.map(u => u.definitionId)).size
+    const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
+    const froststoneUnits = teamUnits.filter(u => u.types.includes('froststone'))
+    const n = traitMemberCount(teamUnits, 'froststone')
     const level = n >= 6 ? 6 : n >= 4 ? 4 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -1143,7 +1137,7 @@ function applyPromoter(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits     = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const promoterUnits = teamUnits.filter(u => u.types.includes('promoter'))
-    const n             = new Set(promoterUnits.map(u => u.definitionId)).size
+    const n             = traitMemberCount(teamUnits, 'promoter')
     const shieldFlat    = n >= 6 ? 450 : n >= 4 ? 300 : n >= 2 ? 200 : 0
     const atkspdBonus   = n >= 6 ? 0.30 : n >= 4 ? 0.20 : n >= 2 ? 0.10 : 0
     if (shieldFlat === 0) continue
@@ -1209,7 +1203,7 @@ function applySubstitutor(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits        = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const substitutorUnits = teamUnits.filter(u => u.types.includes('substitutor'))
-    const n   = new Set(substitutorUnits.map(u => u.definitionId)).size
+    const n   = traitMemberCount(teamUnits, 'substitutor')
     // Substitute HP ramps with the stage instead of being full-strength from
     // round 1 — an early substitute was so much effective HP that fights kept
     // stalling into overtime. The same multiplier scales all three breakpoints,
@@ -1278,7 +1272,7 @@ function applyKeenEye(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const keenUnits = teamUnits.filter(u => u.types.includes('keen_eye'))
-    const n = new Set(keenUnits.map(u => u.definitionId)).size
+    const n = traitMemberCount(teamUnits, 'keen_eye')
     if (n < 2) continue
 
     // Breakpoints 2 / 4 / 6: +1/+2/+3 mana per second team-wide, and Keen Eye
@@ -1328,7 +1322,7 @@ function applyStalwart(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits     = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const stalwartUnits = teamUnits.filter(u => u.types.includes('stalwart'))
-    const n             = new Set(stalwartUnits.map(u => u.definitionId)).size
+    const n             = traitMemberCount(teamUnits, 'stalwart')
     const bonus         = n >= 6 ? 60 : n >= 4 ? 40 : n >= 2 ? 20 : 0
     if (bonus === 0) continue
 
@@ -1370,7 +1364,7 @@ function applySpellweaver(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits        = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const spellweaverUnits = teamUnits.filter(u => u.types.includes('spellweaver'))
-    const n = new Set(spellweaverUnits.map(u => u.definitionId)).size
+    const n = traitMemberCount(teamUnits, 'spellweaver')
     if (n < 2) continue
 
     const unitAdaptive  = n >= 6 ? 80 : n >= 4 ? 35 : 20
@@ -1433,7 +1427,7 @@ function applyMystic(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits   = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const mysticUnits = teamUnits.filter(u => u.types.includes('mystic'))
-    const n = new Set(mysticUnits.map(u => u.definitionId)).size
+    const n = traitMemberCount(teamUnits, 'mystic')
     if (n < 2) continue
 
     const level = n >= 4 ? 4 : 2
@@ -1461,7 +1455,7 @@ function applyCrashout(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits     = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const crashoutUnits = teamUnits.filter(u => u.types.includes('crashout'))
-    const n = new Set(crashoutUnits.map(u => u.definitionId)).size
+    const n = traitMemberCount(teamUnits, 'crashout')
     if (n < 2) continue
 
     const amp = n >= 4 ? 0.08 : n >= 3 ? 0.06 : 0.05
