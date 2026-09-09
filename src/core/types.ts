@@ -283,6 +283,7 @@ export interface Unit {
 
   items: string[]             // ItemDefinition IDs (max 3)
   isShiny?: boolean            // instant 2★ shop offer; set by RunState→Unit translation, consumed by the shiny-effect registry (both later steps)
+  chosenTrait?: string        // TFT "Chosen" trait, picked once at shiny-roll time; doubles this unit's membership toward that one trait (see traitMemberCount)
   types: string[]             // TraitDefinition IDs
 
   statusEffects: StatusEffect[]

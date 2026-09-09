@@ -13,6 +13,7 @@ export interface BenchedUnit {
   tier: 1 | 2 | 3
   item?: string   // equipped item id (one per unit)
   isShiny?: boolean   // instant 2★ shop offer; zero-migration like item above
+  chosenTrait?: string   // TFT "Chosen" trait, picked once at shiny-roll time; zero-migration like isShiny above
 }
 
 export interface BoardEntry {
@@ -21,6 +22,7 @@ export interface BoardEntry {
   hexPos: { col: number; row: number }   // player-half coords (rows 4-7)
   item?: string   // equipped item id (one per unit)
   isShiny?: boolean   // instant 2★ shop offer; zero-migration like item above
+  chosenTrait?: string   // TFT "Chosen" trait, picked once at shiny-roll time; zero-migration like isShiny above
 }
 
 // One seat at the table — the human and every bot share this shape so the
@@ -39,6 +41,15 @@ export interface PlayerEcon {
   itemBench: string[]        // uncommitted items (the item bench inventory)
   shop: (string | null)[]    // definitionId per slot; null = bought/empty
   shopShiny: boolean[]       // parallel to shop, same length; true = that slot's offer is shiny
+  shopShinyTrait: (string | null)[]   // parallel to shop/shopShiny; the chosen trait rolled for that slot's shiny offer, or null
+  // Shop rolls since the last Chosen offer, counted ONLY while a shiny is
+  // owned (see hasShinyOwned) — TFT's real rule: "while you have a Chosen,
+  // one appears every 4 shops" (guaranteed pity), replacing the probabilistic
+  // roll used while none is owned. Invariant: reset to 0 whenever
+  // hasShinyOwned(econ) is false, so it always starts fresh at 0 the next
+  // time a shiny is picked up (rather than carrying over stale progress from
+  // a previous shiny that was sold/lost). See src/econ/shop.ts's rollShop.
+  shinyPityCounter: number
   shopLocked: boolean
   eliminated: boolean
   cliffPositions?: Record<string, { col: number; row: number }>   // human only: remembered Ascender pillar hexes
@@ -103,6 +114,8 @@ export function emptyEcon(name: string, personaId: string | null): PlayerEcon {
     itemBench: [],
     shop: Array(SHOP_SLOTS).fill(null),
     shopShiny: Array(SHOP_SLOTS).fill(false),
+    shopShinyTrait: Array(SHOP_SLOTS).fill(null),
+    shinyPityCounter: 0,
     shopLocked: false,
     eliminated: false,
     cliffPositions: {},
@@ -152,6 +165,9 @@ export function loadRun(storage: EconStorage | null = defaultStorage()): RunStat
     for (const p of parsed.state.players) if (typeof p.nextOpponent !== 'number') p.nextOpponent = -1
     // Migrate saves from before the shiny shop-slot flag array.
     for (const p of parsed.state.players) if (!Array.isArray(p.shopShiny)) p.shopShiny = Array(SHOP_SLOTS).fill(false)
+    // Migrate saves from before the Chosen-trait shop-slot array and pity counter.
+    for (const p of parsed.state.players) if (!Array.isArray(p.shopShinyTrait)) p.shopShinyTrait = Array(SHOP_SLOTS).fill(null)
+    for (const p of parsed.state.players) if (typeof p.shinyPityCounter !== 'number') p.shinyPityCounter = 0
     return parsed.state as RunState
   } catch {
     return null

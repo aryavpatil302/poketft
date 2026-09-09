@@ -26,18 +26,19 @@ function getJungleThreshold(count: number): [number, number] | null {
   return best
 }
 
-// A shiny unit counts as 2 members of its own "chosen" trait (its first
-// listed type, types[0]) for trait-threshold purposes — mirrors TFT's
-// Chosen mechanic. All other traits it has count normally (1). Counts
-// UNIQUE SPECIES same as every existing per-trait counter already does
-// (a shiny + non-shiny copy of the same species still only ever counts
-// once toward that species' own membership — the shiny bonus is about
-// which TRAIT gets double credit, not about counting more copies).
+// A shiny unit counts as 2 members of its own "chosen" trait (the ONE trait
+// randomly picked and stored on chosenTrait at shiny-roll time — see
+// src/econ/shop.ts) for trait-threshold purposes — mirrors TFT's Chosen
+// mechanic. All other traits it has count normally (1). Counts UNIQUE
+// SPECIES same as every existing per-trait counter already does (a shiny +
+// non-shiny copy of the same species still only ever counts once toward
+// that species' own membership — the shiny bonus is about which TRAIT gets
+// double credit, not about counting more copies).
 function traitMemberCount(teamUnits: Unit[], trait: string): number {
   const species = new Set(teamUnits.filter(u => u.types.includes(trait)).map(u => u.definitionId))
   let count = species.size
   for (const u of teamUnits) {
-    if (u.isShiny && u.types[0] === trait && u.types.includes(trait)) count += 1
+    if (u.isShiny && u.chosenTrait === trait) count += 1
   }
   return count
 }

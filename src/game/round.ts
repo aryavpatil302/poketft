@@ -163,6 +163,7 @@ export function applyAction(
         const benched: BenchedUnit = { definitionId: sourceEntry.definitionId, tier: sourceEntry.tier }
         if (sourceEntry.item) benched.item = sourceEntry.item
         if (sourceEntry.isShiny) benched.isShiny = true
+        if (sourceEntry.chosenTrait) benched.chosenTrait = sourceEntry.chosenTrait
         econ.bench[slot] = benched
         econ.board.splice(sourceIdx, 1)
         return { ok: true }
@@ -222,12 +223,14 @@ export function applyAction(
         const displaced: BenchedUnit = { definitionId: destEntry.definitionId, tier: destEntry.tier }
         if (destEntry.item) displaced.item = destEntry.item
         if (destEntry.isShiny) displaced.isShiny = true
+        if (destEntry.chosenTrait) displaced.chosenTrait = destEntry.chosenTrait
         const placed: BoardEntry = {
           definitionId: benchUnit.definitionId, tier: benchUnit.tier,
           hexPos: { col: to.col, row: to.row },
         }
         if (benchUnit.item) placed.item = benchUnit.item
         if (benchUnit.isShiny) placed.isShiny = true
+        if (benchUnit.chosenTrait) placed.chosenTrait = benchUnit.chosenTrait
         econ.board[destIdx] = placed
         econ.bench[action.benchIndex] = displaced
         return { ok: true }
@@ -244,6 +247,7 @@ export function applyAction(
       }
       if (benchUnit.item) placed.item = benchUnit.item
       if (benchUnit.isShiny) placed.isShiny = true
+      if (benchUnit.chosenTrait) placed.chosenTrait = benchUnit.chosenTrait
       econ.bench[action.benchIndex] = null
       econ.board.push(placed)
       return { ok: true }
@@ -398,6 +402,7 @@ export interface UnitFrame {
   isShiny?: boolean   // visual-only replay/spectator marker, produced by captureFrame and
                        // consumed by applyFrame — gameplay-inert since combat outcomes are
                        // already baked into recorded HP/shield values
+  chosenTrait?: string   // visual-only, mirrors isShiny above — the Chosen trait to gold-highlight during replay
   // Animation-driving fields the render layer reads to compute windup/lunge/
   // squash-stretch progress and target-lock lines. Without these every unit
   // plays back frozen in its base pose — makeUnit's zero/false/empty
@@ -488,6 +493,7 @@ export function buildUnit(entry: BoardEntry, team: 'player' | 'enemy'): Unit {
   unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
   if (entry.item) unit.items = [entry.item]
   if (entry.isShiny) unit.isShiny = true
+  if (entry.chosenTrait) unit.chosenTrait = entry.chosenTrait
   return unit
 }
 
@@ -508,6 +514,7 @@ function captureFrame(cs: CombatState): FightFrame {
       team: u.team,
       tier: u.tier,
       isShiny: u.isShiny === true,
+      ...(u.chosenTrait !== undefined ? { chosenTrait: u.chosenTrait } : {}),
       hexPos: { col: u.hexPos.col, row: u.hexPos.row },
       visualPos: { x: u.visualPos.x, y: u.visualPos.y },
       currentHp: u.currentHp,
