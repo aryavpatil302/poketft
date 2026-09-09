@@ -138,6 +138,7 @@ const FIELD_SCALE: Record<keyof BotGenome, number> = {
   traitBreakpointBonus: 1.2, traitProgressBonus: 0.5, traitOpenBonus: 0.25,
   costMultiplier: 0.2, highCostLateGameBonus: 0.6, personaLineBiasBase: 0.4,
   rerollBias: 0.4,
+  shinyPriorityFitBonus: 2, shinyBreakpointBonus: 4,
 }
 const FIELD_CLAMP: Record<keyof BotGenome, [number, number]> = {
   targetLevel: [3, 10], reserve: [0, 60], xpReserve: [0, 60],
@@ -146,6 +147,7 @@ const FIELD_CLAMP: Record<keyof BotGenome, [number, number]> = {
   traitBreakpointBonus: [0.5, 8], traitProgressBonus: [0, 4], traitOpenBonus: [0, 2],
   costMultiplier: [0.05, 1.2], highCostLateGameBonus: [0, 4], personaLineBiasBase: [0, 3],
   rerollBias: [0, 3],
+  shinyPriorityFitBonus: [1, 20], shinyBreakpointBonus: [2, 30],
 }
 
 function mutateGenome(base: BotGenome, sigma: number, rng: Rng): BotGenome {

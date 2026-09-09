@@ -85,6 +85,8 @@ export interface BotGenome {
   highCostLateGameBonus: number
   personaLineBiasBase: number
   rerollBias: number           // eagerness to commit to a cheap 3★ reroll comp (0 = fast-8, high = reroller)
+  shinyPriorityFitBonus: number  // shiny's chosenTrait matches a priority (carry/tank-focus) trait
+  shinyBreakpointBonus: number   // shiny's chosenTrait crosses a real trait breakpoint on this buy
 }
 
 // Today's hand-tuned numbers, kept as the seed every persona's evolution
@@ -104,6 +106,11 @@ const GENOME_DEFAULTS: Omit<BotGenome, 'targetLevel' | 'reserve' | 'xpReserve'> 
   highCostLateGameBonus: 1.4,
   personaLineBiasBase: 1.0,
   rerollBias: 1.0,
+  // PLACEHOLDER weighting pending self-play tuning data — not defended.
+  // shinyBreakpointBonus set noticeably higher than shinyPriorityFitBonus:
+  // breakpoint-crossing is the stronger signal (see scoreUnit).
+  shinyPriorityFitBonus: 6,
+  shinyBreakpointBonus: 14,
 }
 
 export const DEFAULT_GENOMES: Record<string, BotGenome> = {
@@ -304,7 +311,7 @@ function computeTraitViability(econ: PlayerEcon, pool: Record<string, number>, r
 // copies dominate, then trait synergy with what it already owns, then raw
 // unit strength. The persona is only a soft bias — comps emerge from shops.
 // All the magnitudes are genome-driven (trained by src/econ/train.ts).
-export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGenome, defId: string, rerollTargetIds?: string[], catchUp = 0, concentrate = false, priorityTraits?: Map<string, number>, legendaryMode = false, stage = 0, explorationMode = false, rng: Rng = Math.random, traitViability?: Map<string, number>, catalogBiasIds?: Set<string>, shiny = false): number {
+export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGenome, defId: string, rerollTargetIds?: string[], catchUp = 0, concentrate = false, priorityTraits?: Map<string, number>, legendaryMode = false, stage = 0, explorationMode = false, rng: Rng = Math.random, traitViability?: Map<string, number>, catalogBiasIds?: Set<string>, shiny = false, shinyTrait: string | null = null): number {
   const def = UNIT_MAP.get(defId)
   if (!def) return -1
   let score = 0
@@ -358,6 +365,40 @@ export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGeno
   else if (copies1 >= 2) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult   // completes a 2★ right now
   else if (copies1 === 1) score += (genome.starPairBonus + def.cost * 0.5) * starUpMult // forms a pair
   if (has2Star) score += (genome.star3LongRunBonus + def.cost * 0.8) * starUpMult       // chasing a costly 3★ is worth more
+
+  // Comp-aware shiny valuation: the base shiny term above only knows the shop
+  // offer is shiny, not WHICH trait it rolled — so it scores every shiny
+  // offer identically regardless of fit. These two bonuses key off the
+  // specific chosenTrait instead, and are deliberately independent (both can
+  // fire on the same offer): a shiny that both fits the board's priority
+  // trait AND crosses a real breakpoint is worth more than either alone.
+  // PLACEHOLDER weighting pending self-play tuning data — not defended.
+  if (shiny && shinyTrait) {
+    // COMP-FIT: the rolled trait matches a carry/tank-focus trait the board
+    // is already building around. Scaled bigger than the generic per-trait
+    // priorityTraits nudge further below (2.5 * w) — a Chosen shiny locks in
+    // a whole extra species toward that trait, not just one more matching
+    // unit, so it should clearly outweigh the generic nudge rather than
+    // merely add to it.
+    const fitWeight = priorityTraits?.get(shinyTrait)
+    if (fitWeight) score += genome.shinyPriorityFitBonus * fitWeight
+  }
+  if (shiny && shinyTrait) {
+    // BREAKPOINT-CROSS: a shiny's chosenTrait counts as TWO species toward
+    // that trait's total (combat rule: species.size + 1 for a matching
+    // shiny), so check whether THIS buy (have -> have+2) crosses a
+    // threshold that an ordinary non-shiny buy of the same species
+    // (have -> have+1) would not. "have" excludes defId's own existing
+    // membership (mirrors the dedup check above) so a duplicate species
+    // doesn't falsely count as crossing anything. Flat, not weight-scaled:
+    // crossing a breakpoint right now is valuable regardless of whether the
+    // trait happened to be a tracked priority.
+    const ownedShinyTrait = owned.get(shinyTrait)
+    const have = ownedShinyTrait?.has(defId) ? ownedShinyTrait.size - 1 : (ownedShinyTrait?.size ?? 0)
+    const thresholds = getThresholds(shinyTrait)
+    const crossesExtra = thresholds.some(th => th > have + 1 && th <= have + 2)
+    if (crossesExtra) score += genome.shinyBreakpointBonus
+  }
 
   // Trait synergy with the units it already owns (unique species only)
   for (const t of def.types) {
@@ -910,6 +951,49 @@ export interface BotTurnLog {
   mode: 'normal' | 'greed' | 'push'
 }
 
+// Bench hygiene: if fewer than 2 free slots, sell the least wanted stray.
+// Exported (rather than left inline in botPlanRound) so the staleCheapStar
+// shiny exemption below is directly testable without needing the whole
+// per-round decision pipeline.
+export function applyBenchHygiene(
+  state: RunState,
+  econ: PlayerEcon,
+  persona: BotPersona,
+  genome: BotGenome,
+  rerollTarget: RerollTarget | null,
+  catchUp: number,
+  priorityTraits: Map<string, number> | undefined,
+  legendaryMode: boolean,
+  stage: number,
+  explorationMode: boolean,
+  rng: Rng,
+  traitViability: Map<string, number> | undefined,
+  catalogBiasIds?: Set<string>,
+): void {
+  let freeSlots = econ.bench.filter(b => b === null).length
+  while (freeSlots < 2) {
+    let worst = -1
+    let worstScore = Infinity
+    for (let i = 0; i < econ.bench.length; i++) {
+      const b = econ.bench[i]
+      if (!b) continue
+      const bCost = UNIT_MAP.get(b.definitionId)?.cost ?? 0
+      if (bCost >= 4) continue                       // never sell a high-cost splash
+      // Normally keep every 2★+. But late game a BENCHED cheap 2★ is dead gold that
+      // could be funding a 2★ 4-cost, so cash it in (reroll comps keep their copies).
+      // A shiny is exempt: it's carrying a chosenTrait investment that a plain 2★
+      // isn't, so it gets the same protection as every other non-stale 2★+.
+      const staleCheapStar = stage >= 5 && !rerollTarget && b.tier === 2 && bCost <= 2 && !b.isShiny
+      if (b.tier > 1 && !staleCheapStar) continue
+      const sc = scoreUnit(econ, persona, genome, b.definitionId, rerollTarget?.defIds, catchUp, false, priorityTraits, legendaryMode, stage, explorationMode, rng, traitViability, catalogBiasIds, b.isShiny === true, b.chosenTrait ?? null)
+      if (sc < worstScore) { worstScore = sc; worst = i }
+    }
+    if (worst === -1) break
+    sellFromBench(state, econ, worst)
+    freeSlots++
+  }
+}
+
 export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: number, rng: Rng = Math.random, explorationMode = false, rivalTraitCounts?: Map<string, number>, catalogBiasIds?: Set<string>): BotTurnLog {
   const persona = personaById(econ.personaId) ?? PERSONAS[0]
   const genome = resolveGenome(persona.id)
@@ -1144,7 +1228,7 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
         const id = econ.shop[s]
         if (!id) continue
         if (!botCanAttemptBuy(econ, s)) continue
-        const sc = scoreUnit(econ, persona, genome, id, rerollTarget?.defIds, catchUp, concentrate, priorityTraits, legendaryMode, stage, explorationMode, rng, traitViability, catalogBiasIds, econ.shopShiny[s] === true)
+        const sc = scoreUnit(econ, persona, genome, id, rerollTarget?.defIds, catchUp, concentrate, priorityTraits, legendaryMode, stage, explorationMode, rng, traitViability, catalogBiasIds, econ.shopShiny[s] === true, econ.shopShinyTrait[s])
         if (sc > bestScore) { runnerUpSlot = bestSlot; runnerUpScore = bestScore; bestScore = sc; bestSlot = s }
         else if (sc > runnerUpScore) { runnerUpScore = sc; runnerUpSlot = s }
       }
@@ -1194,26 +1278,7 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
   }
 
   // Bench hygiene: if fewer than 2 free slots, sell the least wanted stray
-  let freeSlots = econ.bench.filter(b => b === null).length
-  while (freeSlots < 2) {
-    let worst = -1
-    let worstScore = Infinity
-    for (let i = 0; i < econ.bench.length; i++) {
-      const b = econ.bench[i]
-      if (!b) continue
-      const bCost = UNIT_MAP.get(b.definitionId)?.cost ?? 0
-      if (bCost >= 4) continue                       // never sell a high-cost splash
-      // Normally keep every 2★+. But late game a BENCHED cheap 2★ is dead gold that
-      // could be funding a 2★ 4-cost, so cash it in (reroll comps keep their copies).
-      const staleCheapStar = stage >= 5 && !rerollTarget && b.tier === 2 && bCost <= 2
-      if (b.tier > 1 && !staleCheapStar) continue
-      const sc = scoreUnit(econ, persona, genome, b.definitionId, rerollTarget?.defIds, catchUp, false, priorityTraits, legendaryMode, stage, explorationMode, rng, traitViability, catalogBiasIds)
-      if (sc < worstScore) { worstScore = sc; worst = i }
-    }
-    if (worst === -1) break
-    sellFromBench(state, econ, worst)
-    freeSlots++
-  }
+  applyBenchHygiene(state, econ, persona, genome, rerollTarget, catchUp, priorityTraits, legendaryMode, stage, explorationMode, rng, traitViability, catalogBiasIds)
 
   // Field the strongest lineup and position it (stage-aware: boards shift toward
   // higher-cost units and shed marginal traits as the game goes on)
