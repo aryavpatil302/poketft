@@ -14,7 +14,8 @@ import { buyXp, boardCap } from './xp'
 import { wouldCombine } from './combine'
 import { REROLL_COST, XP_BUY_COST, MAX_LEVEL, MAX_INTEREST, STARTING_HP, stageOf, copiesHeld, shinyPrice } from './constants'
 import { TRAINED_GENOMES } from './trainedGenomes'
-import { equipBotItems } from './botItems'
+import { equipBotItems, itemFitScore, botOwnedItems } from './botItems'
+import { ITEM_MAP } from '../data/items'
 import type { Rng } from './shop'
 import { posteriorMean, thompsonSample, type Affinity } from './itemAffinity'
 import {
@@ -87,6 +88,8 @@ export interface BotGenome {
   rerollBias: number           // eagerness to commit to a cheap 3★ reroll comp (0 = fast-8, high = reroller)
   shinyPriorityFitBonus: number  // shiny's chosenTrait matches a priority (carry/tank-focus) trait
   shinyBreakpointBonus: number   // shiny's chosenTrait crosses a real trait breakpoint on this buy
+  shinyItemFitBonus: number      // shiny's role fits an item the bot already owns
+  shinyNoDirectionBonus: number  // shiny bought before the bot has any established comp direction
 }
 
 // Today's hand-tuned numbers, kept as the seed every persona's evolution
@@ -111,6 +114,12 @@ const GENOME_DEFAULTS: Omit<BotGenome, 'targetLevel' | 'reserve' | 'xpReserve'> 
   // breakpoint-crossing is the stronger signal (see scoreUnit).
   shinyPriorityFitBonus: 6,
   shinyBreakpointBonus: 14,
+  // PLACEHOLDER weighting pending self-play tuning data — not defended.
+  // shinyItemFitBonus rewards a shiny that fits an item the bot already
+  // holds; shinyNoDirectionBonus is a flat early-game amplifier for buying
+  // a shiny before any comp direction is locked in (see scoreUnit).
+  shinyItemFitBonus: 4,
+  shinyNoDirectionBonus: 5,
 }
 
 export const DEFAULT_GENOMES: Record<string, BotGenome> = {
@@ -354,6 +363,15 @@ export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGeno
     return species !== undefined && [...species].some(s => s !== defId)
   })
   const starUpMult = (hasEstablishedComp && !connectsToRoster) ? 0.5 : 1
+  // A shiny is exempt from the off-roster discount above: it's not a risky 1★
+  // that might never combine into anything — it's already a realized power
+  // spike (instant tier 2 + a unique combat effect + the universal +5% stat
+  // bonus) the moment it's bought. The "protect against wasting gold on an
+  // off-comp investment" logic starUpMult exists for doesn't apply to it — a
+  // shiny should be free to justify pivoting the whole comp around itself.
+  // Deliberately a SEPARATE local, not a mutation of starUpMult: the shared
+  // variable still feeds the non-shiny star-up terms below unchanged.
+  const shinyStarUpMult = shiny ? 1 : starUpMult
   // Shiny is exclusive with the tier-1 star terms below, not additive on top of
   // them: a shiny lands at tier 2 directly, so it never completes a tier-1
   // triple (copies1-based terms describe an upgrade that cannot happen on this
@@ -361,7 +379,7 @@ export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGeno
   // Deliberately "completed-2★ scoring, net the extra gold" rather than a free
   // 2★: reuses the copies1>=2 term byte-for-byte, then subtracts the
   // incremental gold a shiny costs over a normal buy.
-  if (shiny) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult - (shinyPrice(def.cost) - def.cost)
+  if (shiny) score += (genome.starCompleteBonus + def.cost * 1.6) * shinyStarUpMult - (shinyPrice(def.cost) - def.cost)
   else if (copies1 >= 2) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult   // completes a 2★ right now
   else if (copies1 === 1) score += (genome.starPairBonus + def.cost * 0.5) * starUpMult // forms a pair
   if (has2Star) score += (genome.star3LongRunBonus + def.cost * 0.8) * starUpMult       // chasing a costly 3★ is worth more
@@ -399,6 +417,34 @@ export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGeno
     const crossesExtra = thresholds.some(th => th > have + 1 && th <= have + 2)
     if (crossesExtra) score += genome.shinyBreakpointBonus
   }
+
+  // ITEM-FIT: a shiny that fits an item the bot already holds is worth more —
+  // the item can slot onto it immediately (equipBotItems re-optimises every
+  // round), so the shiny isn't just a trait bet, it's an item-carrier bet too.
+  // Takes the MAX across owned items (the single best-fitting item, not a
+  // sum) — mirrors how chooseBotItem picks the single best item for the
+  // single best unit. itemFitScore's raw scale (~0-80+) dwarfs everything
+  // else in this function (mostly single/low-double digits), so it's
+  // normalized by /25 (the flat category-match bonus) before weighting.
+  // PLACEHOLDER weighting pending self-play tuning data — not defended.
+  if (shiny) {
+    const ownedItems = botOwnedItems(econ)
+    let bestFit = 0
+    for (const itemId of ownedItems) {
+      const itemDef = ITEM_MAP.get(itemId)
+      if (!itemDef) continue
+      const fit = itemFitScore(itemDef, def.role) / 25
+      if (fit > bestFit) bestFit = fit
+    }
+    if (bestFit > 0) score += genome.shinyItemFitBonus * bestFit
+  }
+
+  // NO-DIRECTION AMPLIFIER: a shiny bought before the roster has any
+  // established trait direction (hasEstablishedComp false) is worth MORE,
+  // not less — it's the buy that gets to define the plan, on top of it
+  // already being exempt from the off-roster discount above. Flat, not
+  // weight-scaled: this is about timing (early vs. late), not fit.
+  if (shiny && !hasEstablishedComp) score += genome.shinyNoDirectionBonus
 
   // Trait synergy with the units it already owns (unique species only)
   for (const t of def.types) {
