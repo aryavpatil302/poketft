@@ -18,11 +18,20 @@ function makeState(players: Unit[], enemies: Unit[]): CombatState {
 
 // Registry hygiene: SHINY_EFFECT_REGISTRY is module-global and shared across
 // test files in the same worker. Every test that registers an entry removes
-// it here, and we assert it returns to empty so a leaked entry fails loudly
-// here rather than corrupting an unrelated suite.
+// it here, and we assert it returns to its pre-suite baseline so a leaked
+// entry fails loudly here rather than corrupting an unrelated suite.
+//
+// Baseline is NOT always 0: `../combatEngine` (imported above) pulls in
+// `./shinyEffects/index`, the real per-species registration barrel — by the
+// time this module's top-level code runs, every shipped species effect
+// (Unown, Stonjourner, etc.) is already registered and stays registered for
+// the life of the test process. Only entries THIS file adds (and removes)
+// should ever change the count from here on.
+const BASELINE_REGISTRY_SIZE = SHINY_EFFECT_REGISTRY.size
+
 afterEach(() => {
   SHINY_EFFECT_REGISTRY.delete('tangela')
-  expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+  expect(SHINY_EFFECT_REGISTRY.size).toBe(BASELINE_REGISTRY_SIZE)
 })
 
 // ─── initShinyEffects: dispatch ────────────────────────────────────────────────
