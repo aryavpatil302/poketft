@@ -22,7 +22,10 @@ export const KlawfAbility: AbilityHandler = {
       id: 'crit_chance_buff',
       sourceUnitId: unit.id,
       durationTicks: DURATION,
-      magnitude: 0.50,
+      // Shiny Klawf: Anger Shell grants 100% crit chance instead of 50% — the
+      // existing Math.min(1, ...) clamp in unitFactory.ts's computeStats
+      // already guarantees this reads as exactly 100%, no separate clamp needed here.
+      magnitude: unit.isShiny ? 1.0 : 0.50,
       stackId: 'klawf_crit',
     })
   },
