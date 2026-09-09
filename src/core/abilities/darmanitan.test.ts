@@ -296,3 +296,66 @@ describe('Darmanitan - Zen trait', () => {
     expect(empowered.dar.statusEffects.some(fx => fx.stackId === 'zen_empower_cast')).toBe(false)
   })
 })
+
+// New shape introduced by this batch: every shiny-effect test pairs its shiny
+// case with an explicit non-shiny control proving the effect does NOT fire
+// without unit.isShiny === true.
+describe('Darmanitan - shiny Flare Blitz (true damage split)', () => {
+  // critChance 0 makes the physical half's canCrit:true never roll a crit;
+  // target defense 0 makes mitigationFactor(0) === 0, so both the physical
+  // and true halves land 1:1 with their baseAmount — the whole hit is then
+  // exactly reconstructable from computeStats(dar).attack, no RNG or
+  // mitigation noise to account for.
+  function bigEnemyState(shiny: boolean) {
+    const dar = makeUnit('darmanitan', 'player', 1)
+    dar.hexPos = { col: 3, row: 5 }
+    dar.critChance = 0
+    dar.isShiny = shiny
+    const e = makeUnit('dummy', 'enemy', 1)
+    e.maxHp = 1_000_000; e.currentHp = 1_000_000; e.hexPos = { col: 3, row: 4 }
+    // makeUnit() already calls computeStats() once at construction and caches
+    // the result on _computedStats (unitFactory.ts) — applyDamage reads that
+    // cache directly (target._computedStats ?? computeStats(target)), so a
+    // raw-field mutation alone is silently ignored until the cache is
+    // invalidated, same idiom used throughout the codebase.
+    e.defense = 0
+    e._computedStats = null
+    const state = createCombatState([dar], [e])
+    cast(dar, state); advanceLeaps(dar, state)
+    return { dar, e, state }
+  }
+
+  it('(a) non-shiny caster (regression) — 100% physical damage, no true damage at all', () => {
+    const { e } = bigEnemyState(false)
+    // Darmanitan attack 120 (no shiny bonus), tier-1 500% => round(120*5) = 600.
+    expect(e.dmgTaken.physical).toBe(600)
+    expect(e.dmgTaken.true).toBe(0)
+  })
+
+  it('(b) shiny caster — half the hit lands as true damage, half as physical, summing to the full hit', () => {
+    const { e } = bigEnemyState(true)
+    // Darmanitan attack 120 * 1.05 (universal shiny bonus) = round(126),
+    // tier-1 500% => round(126*5) = 630. Split by remainder: 315 / 315.
+    expect(e.dmgTaken.physical).toBe(315)
+    expect(e.dmgTaken.true).toBe(315)
+    expect(e.dmgTaken.physical + e.dmgTaken.true).toBe(630)
+  })
+
+  it('(c) shiny caster still hits every target in a multi-target blitz — the split applies per hit, not once', () => {
+    const dar = makeUnit('darmanitan', 'player', 1); dar.hexPos = { col: 3, row: 5 }; dar.isShiny = true
+    const primary = makeUnit('dummy', 'enemy', 1); primary.hexPos = { col: 3, row: 4 }
+    const near    = makeUnit('dummy', 'enemy', 1); near.hexPos    = { col: 4, row: 4 }
+    const state = createCombatState([dar], [primary])
+    state.units.set(near.id, near)
+    state.hexOccupancy.set(hexId(near.hexPos), near.id)
+    const hp = { primary: primary.currentHp, near: near.currentHp }
+
+    cast(dar, state)
+    advanceLeaps(dar, state)
+
+    expect(primary.currentHp).toBeLessThan(hp.primary)
+    expect(near.currentHp).toBeLessThan(hp.near)
+    expect(primary.dmgTaken.true).toBeGreaterThan(0)
+    expect(near.dmgTaken.true).toBeGreaterThan(0)
+  })
+})
