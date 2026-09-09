@@ -2,14 +2,26 @@ import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit, PassiveAttackHandler } from '../types'
 import { addStatusEffect } from '../systems/statusEffect'
 import { createProjectile } from '../projectile'
-import { hexDistance } from '../hexGrid'
+import { hexDistance, hexKnockbackPath, isValidHex } from '../hexGrid'
+import { startLeap } from '../systems/movement'
 import { computeStats } from '../unitFactory'
+
+function findNearestEnemy(unit: Unit, state: CombatState): Unit | null {
+  let best: Unit | null = null
+  let bestDist = Infinity
+  for (const other of state.units.values()) {
+    if (other.team === unit.team || other.state === 'dead') continue
+    const d = hexDistance(unit.hexPos, other.hexPos)
+    if (d < bestDist) { bestDist = d; best = other }
+  }
+  return best
+}
 
 export const AerodactylAbility: AbilityHandler = {
   abilityId: 'aerodactyl_ancient_power',
   castTimeTicks: 20,
 
-  onCast(unit: Unit, _state: CombatState, tier: number): void {
+  onCast(unit: Unit, state: CombatState, tier: number): void {
     const bonuses  = [0.30, 0.45, 0.80] as const
     const rockPcts = [0.50, 0.75, 3.00] as const
 
@@ -42,6 +54,26 @@ export const AerodactylAbility: AbilityHandler = {
       })
       unit.range += 1
       unit._computedStats = null
+
+      // Dash 1 hex behind (away from his target), dropping aggro for the dash —
+      // he can't be newly targeted or stay locked as anyone's current target
+      // while airborne, but is fair game again the instant he lands.
+      const target = (unit.targetId ? state.units.get(unit.targetId) : undefined) ?? findNearestEnemy(unit, state)
+      const dest   = target ? hexKnockbackPath(target.hexPos, unit.hexPos, 1)[0] : null
+      if (dest && isValidHex(dest)) {
+        addStatusEffect(unit, {
+          id: 'evade_targeting',
+          sourceUnitId: unit.id,
+          durationTicks: -1,
+          stackId: 'aerodactyl_dash_evade',
+          suppressTargeting: true,
+        })
+        startLeap(unit, dest, state, 10.0, (u, _s) => {
+          u.statusEffects = u.statusEffects.filter(fx => fx.stackId !== 'aerodactyl_dash_evade')
+          u.targetId = null   // re-acquire from the new hex position
+        })
+        unit.state = 'leaping'
+      }
     }
 
     // Passive: bounce rock from the auto-attack target to the furthest enemy from that target.
