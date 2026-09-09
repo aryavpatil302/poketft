@@ -1,5 +1,4 @@
 import type { Unit, CombatState, Team } from '../types'
-import './shinyEffects/index'
 
 // This file has TWO separate mechanics that merely share one hook:
 //
