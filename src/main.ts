@@ -25,7 +25,7 @@ import { loadRun, saveRun as persistRunToStorage, clearRun, newRun, type RunStat
 // travels through dispatchAction -> applyAction, the same function the room
 // server calls. rollShop survives only because initFreshRun seeds a brand-new
 // solo run's shops before any action can be dispatched against it.
-import { rollShop } from './econ/shop'
+import { rollShop, pickChosenTrait } from './econ/shop'
 import { tierComposition, detectTierChanges, type TierChange, type TierChangeKind } from './econ/tierChanges'
 import { xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
@@ -2071,7 +2071,11 @@ function placeUnit(hex: OffsetCoord): void {
   const key  = hexId(hex)
   const team = hex.row <= 3 ? 'enemy' : 'player'
   const unit = makeUnit(selectedUnitId, team, selectedTier)
-  if (rosterShiny) unit.isShiny = true
+  if (rosterShiny) {
+    unit.isShiny = true
+    const chosen = pickChosenTrait(selectedUnitId, Math.random)
+    if (chosen) unit.chosenTrait = chosen
+  }
   unit.hexPos = { ...hex }
   unit.visualPos = hexToPixel(hex, HEX_SIZE)
   unit.placedAt = ++placementCounter
@@ -3507,11 +3511,13 @@ const CHOSEN_TRAIT_GOLD = '#f4c542'
 // trait name beside it (TFT card style). `highlighted` marks this as a
 // shiny unit/slot's Chosen trait — a gold glow/border on the hex plus a
 // gold-tinted label, layered on top of the existing look rather than a
-// full re-skin.
-function cardTraitRowHTML(trait: string, highlighted: boolean = false): string {
+// full re-skin. `iconGlow` gates the hex icon's gold glow/border separately
+// from the text — the shop card wants gold text only, no icon glow, while
+// the hover card keeps both (default true preserves existing behavior).
+function cardTraitRowHTML(trait: string, highlighted: boolean = false, iconGlow: boolean = true): string {
   const file = GLYPH_OVERRIDES[trait] ?? `${trait}_trait_icon.png`
   const scale = CARD_GLYPH_SCALE[trait] ?? 1
-  const hexHighlightCss = highlighted
+  const hexHighlightCss = highlighted && iconGlow
     ? `box-shadow:0 0 0 1px ${CHOSEN_TRAIT_GOLD},0 0 5px 1px rgba(244,197,66,0.85);border:1px solid ${CHOSEN_TRAIT_GOLD};`
     : ''
   return `<div style="display:flex;align-items:center;gap:4px;">
@@ -3561,7 +3567,7 @@ function shopCardHTML(slot: number): string {
   const displayCost = isShinySlot ? shinyPrice(def.cost) : def.cost
   const affordable = h.gold >= displayCost
   const traitRows = def.types.slice(0, 3)
-    .map(t => cardTraitRowHTML(t, t === chosenTraitSlot))
+    .map(t => cardTraitRowHTML(t, t === chosenTraitSlot, false))
     .join('')
 
   // Already owned (bench or board) → small pokeball marker, upper-left.
