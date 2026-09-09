@@ -9,7 +9,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // species" convention used by every shiny effect.
 registerShinyEffect('vikavolt', {
   id: 'shiny_vikavolt',
-  description: "Discharge deals 33% bonus damage to the highest-HP unit in the targeted row.",
+  description: 'Discharge deals 33% bonus damage to the unit with the highest current Health in the targeted row.',
 
   onCombatStart(): void {
     // No-op — see src/core/abilities/vikavolt.ts's onCast for the real hook.

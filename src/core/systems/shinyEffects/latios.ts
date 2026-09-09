@@ -10,7 +10,7 @@ const SPECIAL_MULT = 1.5
 
 registerShinyEffect('latios', {
   id: 'shiny_latios',
-  description: 'Self special ×1.5 at combat start.',
+  description: 'Gains 1.5x base Special Attack.',
   onCombatStart(self: Unit, _state: CombatState): void {
     self.special = Math.round(self.special * SPECIAL_MULT)
     self._computedStats = null

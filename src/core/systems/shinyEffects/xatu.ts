@@ -8,7 +8,7 @@ import { getNeighbors, hexId } from '../../hexGrid'
 // adjacent allies must no-op cleanly, not throw.
 registerShinyEffect('xatu', {
   id: 'shiny_xatu_future_sight',
-  description: 'Adjacent allies gain a 100 HP shield.',
+  description: 'Grants adjacent allies a 100-Health shield at the start of combat.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const hex of getNeighbors(self.hexPos)) {
       const uid = state.hexOccupancy.get(hexId(hex))

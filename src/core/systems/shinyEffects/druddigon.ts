@@ -7,7 +7,7 @@ const ROW_DMG_BUFF = 10
 
 registerShinyEffect('druddigon', {
   id: 'druddigon_shiny_dragon_ranks',
-  description: 'Allies in the same row gain +10 attack.',
+  description: 'Grants allies in the same row +10 Attack.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy || ally.state === 'dead') continue

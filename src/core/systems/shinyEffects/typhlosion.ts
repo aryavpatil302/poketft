@@ -9,7 +9,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // tooltip description have something to read.
 registerShinyEffect('typhlosion', {
   id: 'shiny_typhlosion_scorch',
-  description: 'Shiny: each fireball from Eruption burns its target for 5 seconds.',
+  description: 'Eruption applies a 5-second burn to each enemy hit.',
   onCombatStart(): void {
     // No combat-start action — see typhlosion.ts's onCast for the real effect.
   },

@@ -13,7 +13,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // Full mana IS a pure combat-start grant, so it lives here.
 registerShinyEffect('aerodactyl', {
   id: 'aerodactyl_shiny_ancient_power',
-  description: 'Starts combat with full mana; Ancient Power grants +2 range instead of +1.',
+  description: 'Starts combat with full Mana and gains +2 range instead of +1.',
   onCombatStart(self: Unit, _state: CombatState): void {
     self.currentMana = self.maxMana
   },

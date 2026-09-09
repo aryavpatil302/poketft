@@ -13,7 +13,7 @@ const BURN_PCT_PER_SEC = 0.02   // 2% of the target's max HP each second
 
 registerShinyEffect('toucannon', {
   id: 'shiny_toucannon',
-  description: 'Applies a 15-second burn to every enemy at the start of combat.',
+  description: 'Applies burn to all enemies for the first 15 seconds of combat.',
 
   onCombatStart(self: Unit, state: CombatState): void {
     const durationTicks = BURN_DURATION_SEC * TICK_RATE

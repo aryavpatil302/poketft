@@ -9,7 +9,7 @@ import { addStatusEffect } from '../statusEffect'
 // mechanism needed.
 export const ShinyRayquazaEffect: ShinyEffect = {
   id: 'shiny_rayquaza',
-  description: 'Full mana and +10% damage amp at combat start.',
+  description: 'Starts combat with full Mana and a 10% damage amp.',
   onCombatStart(self: Unit, _state: CombatState): void {
     self.currentMana = self.maxMana
     addStatusEffect(self, {

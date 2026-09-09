@@ -8,7 +8,7 @@ import { TICK_RATE } from '../../constants'
 // (src/data/items/life_orb.ts:23-37), applied team-wide instead of self-only.
 registerShinyEffect('claydol', {
   id: 'shiny_claydol_mana_font',
-  description: 'All allies gain +1 mana regen per second.',
+  description: 'Grants all allies +1 Mana regen per second.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy || ally.state === 'dead') continue

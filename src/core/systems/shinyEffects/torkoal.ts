@@ -5,7 +5,7 @@ import { addStatusEffect } from '../statusEffect'
 // Shiny Torkoal: self +20 armor (defense) at combat start.
 registerShinyEffect('torkoal', {
   id: 'shiny_torkoal_iron_shell',
-  description: 'Shiny: Torkoal gains +20 armor at the start of combat.',
+  description: 'Starts combat with +20 Defense.',
   onCombatStart(self: Unit): void {
     addStatusEffect(self, {
       id: 'armorBuff',

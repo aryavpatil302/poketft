@@ -5,7 +5,7 @@ import { addStatusEffect } from '../statusEffect'
 // Shiny Blastoise: self only, +30% attack speed at combat start.
 registerShinyEffect('blastoise', {
   id: 'shiny_blastoise',
-  description: 'Self: +30% attack speed at combat start.',
+  description: 'Starts combat with +30% Attack Speed.',
   onCombatStart(self: Unit, _state: CombatState): void {
     addStatusEffect(self, {
       id: 'atkSpd_buff',

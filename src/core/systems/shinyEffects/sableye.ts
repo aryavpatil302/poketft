@@ -9,7 +9,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // other registered shiny species.
 registerShinyEffect('sableye', {
   id: 'sableye_shiny_prospector',
-  description: 'Each cast has a 30% chance to grant your team 1 gold.',
+  description: 'Each cast has a 30% chance to grant 1 Gold.',
   onCombatStart(_self: Unit, _state: CombatState): void {
     // No-op — the gold roll lives in abilities/sableye.ts's onCast.
   },

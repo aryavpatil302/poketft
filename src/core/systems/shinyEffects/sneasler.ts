@@ -37,7 +37,7 @@ const MODIFIER_ID = 'sneasler_shiny_poison'
 
 registerShinyEffect('sneasler', {
   id: 'sneasler_shiny_dire_claw',
-  description: 'Ally attacks apply poison to enemies for the first 10 seconds of combat.',
+  description: 'Ally attacks poison enemies for the first 10 seconds of combat.',
   onCombatStart(self: Unit, state: CombatState): void {
     const startTick = state.tick
 

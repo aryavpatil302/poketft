@@ -20,7 +20,7 @@ const MANA_REDUCTION = 30
 
 registerShinyEffect('charizard', {
   id: 'shiny_charizard_smaller_flame',
-  description: 'Shiny: Charizard has 30 less max mana.',
+  description: 'Has 30 less base Mana.',
   onCombatStart(self: Unit): void {
     self.maxMana = Math.max(0, self.maxMana - MANA_REDUCTION)
     if (self.currentMana > self.maxMana) self.currentMana = self.maxMana

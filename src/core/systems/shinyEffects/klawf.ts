@@ -11,7 +11,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // shop tooltip), matching every other shiny species.
 registerShinyEffect('klawf', {
   id: 'klawf_shiny_anger_shell',
-  description: 'Anger Shell grants 100% critical strike chance instead of 50%.',
+  description: 'Anger Shell grants 100% critical strike chance.',
   onCombatStart(): void {
     // No-op — see comment above. Behavior lives in klawf.ts's onCast.
   },

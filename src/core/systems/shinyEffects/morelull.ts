@@ -7,7 +7,7 @@ import { addStatusEffect } from '../statusEffect'
 // special-stat sibling of the existing flat-attack `dmg_buff` case.
 registerShinyEffect('morelull', {
   id: 'shiny_morelull',
-  description: 'All allies gain +5 special at combat start.',
+  description: 'Grants all allies +5 Special Attack.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

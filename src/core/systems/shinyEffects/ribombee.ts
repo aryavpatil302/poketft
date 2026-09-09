@@ -8,7 +8,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // "one file per species" convention used by every shiny effect.
 registerShinyEffect('ribombee', {
   id: 'shiny_ribombee',
-  description: "Pollen Puff's heal and damage are both increased by 50%.",
+  description: 'Pollen Puff heals and deals damage 1.5x as effectively.',
 
   onCombatStart(): void {
     // No-op — see src/core/abilities/ribombee.ts's onCast for the real hook.

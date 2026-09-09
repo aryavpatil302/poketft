@@ -9,7 +9,7 @@ const ATK_SPD_MAGNITUDE = 0.30
 
 registerShinyEffect('tapu_koko', {
   id: 'shiny_tapu_koko',
-  description: 'Team-wide +30% attack speed at combat start.',
+  description: 'Grants all allies +30% Attack Speed.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

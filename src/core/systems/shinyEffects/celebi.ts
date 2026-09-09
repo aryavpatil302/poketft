@@ -16,7 +16,7 @@ function isInBackTwoRows(team: Unit['team'], row: number): boolean {
 
 registerShinyEffect('celebi', {
   id: 'shiny_celebi',
-  description: 'Allies in the back 2 rows gain +5% damage amp at combat start.',
+  description: 'Grants allies in the back 2 rows +5% damage amp.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

@@ -6,7 +6,7 @@ import { addStatusEffect } from '../statusEffect'
 // itself) gains +5 special defense via the existing `spDefBuff` case.
 registerShinyEffect('morgrem', {
   id: 'shiny_morgrem',
-  description: 'All allies gain +5 special defense at combat start.',
+  description: 'Grants all allies +5 Sp. Defense.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

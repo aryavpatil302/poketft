@@ -7,7 +7,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // to make here.
 registerShinyEffect('froslass', {
   id: 'shiny_froslass_true_damage_split',
-  description: 'Icy Wind deals 10% of its damage to the first target hit as true damage.',
+  description: "Icy Wind deals 10% of its damage as true damage to the first enemy hit.",
   onCombatStart(): void {
     // Intentional no-op — see ../../abilities/froslass.ts for the effect.
   },

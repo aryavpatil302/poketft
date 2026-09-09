@@ -7,7 +7,7 @@ const BONUS_HP = 100
 
 registerShinyEffect('tropius', {
   id: 'shiny_tropius',
-  description: 'Grants +100 max HP to every ally at combat start.',
+  description: 'Grants all allies +100 max Health.',
 
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {

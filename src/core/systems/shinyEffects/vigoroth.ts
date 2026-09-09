@@ -7,7 +7,7 @@ const ATK_SPD_BONUS = 0.10
 
 registerShinyEffect('vigoroth', {
   id: 'shiny_vigoroth',
-  description: 'Grants every ally +10% attack speed at combat start.',
+  description: 'Grants all allies +10% Attack Speed at the start of combat.',
 
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {

@@ -15,29 +15,26 @@ import './kingler'
 import './a_raichu'
 import './palossand'
 import './blastoise'
-// A-Exeggutor and Tapu Fini's shiny effects hook directly into their own
-// ability files (a_exeggutor.ts / tapufini.ts) instead of registering here —
-// their effects modify a specific cast/hit, not combat-start state, so they
-// have no onCombatStart to register (same shape as wave 1's Runerigus/
-// Ferrothorn engine hooks, which also have no shinyEffects/ file).
+import './a_exeggutor'
+import './tapu_fini'
 import './zubat'
 import './druddigon'
 import './sableye'
 import './excadrill'
+import './ferrothorn'
 // River
 import './drednaw'
 import './bellibolt'
 import './quagsire'
-// Barraskewda's shiny effect (Fishous Rend armor pierce) is Category B — it
-// lives entirely inside the existing ability file's tickEffect, not a new
-// onCombatStart registration here. See src/core/abilities/barraskewda.ts.
-// Ruiner: Unown, Stonjourner, Xatu, Claydol (Absol and Spiritomb hook their
-// own ability files directly; Runerigus's shiny effect lives in ability.ts
-// already — no per-species file needed for either).
+import './barraskewda'
+// Ruiner
 import './unown'
 import './stonjourner'
 import './xatu'
 import './claydol'
+import './absol'
+import './spiritomb'
+import './runerigus'
 // Volcano
 import './typhlosion'
 import './graveler'
@@ -57,9 +54,8 @@ import './darmanitan'
 import './pidgeotto'
 import './noivern'
 import './rayquaza'
-// Wailord and Talonflame's shiny effects hook their own ability files
-// directly (src/core/abilities/wailord.ts, talonflame.ts) — no onCombatStart
-// registration needed for them.
+import './wailord'
+import './talonflame'
 // ─── Jungle ──────────────────────────────────────────────────────────────────
 import './tangela'
 import './ribombee'

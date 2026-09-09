@@ -14,7 +14,7 @@ const DEBUFF_DURATION_TICKS = 15 * TICK_RATE
 
 registerShinyEffect('wheezing', {
   id: 'shiny_wheezing_toxic_cloud',
-  description: 'Shiny: at the start of combat, every enemy is Sundered and Shredded 30% for 15 seconds.',
+  description: 'At the start of combat, sunders and shreds the entire enemy team for 15 seconds.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const enemy of state.units.values()) {
       // No isDummy exclusion here (unlike the ally-targeting shiny effects in
