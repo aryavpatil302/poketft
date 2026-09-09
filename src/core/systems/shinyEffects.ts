@@ -150,4 +150,11 @@ export function initShinyEffects(state: CombatState): void {
 // ─── Registrations ──────────────────────────────────────────────────────────
 // Registered shiny effects go here, one registerShinyEffect(...) call per
 // line — mirroring the registerAbility(...) block at the bottom of
-// ability.ts. Empty for now: this step ships the seam, not the effects.
+// ability.ts.
+//
+// This file does NOT import the shinyEffects/ barrel itself — that would
+// create a circular import (barrel -> per-species file -> back to this file
+// for registerShinyEffect), which Vite/Vitest's SSR module transform does
+// not resolve safely (registerShinyEffect reads as undefined at call time).
+// combatEngine.ts imports the barrel as a sibling of its existing
+// `import { initShinyEffects } from './systems/shinyEffects'` line instead.
