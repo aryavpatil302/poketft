@@ -4,7 +4,7 @@ import { rollShop, reroll, buyUnit, sellFromBench, sellFromBoard, returnAllToPoo
 import { UNIT_MAP } from '../data/units'
 import {
   REROLL_COST, SHOP_SLOTS, POOL_COPIES, SHINY_COST_ODDS, SHINY_TIER, SHINY_PITY_ROLLS,
-  CHOSEN_TRAIT_INELIGIBLE, copiesHeld, shinyPrice,
+  CHOSEN_TRAIT_INELIGIBLE, copiesHeld, shinyPrice, SHINY_EXCLUSION_SHOPS,
 } from './constants'
 import { wouldCombine } from './combine'
 
@@ -382,6 +382,145 @@ describe('shop', () => {
 
       expect(ok).toBe(true)
       expect(e.shopShiny.filter(Boolean)).toHaveLength(1)
+    })
+  })
+
+  describe('shiny species cooldown', () => {
+    // Shared by every test below: a pool where only the given ids carry
+    // copies at the given cost tier, making the shiny cost-tier's candidate
+    // pool deterministic — same technique as the "depleted cost tier" test
+    // above, but keeping specific ids alive instead of zeroing all of them.
+    // tangela/ribombee/kingler are all cost-1 units (see src/data/units.ts).
+    function poolWithOnlyIdsAtCost(cost: number, ids: string[]): Record<string, number> {
+      const pool = freshPool()
+      for (const def of shopEligibleUnits()) if (def.cost === cost && !ids.includes(def.id)) pool[def.id] = 0
+      return pool
+    }
+
+    // Forces the shiny cost-tier draw to tier 1, derived from the level-5
+    // SHINY_COST_ODDS row's cumulative weight the same way tier2DrawAtLevel5
+    // does above, just landing inside tier 1's range instead of tier 2's.
+    function tier1DrawAtLevel5(): number {
+      const level5Odds = SHINY_COST_ODDS[5]   // [40, 55, 5, 0, 0]
+      const cum1 = level5Odds[0] / 100
+      return cum1 / 2
+    }
+
+    it('a species offered and passed on gets excluded for SHINY_EXCLUSION_SHOPS refreshes', () => {
+      const pool = poolWithOnlyIdsAtCost(1, ['tangela'])
+      const e = emptyEcon('t', null)
+      e.level = 5
+      const offerRng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier1DrawAtLevel5() })
+      rollShop(e, pool, offerRng)
+      expect(e.shop[SHOP_SLOTS - 1]).toBe('tangela')
+      expect(e.shopShiny[SHOP_SLOTS - 1]).toBe(true)
+
+      // The offer sits unbought — shopShiny[4] is still true going into the
+      // next roll. rollShop reads that BEFORE its own reset loop wipes it.
+      const nextRng = scriptedRng(9, { [SHINY_PASS_START]: 0.99 })
+      rollShop(e, pool, nextRng)
+      expect(e.shinyExclusion['tangela']).toBe(SHINY_EXCLUSION_SHOPS - 1)
+    })
+
+    it('a species that was bought (slot cleared via buyUnit) does not get excluded', () => {
+      const run = newRun(BOT_SEATS)
+      const e = run.players[0]
+      e.level = 5
+      e.gold = 999
+      for (const def of shopEligibleUnits()) if (def.cost === 1 && def.id !== 'tangela') run.pool[def.id] = 0
+
+      const offerRng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier1DrawAtLevel5() })
+      rollShop(e, run.pool, offerRng)
+      expect(e.shop[SHOP_SLOTS - 1]).toBe('tangela')
+      expect(e.shopShiny[SHOP_SLOTS - 1]).toBe(true)
+
+      const res = buyUnit(run, e, SHOP_SLOTS - 1)
+      expect(res.ok).toBe(true)
+      expect(e.shopShiny[SHOP_SLOTS - 1]).toBe(false)   // buyUnit clears it immediately
+
+      const nextRng = scriptedRng(9, { [SHINY_PASS_START]: 0.99 })
+      rollShop(e, run.pool, nextRng)
+      expect(e.shinyExclusion['tangela']).toBeUndefined()
+    })
+
+    it('exclusion count decrements by exactly 1 per rollShop call and is removed once it hits 0', () => {
+      const pool = poolWithOnlyIdsAtCost(1, ['tangela'])
+      const e = emptyEcon('t', null)
+      e.level = 5
+      rollShop(e, pool, scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier1DrawAtLevel5() }))
+      expect(e.shop[SHOP_SLOTS - 1]).toBe('tangela')
+
+      // Capture roll: sets to SHINY_EXCLUSION_SHOPS then immediately
+      // decrements once in the same call.
+      rollShop(e, pool, scriptedRng(9, { [SHINY_PASS_START]: 0.99 }))
+      expect(e.shinyExclusion['tangela']).toBe(SHINY_EXCLUSION_SHOPS - 1)
+
+      for (let remaining = SHINY_EXCLUSION_SHOPS - 2; remaining >= 0; remaining--) {
+        rollShop(e, pool, scriptedRng(9, { [SHINY_PASS_START]: 0.99 }))
+        if (remaining === 0) {
+          expect(e.shinyExclusion['tangela']).toBeUndefined()
+        } else {
+          expect(e.shinyExclusion['tangela']).toBe(remaining)
+        }
+      }
+    })
+
+    it('an excluded species is never selected as the shiny candidate even when rng would otherwise pick it', () => {
+      const pool = poolWithOnlyIdsAtCost(1, ['tangela', 'ribombee'])
+      const e = emptyEcon('t', null)
+      e.level = 5
+      // Still > 0 after this call's unconditional decrement, so it filters
+      // out of the candidate pool during THIS call's shiny pass.
+      e.shinyExclusion['tangela'] = 2
+      const rng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier1DrawAtLevel5() })
+
+      rollShop(e, pool, rng)
+
+      expect(e.shopShiny[SHOP_SLOTS - 1]).toBe(true)
+      expect(e.shop[SHOP_SLOTS - 1]).toBe('ribombee')
+      expect(e.shinyExclusion['tangela']).toBe(1)
+    })
+
+    it('falls back to the excluded pool when every candidate at the rolled cost tier is on cooldown', () => {
+      const pool = poolWithOnlyIdsAtCost(1, ['tangela', 'ribombee'])
+      const e = emptyEcon('t', null)
+      e.level = 5
+      e.shinyExclusion['tangela'] = 2
+      e.shinyExclusion['ribombee'] = 2
+      const rng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier1DrawAtLevel5() })
+
+      rollShop(e, pool, rng)
+
+      // Both candidates are excluded, but a shiny is still offered — the
+      // protection never suppresses an offer into nothing when candidates
+      // exist at the rolled tier.
+      expect(e.shopShiny[SHOP_SLOTS - 1]).toBe(true)
+      expect(['tangela', 'ribombee']).toContain(e.shop[SHOP_SLOTS - 1])
+    })
+
+    it('exclusion is keyed by species id, not by cost tier or slot', () => {
+      const pool = poolWithOnlyIdsAtCost(1, ['tangela', 'ribombee', 'kingler'])
+      const picks = new Set<string>()
+      for (let seed = 0; seed < 50; seed++) {
+        const e = emptyEcon('t', null)
+        e.level = 5
+        e.shinyExclusion['tangela'] = 2
+        const rng = scriptedRng(seed, {
+          [SHINY_PASS_START]: 0.01,
+          [SHINY_PASS_START + 1]: tier1DrawAtLevel5(),
+        })
+        rollShop(e, pool, rng)
+        expect(e.shop[SHOP_SLOTS - 1]).not.toBe('tangela')
+        if (e.shopShiny[SHOP_SLOTS - 1]) picks.add(e.shop[SHOP_SLOTS - 1]!)
+      }
+      // Both non-excluded species remain reachable — excluding tangela does
+      // not blanket-filter the whole cost tier, only that one species.
+      expect(picks.has('ribombee')).toBe(true)
+      expect(picks.has('kingler')).toBe(true)
+
+      const e2 = emptyEcon('t', null)
+      e2.shinyExclusion['tangela'] = 3
+      expect(Object.keys(e2.shinyExclusion)).toEqual(['tangela'])
     })
   })
 
