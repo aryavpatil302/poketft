@@ -51,6 +51,10 @@ function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
   // can only ever be one shiny owned at a time, so "any" and "the one" copy
   // coincide, but "any" is the safer rule to encode.
   let carriedShiny = false
+  // The Chosen trait riding along with carriedShiny above — same "any of the
+  // three copies" rule, since only the (at most one) shiny copy ever carries
+  // one.
+  let carriedChosenTrait: string | undefined
 
   // Bench copies first
   for (let i = 0; i < econ.bench.length && toRemove > 0; i++) {
@@ -58,6 +62,7 @@ function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
     if (b && b.definitionId === definitionId && b.tier === tier) {
       if (b.item) benchItems.push(b.item)
       if (b.isShiny) carriedShiny = true
+      if (b.chosenTrait) carriedChosenTrait = b.chosenTrait
       econ.bench[i] = null
       freedBenchSlots.push(i)
       toRemove--
@@ -79,6 +84,7 @@ function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
       const it = econ.board[bi].item
       if (it) boardItems.push(it)
       if (econ.board[bi].isShiny) carriedShiny = true
+      if (econ.board[bi].chosenTrait) carriedChosenTrait = econ.board[bi].chosenTrait
     }
     for (let i = boardIdxs.length - 1; i >= 0; i--) econ.board.splice(boardIdxs[i], 1)
     toRemove -= boardIdxs.length
@@ -90,9 +96,17 @@ function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
 
   const newTier = (tier + 1) as 2 | 3
   if (boardPos) {
-    econ.board.push({ definitionId, tier: newTier, hexPos: boardPos, item: keptItem, ...(carriedShiny && { isShiny: true }) })
+    econ.board.push({
+      definitionId, tier: newTier, hexPos: boardPos, item: keptItem,
+      ...(carriedShiny && { isShiny: true }),
+      ...(carriedChosenTrait && { chosenTrait: carriedChosenTrait }),
+    })
   } else {
-    econ.bench[freedBenchSlots[0]] = { definitionId, tier: newTier, item: keptItem, ...(carriedShiny && { isShiny: true }) }
+    econ.bench[freedBenchSlots[0]] = {
+      definitionId, tier: newTier, item: keptItem,
+      ...(carriedShiny && { isShiny: true }),
+      ...(carriedChosenTrait && { chosenTrait: carriedChosenTrait }),
+    }
   }
 
   return { definitionId, from: tier, to: newTier, placedOnBoard: boardPos !== null }

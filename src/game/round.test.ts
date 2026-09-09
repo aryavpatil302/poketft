@@ -923,6 +923,63 @@ describe('applyAction', () => {
     })
   })
 
+  describe('chosenTrait preservation through move handlers', () => {
+    it('board -> bench relocation keeps a flagged unit\'s chosenTrait', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [
+        { definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true, chosenTrait: 'jungle' },
+      ]
+      const result = applyAction(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 0 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].bench[0]).toEqual({ definitionId: 'zubat', tier: 1, isShiny: true, chosenTrait: 'jungle' })
+    })
+
+    it('bench -> empty hex keeps a flagged unit\'s chosenTrait', () => {
+      const state = newRun(botSeats())
+      state.players[0].bench[0] = { definitionId: 'zubat', tier: 1, isShiny: true, chosenTrait: 'jungle' }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].board[0]).toEqual({
+        definitionId: 'zubat', tier: 1, hexPos: { col: 1, row: 4 }, isShiny: true, chosenTrait: 'jungle',
+      })
+    })
+
+    it('bench -> occupied hex swap keeps both units\' chosenTrait independently', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [
+        { definitionId: 'tangela', tier: 1, hexPos: { col: 1, row: 4 }, isShiny: true, chosenTrait: 'beachy' },
+      ]
+      state.players[0].bench[0] = { definitionId: 'zubat', tier: 1, isShiny: true, chosenTrait: 'jungle' }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].bench[0]).toEqual({ definitionId: 'tangela', tier: 1, isShiny: true, chosenTrait: 'beachy' })
+      expect(state.players[0].board[0]).toEqual({
+        definitionId: 'zubat', tier: 1, hexPos: { col: 1, row: 4 }, isShiny: true, chosenTrait: 'jungle',
+      })
+    })
+
+    it('survives a full board -> bench -> board round trip with chosenTrait intact', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [
+        { definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true, chosenTrait: 'jungle' },
+      ]
+      expect(applyAction(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 0 } })).toEqual({ ok: true })
+      expect(state.players[0].bench[0]).toEqual({ definitionId: 'zubat', tier: 1, isShiny: true, chosenTrait: 'jungle' })
+      expect(applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 0, row: 4 } })).toEqual({ ok: true })
+      expect(state.players[0].board[0]).toEqual({
+        definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true, chosenTrait: 'jungle',
+      })
+    })
+
+    it('an unflagged unit never gains a chosenTrait own-property through any move handler', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 } }]
+      expect(applyAction(state, 0, { t: 'moveBoard', from: { col: 0, row: 4 }, to: { bench: 1 } })).toEqual({ ok: true })
+      expect(state.players[0].bench[1]).toEqual({ definitionId: 'zubat', tier: 1 })
+      expect(Object.prototype.hasOwnProperty.call(state.players[0].bench[1], 'chosenTrait')).toBe(false)
+    })
+  })
+
   describe('item semantics', () => {
     it('placing an item on a unit that already holds one leaves itemBench.length unchanged and returns the old item', () => {
       const state = newRun(botSeats())
@@ -1545,5 +1602,19 @@ describe('buildUnit — BoardEntry -> combat Unit translation', () => {
     const unit = buildUnit(entry, 'player')
     expect(unit.isShiny).toBeFalsy()
     expect(unit.items).toEqual(['charcoal'])
+  })
+
+  it('a chosenTrait on the BoardEntry carries onto the combat Unit', () => {
+    const entry = {
+      definitionId: 'zubat', tier: 1 as const, hexPos: { col: 0, row: 4 }, isShiny: true, chosenTrait: 'jungle',
+    }
+    const unit = buildUnit(entry, 'player')
+    expect(unit.chosenTrait).toBe('jungle')
+  })
+
+  it('an absent chosenTrait produces a combat Unit with chosenTrait left undefined', () => {
+    const entry = { definitionId: 'zubat', tier: 1 as const, hexPos: { col: 0, row: 4 } }
+    const unit = buildUnit(entry, 'player')
+    expect(unit.chosenTrait).toBeUndefined()
   })
 })

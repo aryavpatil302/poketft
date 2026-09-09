@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { newRun, emptyEcon, freshPool, shopEligibleUnits } from './runState'
-import { rollShop, reroll, buyUnit, sellFromBench, sellFromBoard, returnAllToPool, hasShinyOwned } from './shop'
+import { rollShop, reroll, buyUnit, sellFromBench, sellFromBoard, returnAllToPool, hasShinyOwned, pickChosenTrait } from './shop'
 import { UNIT_MAP } from '../data/units'
-import { REROLL_COST, SHOP_SLOTS, POOL_COPIES, SHINY_COST_ODDS, SHINY_TIER, copiesHeld, shinyPrice } from './constants'
+import {
+  REROLL_COST, SHOP_SLOTS, POOL_COPIES, SHINY_COST_ODDS, SHINY_TIER, SHINY_PITY_ROLLS,
+  CHOSEN_TRAIT_INELIGIBLE, copiesHeld, shinyPrice,
+} from './constants'
 import { wouldCombine } from './combine'
 
 const BOT_SEATS = [
@@ -30,8 +33,17 @@ function seededRng(seed: number): () => number {
 // shiny test below): the existing per-slot loop draws exactly 2 per slot
 // (one cost pick, one within-bucket id pick), so the normal pass consumes
 // 2 * SHOP_SLOTS draws and the shiny pass begins at index 2 * SHOP_SLOTS.
-// The shiny pass's four draws, in order: [chance check, cost-tier pick,
-// within-tier id pick, slot index].
+//
+// The shiny pass's draws, in order, depend on ownership (see rollShop):
+//   - NOT owning: [chance check, cost-tier pick, within-tier id pick,
+//     chosen-trait pick] — up to 4 draws (0 if the chance check fails).
+//   - Owning, pity counter not yet at SHINY_PITY_ROLLS: 0 draws — the
+//     ownership branch returns before touching rng at all.
+//   - Owning, pity counter reaching SHINY_PITY_ROLLS (guaranteed offer):
+//     [cost-tier pick, within-tier id pick, chosen-trait pick] — no chance
+//     check, since the offer is unconditional on this roll.
+// The offer slot itself is no longer an rng draw — it is always
+// SHOP_SLOTS - 1 (the rightmost slot).
 function scriptedRng(seed: number, overrides: Record<number, number>): (() => number) & { callCount: number } {
   const base = seededRng(seed)
   const rng = (() => {
@@ -212,34 +224,10 @@ describe('shop', () => {
   })
 
   describe('shiny shop roll', () => {
-    it('(a) forces a shiny at the forced chance and cost-tier draws', () => {
-      const pool = freshPool()
-      const e = emptyEcon('t', null)
-      e.level = 5
-      const level5Odds = SHINY_COST_ODDS[5]   // [40, 55, 5, 0, 0]
-      // Derive a draw that lands inside tier 2's cumulative range from the
-      // table itself, rather than hardcoding a magic number: tier 1 covers
-      // [0, cum1), tier 2 covers [cum1, cum2) — the midpoint always selects
-      // tier 2 regardless of the exact weights in that row.
-      const cum1 = level5Odds[0] / 100
-      const cum2 = (level5Odds[0] + level5Odds[1]) / 100
-      const tier2Draw = (cum1 + cum2) / 2
-      const rng = scriptedRng(9, {
-        [SHINY_PASS_START]: 0.01,       // chance check: below SHINY_ROLL_CHANCE
-        [SHINY_PASS_START + 1]: tier2Draw,   // cost-tier pick: forced to tier 2
-      })
-
-      rollShop(e, pool, rng)
-
-      const shinySlots = e.shopShiny.map((s, i) => (s ? i : -1)).filter(i => i >= 0)
-      expect(shinySlots).toHaveLength(1)
-      const def = UNIT_MAP.get(e.shop[shinySlots[0]]!)!
-      expect(def.cost).toBe(2)
-      expect(pool[def.id]).toBeGreaterThanOrEqual(copiesHeld(SHINY_TIER))
-    })
-
-    // Shared by (b)-(f): the same forced-tier-2 draw pair from (a), derived
-    // from the level-5 SHINY_COST_ODDS row's cumulative weights.
+    // Shared by every test below: the same forced-tier-2 draw pair, derived
+    // from the level-5 SHINY_COST_ODDS row's cumulative weights rather than
+    // hardcoded — tier 1 covers [0, cum1), tier 2 covers [cum1, cum2), and
+    // the midpoint always selects tier 2 regardless of the exact weights.
     function tier2DrawAtLevel5(): number {
       const level5Odds = SHINY_COST_ODDS[5]   // [40, 55, 5, 0, 0]
       const cum1 = level5Odds[0] / 100
@@ -247,31 +235,87 @@ describe('shop', () => {
       return (cum1 + cum2) / 2
     }
 
-    it('(b) ownership gate short-circuits before any shiny rng draw', () => {
-      const tier2Draw = tier2DrawAtLevel5()
+    it('(a) forces a shiny at the forced chance and cost-tier draws, always in the rightmost slot', () => {
+      const pool = freshPool()
+      const e = emptyEcon('t', null)
+      e.level = 5
+      const rng = scriptedRng(9, {
+        [SHINY_PASS_START]: 0.01,       // chance check: below SHINY_ROLL_CHANCE
+        [SHINY_PASS_START + 1]: tier2DrawAtLevel5(),   // cost-tier pick: forced to tier 2
+      })
 
+      rollShop(e, pool, rng)
+
+      // The Chosen offer ALWAYS lands in the rightmost slot — never a random
+      // one among the 5 (real TFT behavior, not the old random-slot roll).
+      const shinySlots = e.shopShiny.map((s, i) => (s ? i : -1)).filter(i => i >= 0)
+      expect(shinySlots).toEqual([SHOP_SLOTS - 1])
+      const def = UNIT_MAP.get(e.shop[SHOP_SLOTS - 1]!)!
+      expect(def.cost).toBe(2)
+      expect(pool[def.id]).toBeGreaterThanOrEqual(copiesHeld(SHINY_TIER))
+      // A chosen trait was rolled and stored alongside the offer, drawn from
+      // the candidate's own types.
+      const chosen = e.shopShinyTrait[SHOP_SLOTS - 1]
+      expect(chosen).not.toBeNull()
+      expect(def.types).toContain(chosen)
+    })
+
+    it('(b) not owning a shiny: unchanged 50% probabilistic roll, pity counter stays at 0', () => {
+      const failRng = scriptedRng(9, { [SHINY_PASS_START]: 0.99 })   // forced above SHINY_ROLL_CHANCE
+      const failEcon = emptyEcon('t', null)
+      failEcon.level = 5
+      rollShop(failEcon, freshPool(), failRng)
+      expect(failEcon.shopShiny.every(s => s === false)).toBe(true)
+      expect(failEcon.shinyPityCounter).toBe(0)
+
+      const passRng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2DrawAtLevel5() })
+      const passEcon = emptyEcon('t', null)
+      passEcon.level = 5
+      rollShop(passEcon, freshPool(), passRng)
+      expect(passEcon.shopShiny.filter(Boolean)).toHaveLength(1)
+      expect(passEcon.shinyPityCounter).toBe(0)
+    })
+
+    it('(c) owning a shiny: pity counter guarantees an offer on exactly the 4th roll, none on rolls 1-3', () => {
       const benchEcon = emptyEcon('t', null)
       benchEcon.level = 5
       benchEcon.bench[0] = { definitionId: 'tangela', tier: 2, isShiny: true }
-      const benchRng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2Draw })
       expect(hasShinyOwned(benchEcon)).toBe(true)
-      rollShop(benchEcon, freshPool(), benchRng)
-      expect(benchEcon.shopShiny.every(s => s === false)).toBe(true)
-      // The gate returns before the chance draw: rng was consumed only by
-      // the normal per-slot loop (2 * SHOP_SLOTS), never reaching SHINY_PASS_START.
-      expect(benchRng.callCount).toBe(SHINY_PASS_START)
 
-      const boardEcon = emptyEcon('t', null)
-      boardEcon.level = 5
-      boardEcon.board.push({ definitionId: 'tangela', tier: 2, hexPos: { col: 0, row: 4 }, isShiny: true })
-      const boardRng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2Draw })
-      expect(hasShinyOwned(boardEcon)).toBe(true)
-      rollShop(boardEcon, freshPool(), boardRng)
-      expect(boardEcon.shopShiny.every(s => s === false)).toBe(true)
-      expect(boardRng.callCount).toBe(SHINY_PASS_START)
+      // Rolls 1..SHINY_PITY_ROLLS-1: a chance/cost-tier pair that WOULD force
+      // a shiny if consulted, proving the pity path truly skips those draws
+      // (0 additional rng calls consumed) rather than merely landing on "no
+      // shiny" by coincidence.
+      for (let roll = 1; roll < SHINY_PITY_ROLLS; roll++) {
+        const rng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2DrawAtLevel5() })
+        rollShop(benchEcon, freshPool(), rng)
+        expect(benchEcon.shopShiny.every(s => s === false)).toBe(true)
+        expect(benchEcon.shinyPityCounter).toBe(roll)
+        expect(rng.callCount).toBe(SHINY_PASS_START)
+      }
+
+      // The guaranteed roll: no chance check is drawn (the offer is
+      // unconditional), only cost-tier / id / chosen-trait.
+      const guaranteedRng = scriptedRng(9, { [SHINY_PASS_START]: tier2DrawAtLevel5() })
+      rollShop(benchEcon, freshPool(), guaranteedRng)
+      const shinySlots = benchEcon.shopShiny.map((s, i) => (s ? i : -1)).filter(i => i >= 0)
+      expect(shinySlots).toEqual([SHOP_SLOTS - 1])
+      expect(benchEcon.shinyPityCounter).toBe(0)   // reset the moment it fires
     })
 
-    it('(c) a depleted cost tier yields no shiny and no cross-tier fallback', () => {
+    it('(d) losing ownership resets the pity counter back to 0', () => {
+      const e = emptyEcon('t', null)
+      e.level = 5
+      e.bench[0] = { definitionId: 'tangela', tier: 2, isShiny: true }
+      rollShop(e, freshPool(), scriptedRng(9, {}))
+      expect(e.shinyPityCounter).toBe(1)
+
+      e.bench[0] = null   // the shiny was sold/lost
+      rollShop(e, freshPool(), scriptedRng(9, { [SHINY_PASS_START]: 0.99 }))
+      expect(e.shinyPityCounter).toBe(0)
+    })
+
+    it('(e) a depleted cost tier yields no shiny and no cross-tier fallback', () => {
       const pool = freshPool()
       // Every 2-cost id's pool set to 2: enough for the normal per-slot roll
       // (which only needs > 0) but below copiesHeld(SHINY_TIER) = 3, so no
@@ -288,23 +332,26 @@ describe('shop', () => {
       expect(e.shopShiny.every(s => s === false)).toBe(true)
     })
 
-    it('(d) shopShiny resets on every call regardless of prior contents', () => {
+    it('(f) shopShiny/shopShinyTrait reset on every call regardless of prior contents', () => {
       const e = emptyEcon('t', null)
       e.level = 5
 
       e.shopShiny = e.shopShiny.map(() => true)   // stale all-true
+      e.shopShinyTrait = e.shopShinyTrait.map(() => 'stalwart')   // stale all-set
       const failRng = scriptedRng(9, { [SHINY_PASS_START]: 0.99 })   // forced above SHINY_ROLL_CHANCE
       rollShop(e, freshPool(), failRng)
       expect(e.shopShiny).toHaveLength(SHOP_SLOTS)
       expect(e.shopShiny.every(s => s === false)).toBe(true)
+      expect(e.shopShinyTrait.every(t => t === null)).toBe(true)
 
       e.shopShiny = e.shopShiny.map(() => true)   // stale all-true again
       const successRng = scriptedRng(9, { [SHINY_PASS_START]: 0.01, [SHINY_PASS_START + 1]: tier2DrawAtLevel5() })
       rollShop(e, freshPool(), successRng)
       expect(e.shopShiny.filter(Boolean)).toHaveLength(1)
+      expect(e.shopShinyTrait.filter(t => t !== null)).toHaveLength(1)
     })
 
-    it('(e) level 10 reuses the level-9 SHINY_COST_ODDS row without crashing', () => {
+    it('(g) level 10 reuses the level-9 SHINY_COST_ODDS row without crashing', () => {
       const pool = freshPool()
       const e = emptyEcon('t', null)
       e.level = 10
@@ -319,12 +366,12 @@ describe('shop', () => {
       expect(() => rollShop(e, pool, rng)).not.toThrow()
 
       const shinySlots = e.shopShiny.map((s, i) => (s ? i : -1)).filter(i => i >= 0)
-      expect(shinySlots).toHaveLength(1)
-      const def = UNIT_MAP.get(e.shop[shinySlots[0]]!)!
+      expect(shinySlots).toEqual([SHOP_SLOTS - 1])
+      const def = UNIT_MAP.get(e.shop[SHOP_SLOTS - 1]!)!
       expect(def.cost).toBe(4)
     })
 
-    it('(f) reroll inherits the shiny pass with no shiny-specific code of its own', () => {
+    it('(h) reroll inherits the shiny pass with no shiny-specific code of its own', () => {
       const run = newRun(BOT_SEATS)
       const e = run.players[0]
       e.level = 5
@@ -335,6 +382,31 @@ describe('shop', () => {
 
       expect(ok).toBe(true)
       expect(e.shopShiny.filter(Boolean)).toHaveLength(1)
+    })
+  })
+
+  describe('chosen trait roll', () => {
+    it('excludes all seven ineligible traits, drawing only from the eligible remainder', () => {
+      // Tapu Fini: ['wave_spirit', 'beachy', 'mystic'] — wave_spirit is
+      // ineligible (single-unit-presence trait), beachy/mystic are not.
+      const def = UNIT_MAP.get('tapu_fini')!
+      expect(def.types).toContain('wave_spirit')
+      const eligible = def.types.filter(t => !CHOSEN_TRAIT_INELIGIBLE.has(t))
+      expect(eligible).toEqual(['beachy', 'mystic'])
+
+      for (let seed = 0; seed < 300; seed++) {
+        const trait = pickChosenTrait('tapu_fini', seededRng(seed))
+        expect(trait).not.toBe('wave_spirit')
+        expect(eligible).toContain(trait)
+      }
+    })
+
+    it('every CHOSEN_TRAIT_INELIGIBLE entry matches src/data/traits.ts (count: 1)-only traits', () => {
+      // Documents WHY these seven are excluded — a regression here would
+      // mean either list drifted from the other.
+      expect([...CHOSEN_TRAIT_INELIGIBLE].sort()).toEqual(
+        ['earth_spirit', 'mind_spirit', 'rogue', 'shock_spirit', 'soul_bonded', 'wave_spirit', 'zen'].sort(),
+      )
     })
   })
 
@@ -358,6 +430,23 @@ describe('shop', () => {
       expect(run.pool['tangela']).toBe(poolBefore - copiesHeld(SHINY_TIER))
       expect(e.shop[0]).toBeNull()
       expect(e.shopShiny[0]).toBe(false)
+    })
+
+    it('(a2) copies shopShinyTrait[slot] onto the bought BenchedUnit and clears the slot', () => {
+      const run = newRun(BOT_SEATS)
+      const e = run.players[0]
+      e.gold = 100
+      e.shop[0] = 'tangela'
+      e.shopShiny[0] = true
+      e.shopShinyTrait[0] = 'jungle'
+
+      const res = buyUnit(run, e, 0)
+
+      expect(res.ok).toBe(true)
+      const tangelas = e.bench.filter(b => b?.definitionId === 'tangela')
+      expect(tangelas).toHaveLength(1)
+      expect(tangelas[0]).toEqual({ definitionId: 'tangela', tier: 2, isShiny: true, chosenTrait: 'jungle' })
+      expect(e.shopShinyTrait[0]).toBeNull()
     })
 
     it('(b) drained pool rejects cleanly with no partial mutation', () => {
@@ -407,7 +496,7 @@ describe('shop', () => {
       expect(run.pool['tangela']).toBe(poolBefore)
     })
 
-    it('(d) chains into a 3★ that keeps the shiny flag, composing with buy accounting', () => {
+    it('(d) chains into a 3★ that keeps the shiny flag AND the chosen trait, composing with buy accounting', () => {
       const run = newRun(BOT_SEATS)
       const e = run.players[0]
       e.gold = 100
@@ -415,6 +504,7 @@ describe('shop', () => {
       e.bench[1] = { definitionId: 'tangela', tier: 2 }
       e.shop[0] = 'tangela'
       e.shopShiny[0] = true
+      e.shopShinyTrait[0] = 'jungle'
       run.pool['tangela'] = Math.max(run.pool['tangela'], copiesHeld(SHINY_TIER))
       const goldBefore = e.gold
       const poolBefore = run.pool['tangela']
@@ -432,6 +522,7 @@ describe('shop', () => {
       expect(tangelas).toHaveLength(1)
       expect(tangelas[0]!.tier).toBe(3)
       expect(tangelas[0]!.isShiny).toBe(true)
+      expect(tangelas[0]!.chosenTrait).toBe('jungle')
       expect(e.gold).toBe(goldBefore - shinyPrice(UNIT_MAP.get('tangela')!.cost))
       expect(run.pool['tangela']).toBe(poolBefore - copiesHeld(SHINY_TIER))
     })

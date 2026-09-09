@@ -407,3 +407,43 @@ describe('Spellweaver trait — stacking adaptive on ally casts', () => {
     expect(castStacks(state.units.get(sw1.id)!)).toBe(0)
   })
 })
+
+// ─── traitMemberCount: chosenTrait shiny bonus (not types[0]) ────────────────
+// Regression coverage for the Chosen mechanic fix: the shiny bonus must key
+// off Unit.chosenTrait (the ONE trait rolled at shop time and persisted),
+// never off u.types[0] (the old, incorrect heuristic).
+describe('Chosen-trait shiny bonus (traitMemberCount)', () => {
+  // tapu_bulu's types are ['earth_spirit', 'jungle', 'roughneck'] — jungle is
+  // its SECOND type, not types[0] ('earth_spirit'). Under the old (buggy)
+  // `u.types[0] === trait` check, a shiny tapu_bulu could NEVER contribute a
+  // jungle bonus, because its own types[0] is 'earth_spirit', not 'jungle' —
+  // regardless of what a real Chosen roll would have picked. This is exactly
+  // the failure mode the chosenTrait field fixes.
+  it('a shiny unit whose chosenTrait is its SECOND type IS counted for that trait', () => {
+    const tangela = makeUnit('tangela', 'player', 1)     // 1 real jungle species
+    const shinyBulu = makeUnit('tapu_bulu', 'player', 1)  // 2nd real jungle species
+    shinyBulu.isShiny = true
+    shinyBulu.chosenTrait = 'jungle'   // its SECOND listed type
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    // Real jungle species = {tangela, tapu_bulu} = 2, below the 3-species
+    // threshold on their own — the +1 chosen bonus is what crosses it.
+    const state = makeState([tangela, shinyBulu], [enemy])
+
+    expect(hsp(state.units.get(tangela.id)!)).toBeCloseTo(0.15, 10)
+    expect(hsp(state.units.get(shinyBulu.id)!)).toBeCloseTo(0.15, 10)
+  })
+
+  it('the SAME shiny unit grants no bonus when chosenTrait is a different trait (not types[0] either)', () => {
+    const tangela = makeUnit('tangela', 'player', 1)
+    const shinyBulu = makeUnit('tapu_bulu', 'player', 1)
+    shinyBulu.isShiny = true
+    shinyBulu.chosenTrait = 'roughneck'   // its THIRD type — not jungle, not types[0]
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    // Real jungle species still {tangela, tapu_bulu} = 2 — no chosen bonus
+    // applies to jungle this time, so the threshold-3 bonus must NOT fire.
+    const state = makeState([tangela, shinyBulu], [enemy])
+
+    expect(hsp(state.units.get(tangela.id)!)).toBe(0)
+    expect(hsp(state.units.get(shinyBulu.id)!)).toBe(0)
+  })
+})

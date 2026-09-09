@@ -118,6 +118,19 @@ export const SHINY_PRICE_MULT = 3       // buy price multiplier; MUST equal copi
 export function shinyPrice(cost: number): number { return cost * SHINY_PRICE_MULT }
 export const SHINY_TIER = 2 as const
 
+// Real TFT rule: "while you have a Chosen, one appears every 4 shops"
+// (guaranteed pity) — see PlayerEcon.shinyPityCounter and rollShop.
+export const SHINY_PITY_ROLLS = 4
+
+// Traits excluded from the Chosen-trait roll: each has only a `count: 1`
+// threshold (or, for soul_bonded, a presence-check-based 1/2), never a real
+// "N members" species-count threshold — doubling membership toward one of
+// these is meaningless, so a shiny unit whose types include one of these
+// never has it picked as its chosenTrait. Confirmed against src/data/traits.ts.
+export const CHOSEN_TRAIT_INELIGIBLE: ReadonlySet<string> = new Set([
+  'rogue', 'shock_spirit', 'soul_bonded', 'wave_spirit', 'earth_spirit', 'mind_spirit', 'zen',
+])
+
 // HP lost by the loser of a round, TFT-style:
 //   base damage by stage  +  each surviving enemy unit deals its STAR level.
 export const STAGE_BASE_DAMAGE = [0, 0, 1, 2, 8, 15, 30] as const

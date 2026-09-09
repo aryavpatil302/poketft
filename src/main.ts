@@ -1213,6 +1213,14 @@ function activeTraitsOnBoard(board: BoardEntry[]): Array<[string, number]> {
       counts.set(t, (counts.get(t) ?? 0) + 1)
     }
   }
+  // Chosen-trait shiny bonus: a shiny entry's chosenTrait counts as +1 extra
+  // toward that one trait's displayed count — mirrors traitMemberCount in
+  // src/core/systems/traitEffects.ts (the combat-side equivalent of this fix).
+  for (const entry of board) {
+    if (entry.isShiny && entry.chosenTrait && !NON_DISPLAY_TRAITS.has(entry.chosenTrait)) {
+      counts.set(entry.chosenTrait, (counts.get(entry.chosenTrait) ?? 0) + 1)
+    }
+  }
   const active = [...counts.entries()].filter(([trait, count]) => getThresholds(trait).some(t => count >= t))
   return sortTraitEntries(new Map(active))
 }
@@ -1270,10 +1278,10 @@ function renderTraitDisplay(): void {
 
   // Count unique species per trait, player team only.
   // During combat read from combatState so auto-generated boards (empty-board
-  // starts) show their traits too; otherwise from the placed bench.
-  const source: Iterable<Unit> = combatState
-    ? combatState.units.values()
-    : placedUnits.values()
+  // starts) show their traits too; otherwise from the placed bench. Collected
+  // into an array (not left as the live Map iterator) because the
+  // chosen-trait bonus pass below needs a second walk over the same units.
+  const source: Unit[] = [...(combatState ? combatState.units.values() : placedUnits.values())]
 
   const counts = new Map<string, number>()
   const seenDefs = new Set<string>()
@@ -1284,6 +1292,16 @@ function renderTraitDisplay(): void {
     for (const t of unit.types) {
       if (NON_DISPLAY_TRAITS.has(t)) continue
       counts.set(t, (counts.get(t) ?? 0) + 1)
+    }
+  }
+
+  // Chosen-trait shiny bonus: a shiny unit's chosenTrait counts as +1 extra
+  // toward that one trait's displayed count — mirrors traitMemberCount in
+  // src/core/systems/traitEffects.ts (the combat-side equivalent of this fix).
+  for (const unit of source) {
+    if (unit.isDummy || unit.team !== 'player') continue
+    if (unit.isShiny && unit.chosenTrait && !NON_DISPLAY_TRAITS.has(unit.chosenTrait)) {
+      counts.set(unit.chosenTrait, (counts.get(unit.chosenTrait) ?? 0) + 1)
     }
   }
 
@@ -2817,6 +2835,7 @@ function startNetPlayback(log: FightLog): void {
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
     if (e.item) unit.items = [e.item]
     if (e.isShiny) unit.isShiny = true
+    if (e.chosenTrait) unit.chosenTrait = e.chosenTrait
     placedUnits.set(hexId(unit.hexPos), unit)
   }
   preCombatSnapshot = getPlacedUnitsArray()
@@ -2827,6 +2846,7 @@ function startNetPlayback(log: FightLog): void {
       hexPos: { ...u.hexPos },
       item: u.items[0],
       isShiny: u.isShiny,
+      chosenTrait: u.chosenTrait,
     }))
 
   // The win-prediction calibration loop is a SOLO learner fed by battles this
@@ -2902,7 +2922,7 @@ function syncBoardToRun(): void {
     .filter(u => u.team === 'player' && !u.isDummy)
     .map(u => ({
       definitionId: u.definitionId, tier: u.tier as 1 | 2 | 3, hexPos: { ...u.hexPos },
-      item: u.items[0], isShiny: u.isShiny,
+      item: u.items[0], isShiny: u.isShiny, chosenTrait: u.chosenTrait,
     }))
 }
 
@@ -3030,6 +3050,7 @@ function autoFieldFromBench(): void {
     unit.hexPos = { ...hex }
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
     if (entry.isShiny) unit.isShiny = true
+    if (entry.chosenTrait) unit.chosenTrait = entry.chosenTrait
     placedUnits.set(hexId(hex), unit)
     h.bench[slot] = null
   }
@@ -3044,6 +3065,7 @@ function syncRunToBoard(): void {
     unit.placedAt = ++placementCounter
     if (e.item) unit.items = [e.item]
     if (e.isShiny) unit.isShiny = true
+    if (e.chosenTrait) unit.chosenTrait = e.chosenTrait
     placedUnits.set(hexId(unit.hexPos), unit)
   }
 }
@@ -3476,19 +3498,30 @@ const CARD_GLYPH_SCALE: Record<string, number> = {
   zen:            1,
 }
 
+// Chosen-trait gold accent — the amber TFT uses to mark "the trait that
+// would be counted twice" (see this session's shiny-gold accent elsewhere:
+// the shiny-effect card block below, SHINY_EFFECT_GIF sparkle, etc).
+const CHOSEN_TRAIT_GOLD = '#f4c542'
+
 // Mini trait row for a shop card: white glyph inside a small grey hexagon,
-// trait name beside it (TFT card style)
-function cardTraitRowHTML(trait: string): string {
+// trait name beside it (TFT card style). `highlighted` marks this as a
+// shiny unit/slot's Chosen trait — a gold glow/border on the hex plus a
+// gold-tinted label, layered on top of the existing look rather than a
+// full re-skin.
+function cardTraitRowHTML(trait: string, highlighted: boolean = false): string {
   const file = GLYPH_OVERRIDES[trait] ?? `${trait}_trait_icon.png`
   const scale = CARD_GLYPH_SCALE[trait] ?? 1
+  const hexHighlightCss = highlighted
+    ? `box-shadow:0 0 0 1px ${CHOSEN_TRAIT_GOLD},0 0 5px 1px rgba(244,197,66,0.85);border:1px solid ${CHOSEN_TRAIT_GOLD};`
+    : ''
   return `<div style="display:flex;align-items:center;gap:4px;">
     <div style="width:14px;height:15px;clip-path:${HEX_CLIP};background:#5a5f68;flex-shrink:0;
-                display:flex;align-items:center;justify-content:center;">
+                display:flex;align-items:center;justify-content:center;${hexHighlightCss}">
       <img src="/visuals/trait icons/main icons/${file}"
         style="width:10px;height:10px;object-fit:contain;filter:brightness(0) invert(1);transform:scale(${scale});"
         onerror="this.style.display='none'">
     </div>
-    <span style="font-size:9px;color:#e8ecf4;text-shadow:0 1px 2px rgba(0,0,0,0.9);white-space:nowrap;">${traitDisplayName(trait)}</span>
+    <span style="font-size:9px;color:${highlighted ? CHOSEN_TRAIT_GOLD : '#e8ecf4'};text-shadow:0 1px 2px rgba(0,0,0,0.9);white-space:nowrap;">${traitDisplayName(trait)}</span>
   </div>`
 }
 
@@ -3524,9 +3557,12 @@ function shopCardHTML(slot: number): string {
   if (!def) return ''
   const border = COST_BORDER[def.cost] ?? '#9aa0a6'
   const isShinySlot = h.shopShiny[slot] === true
+  const chosenTraitSlot = isShinySlot ? h.shopShinyTrait[slot] : null
   const displayCost = isShinySlot ? shinyPrice(def.cost) : def.cost
   const affordable = h.gold >= displayCost
-  const traitRows = def.types.slice(0, 3).map(cardTraitRowHTML).join('')
+  const traitRows = def.types.slice(0, 3)
+    .map(t => cardTraitRowHTML(t, t === chosenTraitSlot))
+    .join('')
 
   // Already owned (bench or board) → small pokeball marker, upper-left.
   const owned = h.bench.some(b => b?.definitionId === defId) || h.board.some(u => u.definitionId === defId)
@@ -3609,14 +3645,16 @@ function keenEyeRegenBonus(defId: string, team: 'player' | 'enemy' = 'player'): 
 // `liveUnit` sources actual current HP/mana from a real Unit (fielded during
 // planning or mid-combat) so the card stays live-accurate; omitted for shop/
 // bench previews, which show a full-health, start-mana snapshot instead.
-function unitCardHTML(defId: string, tier: 1 | 2 | 3, liveUnit?: Unit, isShiny: boolean = false): string {
+function unitCardHTML(
+  defId: string, tier: 1 | 2 | 3, liveUnit?: Unit, isShiny: boolean = false, chosenTrait?: string | null,
+): string {
   const def = UNIT_MAP.get(defId)
   if (!def) return ''
   const preview = makeUnit(defId, 'player', tier)
   const stats = computeStats(preview)
   const border = COST_BORDER[def.cost] ?? '#9aa0a6'
 
-  const traitCol = def.types.map(cardTraitRowHTML).join('')
+  const traitCol = def.types.map(t => cardTraitRowHTML(t, isShiny && t === chosenTrait)).join('')
 
   const maxHp = liveUnit ? liveUnit.maxHp : stats.maxHp
   const curHp = liveUnit ? Math.round(liveUnit.currentHp) : maxHp
@@ -3752,7 +3790,7 @@ function showShopCardTooltip(card: HTMLElement): void {
   if (!defId) { tooltipHiddenReset(); return }
   ensureTooltipShown(`shop:${slot}:${defId}`)
   tooltipEl.style.width = `${UNIT_CARD_WIDTH}px`
-  tooltipEl.innerHTML = unitCardHTML(defId, 1, undefined, humanEcon().shopShiny[slot] === true)
+  tooltipEl.innerHTML = unitCardHTML(defId, 1, undefined, humanEcon().shopShiny[slot] === true, humanEcon().shopShinyTrait[slot])
   positionTooltipAboveRect(card.getBoundingClientRect())
 }
 
@@ -3762,7 +3800,7 @@ function showBenchCardTooltip(cell: HTMLElement): void {
   if (!b) { tooltipHiddenReset(); return }
   ensureTooltipShown(`bench:${slot}:${b.definitionId}:${b.tier}`)
   tooltipEl.style.width = `${UNIT_CARD_WIDTH}px`
-  tooltipEl.innerHTML = unitCardHTML(b.definitionId, b.tier, undefined, b.isShiny === true)
+  tooltipEl.innerHTML = unitCardHTML(b.definitionId, b.tier, undefined, b.isShiny === true, b.chosenTrait)
   // The bench unit's visual (bars + sprite) is bottom-anchored and overflows
   // above the cell's own (short) box — anchor to the actual top of the bar
   // stack, not the cell's bounding rect, so the tooltip starts above the
@@ -3779,7 +3817,7 @@ function showBenchCardTooltip(cell: HTMLElement): void {
 function showBoardUnitCardAt(defId: string, tier: 1 | 2 | 3, x: number, y: number, sourceKey: string, liveUnit?: Unit): void {
   ensureTooltipShown(sourceKey)
   tooltipEl.style.width = `${UNIT_CARD_WIDTH}px`
-  tooltipEl.innerHTML = unitCardHTML(defId, tier, liveUnit, liveUnit?.isShiny === true)
+  tooltipEl.innerHTML = unitCardHTML(defId, tier, liveUnit, liveUnit?.isShiny === true, liveUnit?.chosenTrait)
   positionTooltipNearPoint(x, y)
 }
 
@@ -4906,6 +4944,7 @@ let playbackIndex = 0
 
 interface UnitSnapshot {
   definitionId: string; tier: number; hexPos: { col: number; row: number }; item?: string; isShiny?: boolean
+  chosenTrait?: string
 }
 let preCombatSnapshot: UnitSnapshot[] = []
 let autoResetTimer: ReturnType<typeof setTimeout> | null = null
@@ -5042,6 +5081,7 @@ function startCombat(): void {
       unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
       if (e.item) unit.items = [e.item]
       if (e.isShiny) unit.isShiny = true
+      if (e.chosenTrait) unit.chosenTrait = e.chosenTrait
       placedUnits.set(hexId(unit.hexPos), unit)
     }
     playerUnits = getPlacedUnitsArray().filter(u => u.team === 'player')
@@ -5051,6 +5091,7 @@ function startCombat(): void {
       hexPos: { ...u.hexPos },
       item: u.items[0],
       isShiny: u.isShiny,
+      chosenTrait: u.chosenTrait,
     }))
     if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
 
@@ -5064,6 +5105,7 @@ function startCombat(): void {
         u.visualPos = hexToPixel(u.hexPos, HEX_SIZE)
         if (e2.item) u.items = [e2.item]
         if (e2.isShiny) u.isShiny = true
+        if (e2.chosenTrait) u.chosenTrait = e2.chosenTrait
         return u
       })
       calibParams = loadCalibration()
@@ -5139,6 +5181,7 @@ function restorePlayerBoard(): void {
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
     if (snap.item) unit.items = [snap.item]
     if (snap.isShiny) unit.isShiny = true
+    if (snap.chosenTrait) unit.chosenTrait = snap.chosenTrait
     placedUnits.set(hexId(unit.hexPos), unit)
   }
 

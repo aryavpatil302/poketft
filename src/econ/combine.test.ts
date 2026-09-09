@@ -123,4 +123,28 @@ describe('combine', () => {
     const upgraded = e.bench.find(b => b?.definitionId === 'tangela')
     expect(upgraded).toEqual({ definitionId: 'tangela', tier: 2 })
   })
+
+  it('a chosenTrait among consumed copies carries onto the upgrade (board branch)', () => {
+    const e = emptyEcon('t', null)
+    e.bench[0] = { definitionId: 'tangela', tier: 2 }
+    e.bench[1] = { definitionId: 'tangela', tier: 2 }
+    e.board = [{ definitionId: 'tangela', tier: 2, hexPos: { col: 3, row: 5 }, isShiny: true, chosenTrait: 'jungle' }]
+    tryCombine(e)
+    expect(e.board).toHaveLength(1)
+    expect(e.board[0]).toEqual(
+      expect.objectContaining({ definitionId: 'tangela', tier: 3, hexPos: { col: 3, row: 5 }, isShiny: true, chosenTrait: 'jungle' }),
+    )
+  })
+
+  it('a chosenTrait among consumed copies carries onto the upgrade (bench branch)', () => {
+    const e = emptyEcon('t', null)
+    e.bench[0] = { definitionId: 'tangela', tier: 2, isShiny: true, chosenTrait: 'jungle' }
+    e.bench[1] = { definitionId: 'tangela', tier: 2 }
+    e.bench[2] = { definitionId: 'tangela', tier: 2 }
+    tryCombine(e)
+    const upgraded = e.bench.find(b => b?.definitionId === 'tangela')
+    expect(upgraded).toEqual(
+      expect.objectContaining({ definitionId: 'tangela', tier: 3, isShiny: true, chosenTrait: 'jungle' }),
+    )
+  })
 })
