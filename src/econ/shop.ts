@@ -82,7 +82,7 @@ export function hasShinyOwned(econ: PlayerEcon): boolean {
 // ineligible. Draws exactly one rng() call — via the same injected `rng` the
 // rest of the shiny pass uses, for test determinism — except in the
 // (unreachable in practice) case where a unit has zero types at all.
-function pickChosenTrait(defId: string, rng: Rng): string | null {
+export function pickChosenTrait(defId: string, rng: Rng): string | null {
   const def = UNIT_MAP.get(defId)
   if (!def || def.types.length === 0) return null
   const eligible = def.types.filter(t => !CHOSEN_TRAIT_INELIGIBLE.has(t))
