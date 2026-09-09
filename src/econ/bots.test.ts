@@ -1,9 +1,18 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { newRun } from './runState'
-import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides, botCanAttemptBuy, scoreUnit, applyBenchHygiene } from './bots'
+import { newRun, type BenchedUnit } from './runState'
+import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides, botCanAttemptBuy, scoreUnit, applyBenchHygiene, chooseFielded } from './bots'
 import { settleRound } from './income'
 import { UNIT_MAP } from '../data/units'
 import { boardCap } from './xp'
+import { shinyPrice } from './constants'
+
+// Builds a fixed-length (9-slot) bench array from a short list of units,
+// padding the rest with null — mirrors the shape of a real PlayerEcon.bench.
+function mkBench(units: BenchedUnit[]): (BenchedUnit | null)[] {
+  const bench: (BenchedUnit | null)[] = Array(9).fill(null)
+  units.forEach((u, i) => { bench[i] = u })
+  return bench
+}
 
 afterEach(() => setGenomeOverrides(null))
 
@@ -396,6 +405,180 @@ describe('bots', () => {
       run.round = 1
       botPlanRound(run, bot, 0, seededRng(1))
       expect(bot.level).toBeLessThan(9)
+    })
+  })
+
+  describe('scoreUnit — shiny direction-pivot', () => {
+    // tangela: cost 1, types ['jungle', 'stalwart'], role 'tank'.
+    // kingler + a_raichu: both 'beachy' — an established comp that shares
+    // NOTHING with tangela's own traits (off-roster). ribombee is a second
+    // jungle species, added to make tangela connect.
+    const offRosterBench = () => mkBench([
+      { definitionId: 'kingler', tier: 1 },
+      { definitionId: 'a_raichu', tier: 1 },
+    ])
+    const connectingBench = () => mkBench([
+      { definitionId: 'kingler', tier: 1 },
+      { definitionId: 'a_raichu', tier: 1 },
+      { definitionId: 'ribombee', tier: 1 },
+    ])
+
+    it('off-roster discount no longer applies to a shiny buy; a non-shiny control in the identical scenario is still discounted', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById(econ.personaId)!
+      const genome = resolveGenome(persona.id)
+      const def = UNIT_MAP.get('tangela')!
+      const score = (shiny: boolean) =>
+        scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, shiny)
+
+      // Delta-isolation: within one fixed econ, the general trait-synergy
+      // loop, learned bonuses, and persona bias are identical between a
+      // shiny and non-shiny call for the same defId (none of those blocks
+      // read `shiny`) — subtracting cancels them out, leaving exactly the
+      // shiny-block's own contribution (here: the star-completion term,
+      // since no items/priorityTraits/shinyTrait are in play).
+      econ.board = []
+      econ.bench = offRosterBench()
+      const offRosterDelta = score(true) - score(false)
+
+      econ.bench = connectingBench()
+      const connectingDelta = score(true) - score(false)
+
+      // Shiny star-up contribution is now identical regardless of whether
+      // the roster already connects — off-roster no longer halves it.
+      expect(offRosterDelta).toBeCloseTo(connectingDelta, 5)
+      const expectedShinyTerm = (genome.starCompleteBonus + def.cost * 1.6) * 1 - (shinyPrice(def.cost) - def.cost)
+      expect(offRosterDelta).toBeCloseTo(expectedShinyTerm, 5)
+
+      // Regression: the non-shiny star-up terms are STILL discounted
+      // off-roster (fix #1 is scoped to the shiny branch only). Isolate the
+      // pair-forming term (copies1 === 1) the same way, with vs. without an
+      // existing bench copy. Adding that copy also makes the general
+      // trait-synergy loop's dedup check (`owned.get(t)?.has(defId)`) start
+      // skipping tangela's own traits (they're now "already owned"), which
+      // otherwise-identical off-roster/connecting econs lose differently —
+      // jungle+stalwart both open-tree (off-roster) vs. jungle
+      // progressing+stalwart open-tree (connecting, jungle already has
+      // ribombee) — so both known corrections are subtracted explicitly.
+      econ.board = []
+      econ.bench = offRosterBench()
+      const offRosterNoPair = score(false)
+      econ.bench = mkBench([{ definitionId: 'tangela', tier: 1 }, { definitionId: 'kingler', tier: 1 }, { definitionId: 'a_raichu', tier: 1 }])
+      const offRosterWithPair = score(false)
+      const offRosterPairDelta = offRosterWithPair - offRosterNoPair
+      const offRosterDedupLoss = 2 * genome.traitOpenBonus   // jungle + stalwart both open-tree, both skipped once owned
+      expect(offRosterPairDelta).toBeCloseTo((genome.starPairBonus + def.cost * 0.5) * 0.5 - offRosterDedupLoss, 5)
+
+      econ.bench = connectingBench()
+      const connectingNoPair = score(false)
+      econ.bench = mkBench([{ definitionId: 'tangela', tier: 1 }, { definitionId: 'kingler', tier: 1 }, { definitionId: 'a_raichu', tier: 1 }, { definitionId: 'ribombee', tier: 1 }])
+      const connectingWithPair = score(false)
+      const connectingPairDelta = connectingWithPair - connectingNoPair
+      const connectingDedupLoss = genome.traitProgressBonus + genome.traitOpenBonus   // jungle (already has ribombee) progresses, stalwart opens — both skipped once owned
+      expect(connectingPairDelta).toBeCloseTo((genome.starPairBonus + def.cost * 0.5) * 1 - connectingDedupLoss, 5)
+      // The core claim either way: off-roster still applies the 0.5
+      // discount to the non-shiny pair term, unlike the shiny case above.
+      expect(offRosterPairDelta).toBeLessThan(connectingPairDelta)
+    })
+
+    it('item-fit bonus: a shiny scores higher when the bot owns an item that fits its role well', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById(econ.personaId)!
+      const genome = resolveGenome(persona.id)
+      econ.bench = Array(9).fill(null)
+      econ.board = []
+
+      // tangela's role is 'tank'. assault_vest (+100 HP, +35 Sp. Defense,
+      // categories: ['tank']) is a strong tank fit; spell_tag (+10/+10
+      // atk/special, categories: ['attack caster','special caster']) is a
+      // poor fit for a tank — near-zero raw stat weight, no category match.
+      econ.itemBench = []
+      const noItems = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, true)
+
+      econ.itemBench = ['spell_tag']
+      const poorFit = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, true)
+
+      econ.itemBench = ['assault_vest']
+      const goodFit = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, true)
+
+      expect(goodFit).toBeGreaterThan(noItems)
+      expect(goodFit).toBeGreaterThan(poorFit)
+      // itemFitScore(assault_vest, 'tank') = hp*0.06 + spDefense + category(+25)
+      //   = 100*0.06 + 35 + 25 = 66 → normalized /25 = 2.64
+      expect(goodFit - noItems).toBeCloseTo(genome.shinyItemFitBonus * (66 / 25), 5)
+    })
+
+    it('no-direction bonus: a fresh econ with no established comp scores higher than the same shiny forced into an established-but-unconnected context', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById(econ.personaId)!
+      const genome = resolveGenome(persona.id)
+      const score = (shiny: boolean) =>
+        scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, shiny)
+
+      // Delta-isolation (same technique as the off-roster test above): within
+      // each econ, subtracting the non-shiny score from the shiny score
+      // cancels every term that doesn't depend on `shiny`, leaving exactly
+      // the shiny-block's contribution. Per fix #1, the star term itself is
+      // now identical (shinyStarUpMult always 1) regardless of
+      // hasEstablishedComp — so the ONLY difference left between the two
+      // deltas is the no-direction bonus.
+      econ.board = []
+      econ.bench = Array(9).fill(null)   // hasEstablishedComp === false
+      const freshDelta = score(true) - score(false)
+
+      econ.bench = offRosterBench()      // hasEstablishedComp === true, off-roster
+      const establishedDelta = score(true) - score(false)
+
+      expect(freshDelta).toBeGreaterThan(establishedDelta)
+      expect(freshDelta - establishedDelta).toBeCloseTo(genome.shinyNoDirectionBonus, 5)
+    })
+  })
+
+  describe('chooseFielded — shiny chosenTrait breakpoint bump', () => {
+    it('fields a benched shiny over a same-power non-shiny alternative when only the shiny crosses a breakpoint', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById('kass')!   // lines share no trait with tangela/kingler below
+      econ.level = 1   // boardCap === 1: a single decisive pick
+      econ.board = []
+      // stalwart's first threshold is 2 — at have=0, a shiny's chosenTrait
+      // (+2 species via the bump) reaches it immediately; a non-shiny
+      // candidate (+1) does not. Both units are tier 2 (same unitPowerScore)
+      // so the only scoring difference is the breakpoint-cross bonus.
+      econ.bench = mkBench([
+        { definitionId: 'tangela', tier: 2, isShiny: true, chosenTrait: 'stalwart' },
+        { definitionId: 'kingler', tier: 2 },
+      ])
+      const picked = chooseFielded(econ, persona, 0)
+      expect(picked).toHaveLength(1)
+      expect(picked[0].definitionId).toBe('tangela')
+    })
+
+    it('bump collapses to the pre-existing behavior for non-shiny candidates (regression)', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById('kass')!
+      econ.level = 2   // boardCap === 2: an anchor pick, then one decisive pick
+      econ.board = []
+      // torkoal (anchor, tier 2 — picked first on raw power) establishes
+      // stalwart at have=1. In the second pick, a non-shiny stalwart
+      // candidate (tangela, bump=1) reaches have+1=2 — crossing the same
+      // threshold — and should be preferred over a same-power rival
+      // (kingler) that shares no trait at all.
+      econ.bench = mkBench([
+        { definitionId: 'torkoal', tier: 2 },
+        { definitionId: 'tangela', tier: 1 },
+        { definitionId: 'kingler', tier: 1 },
+      ])
+      const picked = chooseFielded(econ, persona, 0)
+      expect(picked).toHaveLength(2)
+      const ids = picked.map(p => p.definitionId)
+      expect(ids).toContain('torkoal')
+      expect(ids).toContain('tangela')
+      expect(ids).not.toContain('kingler')
     })
   })
 })
