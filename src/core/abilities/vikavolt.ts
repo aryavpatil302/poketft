@@ -8,7 +8,7 @@ export const VikavoltAbility: AbilityHandler = {
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
-    const damageValues = [400, 500, 675] as const
+    const damageValues = [250, 400, 675] as const
     const stunSeconds  = [1.5, 2.0, 3.0] as const
 
     const damage    = damageValues[tier - 1]
