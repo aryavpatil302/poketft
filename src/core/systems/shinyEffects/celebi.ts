@@ -5,12 +5,13 @@ import { addStatusEffect } from '../statusEffect'
 // Shiny Celebi: at combat start, allies standing in the caster's own back 2
 // rows gain a +5% damage-amp status (the existing `damage_amp` case, read by
 // damage.ts off the ATTACKER's statusEffects). Board rows: 0-3 enemy half,
-// 4-7 player half (hexGrid.ts). "Front" is derived per-team the same way
-// Venusaur's shiny effect (Jungle batch) derives it — self.team === 'player'
-// ? row >= 6 : row <= 1 — so "back 2 rows" here is the opposite end of that
-// same half: player back = rows 4-5, enemy back = rows 2-3.
+// 4-7 player half (hexGrid.ts). "Back" means farthest from the row 3/row 4
+// boundary between the two team halves — the authoritative convention from
+// src/enemy/generator.ts:155 ("row 3 = front, row 0 = back" for the enemy
+// half), mirrored for the player half: player back = rows 6-7, enemy
+// back = rows 0-1.
 function isInBackTwoRows(team: Unit['team'], row: number): boolean {
-  return team === 'player' ? row <= 5 : row >= 2
+  return team === 'player' ? row >= 6 : row <= 1
 }
 
 registerShinyEffect('celebi', {

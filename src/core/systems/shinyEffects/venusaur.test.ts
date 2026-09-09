@@ -7,12 +7,12 @@ import type { Unit } from '../../types'
 // non-shiny control case proving the effect does NOT fire without isShiny.
 
 describe('Shiny Venusaur - front 2 rows +100 max HP', () => {
-  it('grants +100 max HP to allies in the front 2 rows (player rows 6-7) when shiny', () => {
+  it('grants +100 max HP to allies in the front 2 rows (player rows 4-5) when shiny', () => {
     const caster: Unit = makeUnit('venusaur', 'player', 1)
-    caster.hexPos = { col: 3, row: 6 }
+    caster.hexPos = { col: 3, row: 4 }
     caster.isShiny = true
     const frontAlly: Unit = makeUnit('dummy_melee', 'player', 1)
-    frontAlly.hexPos = { col: 4, row: 7 }
+    frontAlly.hexPos = { col: 4, row: 5 }
     const enemy: Unit = makeUnit('dummy', 'enemy', 1)
     enemy.hexPos = { col: 3, row: 2 }
 
@@ -24,12 +24,12 @@ describe('Shiny Venusaur - front 2 rows +100 max HP', () => {
     expect(frontAlly.currentHp).toBe(frontAlly.maxHp)
   })
 
-  it('does NOT affect an ally outside the front 2 rows (row 4, back of player half)', () => {
+  it('does NOT affect an ally outside the front 2 rows (row 7, back of player half)', () => {
     const caster: Unit = makeUnit('venusaur', 'player', 1)
-    caster.hexPos = { col: 3, row: 6 }
+    caster.hexPos = { col: 3, row: 4 }
     caster.isShiny = true
     const backAlly: Unit = makeUnit('dummy_melee', 'player', 1)
-    backAlly.hexPos = { col: 4, row: 4 }
+    backAlly.hexPos = { col: 4, row: 7 }
     const enemy: Unit = makeUnit('dummy', 'enemy', 1)
     enemy.hexPos = { col: 3, row: 2 }
 
@@ -42,10 +42,10 @@ describe('Shiny Venusaur - front 2 rows +100 max HP', () => {
 
   it('does NOT grant the bonus when the caster is not shiny (control)', () => {
     const caster: Unit = makeUnit('venusaur', 'player', 1)
-    caster.hexPos = { col: 3, row: 6 }
+    caster.hexPos = { col: 3, row: 4 }
     // isShiny left false — the control case
     const frontAlly: Unit = makeUnit('dummy_melee', 'player', 1)
-    frontAlly.hexPos = { col: 4, row: 7 }
+    frontAlly.hexPos = { col: 4, row: 5 }
     const enemy: Unit = makeUnit('dummy', 'enemy', 1)
     enemy.hexPos = { col: 3, row: 2 }
 
@@ -56,14 +56,14 @@ describe('Shiny Venusaur - front 2 rows +100 max HP', () => {
     expect(frontAlly.maxHp).toBe(frontMaxHpBefore)
   })
 
-  it('applies front-row targeting relative to enemy team too (rows 0-1)', () => {
+  it('applies front-row targeting relative to enemy team too (rows 2-3)', () => {
     const enemyCaster: Unit = makeUnit('venusaur', 'enemy', 1)
-    enemyCaster.hexPos = { col: 3, row: 0 }
+    enemyCaster.hexPos = { col: 3, row: 3 }
     enemyCaster.isShiny = true
     const frontAlly: Unit = makeUnit('dummy_melee', 'enemy', 1)
-    frontAlly.hexPos = { col: 4, row: 1 }
+    frontAlly.hexPos = { col: 4, row: 2 }
     const backAlly: Unit = makeUnit('dummy_melee', 'enemy', 1)
-    backAlly.hexPos = { col: 5, row: 3 }
+    backAlly.hexPos = { col: 5, row: 0 }
     const player: Unit = makeUnit('dummy', 'player', 1)
     player.hexPos = { col: 3, row: 5 }
 
