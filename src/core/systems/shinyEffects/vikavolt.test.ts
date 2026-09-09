@@ -12,6 +12,12 @@ import '../../systems/ability'
 // NOTE: every shiny-effect test file in this batch includes one explicit
 // non-shiny control case proving the effect does NOT fire without isShiny.
 
+// Tier-1 base damage for Discharge — must match damageValues[0] in
+// src/core/abilities/vikavolt.ts's onCast. Not imported directly since that
+// array is a local const inside onCast, not exported; keep this in sync if
+// Discharge's own balance tuning changes.
+const TIER1_BASE = 250
+
 const CAST_TICKS = 20
 
 function cast(caster: Unit, state: CombatState): void {
@@ -56,8 +62,8 @@ describe('Shiny Vikavolt - Discharge +33% bonus to highest-HP unit in row', () =
 
     const lowDmg  = state.events.find(e => e.type === 'damage' && e.targetId === lowHp.id)
     const highDmg = state.events.find(e => e.type === 'damage' && e.targetId === highHp.id)
-    expect(lowDmg?.type === 'damage' ? lowDmg.amount : undefined).toBe(400)   // tier 1 base, no bonus
-    expect(highDmg?.type === 'damage' ? highDmg.amount : undefined).toBe(400 + Math.round(400 * 0.33))
+    expect(lowDmg?.type === 'damage' ? lowDmg.amount : undefined).toBe(TIER1_BASE)   // tier 1 base, no bonus
+    expect(highDmg?.type === 'damage' ? highDmg.amount : undefined).toBe(TIER1_BASE + Math.round(TIER1_BASE * 0.33))
   })
 
   it('does NOT give any bonus damage when the caster is not shiny (control)', () => {
@@ -66,8 +72,8 @@ describe('Shiny Vikavolt - Discharge +33% bonus to highest-HP unit in row', () =
 
     const lowDmg  = state.events.find(e => e.type === 'damage' && e.targetId === lowHp.id)
     const highDmg = state.events.find(e => e.type === 'damage' && e.targetId === highHp.id)
-    expect(lowDmg?.type === 'damage' ? lowDmg.amount : undefined).toBe(400)
-    expect(highDmg?.type === 'damage' ? highDmg.amount : undefined).toBe(400)
+    expect(lowDmg?.type === 'damage' ? lowDmg.amount : undefined).toBe(TIER1_BASE)
+    expect(highDmg?.type === 'damage' ? highDmg.amount : undefined).toBe(TIER1_BASE)
   })
 
   it('edge case: a single enemy in the row is both lowest and highest — still gets the bonus when shiny', () => {
@@ -85,6 +91,6 @@ describe('Shiny Vikavolt - Discharge +33% bonus to highest-HP unit in row', () =
     cast(caster, state)
 
     const dmg = state.events.find(e => e.type === 'damage' && e.targetId === enemy.id)
-    expect(dmg?.type === 'damage' ? dmg.amount : undefined).toBe(400 + Math.round(400 * 0.33))
+    expect(dmg?.type === 'damage' ? dmg.amount : undefined).toBe(TIER1_BASE + Math.round(TIER1_BASE * 0.33))
   })
 })
