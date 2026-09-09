@@ -1,12 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import type { RunState, PlayerEcon } from '../econ/runState'
 import { newRun } from '../econ/runState'
 import { botSeats } from '../econ/bots'
 import { copiesHeld, MAX_LEVEL, BENCH_SLOTS } from '../econ/constants'
 import { CREEP_ROUNDS } from '../econ/creeps'
 import { botOwnedItems } from '../econ/botItems'
-import { applyAction, startPlanning, resolveRound, recordFight, pairSeats, buildUnit } from './round'
+import { applyAction, startPlanning, resolveRound, recordFight, pairSeats, buildUnit, settleSeat } from './round'
 import type { GameAction, ActionReason } from './round'
+import { SHINY_EFFECT_REGISTRY, grantShinyGold } from '../core/systems/shinyEffects'
 import '../core/systems/ability'   // register abilities for the headless sim
 
 function seededRng(seed: number): () => number {
@@ -241,6 +242,153 @@ describe('resolveRound — log/settlement agreement', () => {
         expect(seatResult.won).toBe(log.winner === nameForThisSeat)
       }
     }
+  })
+})
+
+// ─── Sableye shiny-gold plumbing ────────────────────────────────────────────
+// No per-species shiny effect calls grantShinyGold yet (Sableye's own
+// 30%-chance-per-cast roll lands in a later batch) — this proves the
+// mechanism itself, end to end, in two layers:
+//   (1) recordFight (NOT resolveRound — see below) surfaces a registered
+//       effect's grantShinyGold calls as shinyGoldA/shinyGoldB on the log,
+//       using the SAME onCombatStart registry hook every shiny effect uses
+//       (the dispatch mechanism itself is shinyEffects.test.ts's job).
+//   (2) settleSeat (exported solely for this test) routes a log's
+//       shinyGoldA/B into econ.gold identically for a human and a bot seat.
+// Deliberately does NOT go through resolveRound: resolveRound's tail always
+// calls planAllBots for every living bot seat, which currently throws
+// (`nearMissCatalogEntries is not a function`, src/econ/compositionSignature.ts)
+// — a pre-existing, unrelated "bots" failure this plan explicitly excludes
+// from scope. recordFight and settleSeat are both reachable directly without
+// invoking any bot planning at all, so this test suite is unaffected by it.
+describe('Sableye shiny-gold plumbing', () => {
+  function twoSeatRun(): RunState {
+    const run = newRun(botSeats())
+    run.players[0].board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true }]
+    run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 0, row: 4 }, isShiny: true }]
+    return run
+  }
+
+  afterEach(() => {
+    SHINY_EFFECT_REGISTRY.delete('zubat')
+    SHINY_EFFECT_REGISTRY.delete('tangela')
+    expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+  })
+
+  describe('recordFight — log surfacing', () => {
+    it('a registered onCombatStart grant on each side lands on shinyGoldA/shinyGoldB respectively', () => {
+      const HUMAN_GOLD = 12
+      const BOT_GOLD = 7
+      SHINY_EFFECT_REGISTRY.set('zubat', {
+        id: 'test_shiny_gold_human',
+        description: 'test-only plumbing effect',
+        onCombatStart(self, state) { grantShinyGold(state, self.team, HUMAN_GOLD) },
+      })
+      SHINY_EFFECT_REGISTRY.set('tangela', {
+        id: 'test_shiny_gold_bot',
+        description: 'test-only plumbing effect',
+        onCombatStart(self, state) { grantShinyGold(state, self.team, BOT_GOLD) },
+      })
+
+      const run = twoSeatRun()
+      const log = recordFight(run, 0, 1, 1)
+      expect(log.shinyGoldA).toBe(HUMAN_GOLD)
+      expect(log.shinyGoldB).toBe(BOT_GOLD)
+    })
+
+    it('a zero-amount grant leaves shinyGoldA/B at 0 — no throw, no cross-team bleed', () => {
+      SHINY_EFFECT_REGISTRY.set('zubat', {
+        id: 'test_shiny_gold_zero',
+        description: 'test-only plumbing effect',
+        onCombatStart(self, state) { grantShinyGold(state, self.team, 0) },
+      })
+
+      const run = twoSeatRun()
+      let log: ReturnType<typeof recordFight> | undefined
+      expect(() => { log = recordFight(run, 0, 1, 1) }).not.toThrow()
+      expect(log!.shinyGoldA).toBe(0)
+      // tangela never registered an effect — the enemy team's counter must
+      // read exactly 0, proving the zero grant never leaked cross-team.
+      expect(log!.shinyGoldB).toBe(0)
+    })
+  })
+
+  describe('settleSeat — econ routing', () => {
+    // No RNG-dependent behaviour is exercised on this path (quakes=0, and
+    // rollCrawlerEarthquakeRewards is only called when quakes>0), so a
+    // literal Math.random reference is fine here — nothing consumes it.
+    const rng = Math.random
+
+    it('grants the exact amount to econ.gold for a human seat, on top of the round settlement being fully deferred to pendingIncome', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[0]   // personaId === null → human
+      const goldBefore = econ.gold
+      const pendingBefore = econ.pendingIncome
+
+      const settlement = settleSeat(
+        run, 0,
+        { won: true, draw: false, survivorStars: 0, round: 4 },
+        0,    // quakes
+        25,   // shinyGold
+        rng,
+      )
+
+      expect(settlement.eliminated).toBe(false)
+      // The round's own base/interest/streak/win income is deferred to
+      // pendingIncome (settleSeat's personaId===null branch) — so the ONLY
+      // thing that can move econ.gold for a human this round is the shiny
+      // grant itself.
+      expect(econ.gold - goldBefore).toBe(25)
+      expect(econ.pendingIncome).toBeGreaterThan(pendingBefore)
+    })
+
+    it('grants the exact amount to econ.gold for a bot seat, on top of its own immediate round income', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]   // personaId !== null → bot
+      const goldBefore = econ.gold
+      const pendingBefore = econ.pendingIncome
+
+      // Baseline: identical settlement, zero shiny gold, isolates the
+      // round's own income contribution so the assertion below can subtract
+      // it out without duplicating settleRound's income formula.
+      const baselineRun = newRun(botSeats())
+      const baselineEcon = baselineRun.players[1]
+      settleSeat(baselineRun, 1, { won: true, draw: false, survivorStars: 0, round: 4 }, 0, 0, rng)
+      const baselineDelta = baselineEcon.gold - goldBefore
+
+      const settlement = settleSeat(
+        run, 1,
+        { won: true, draw: false, survivorStars: 0, round: 4 },
+        0,    // quakes
+        18,   // shinyGold
+        rng,
+      )
+
+      expect(settlement.eliminated).toBe(false)
+      // Bots keep their round income immediately in gold (no deferral) —
+      // so the with-shiny delta must exceed the baseline delta by exactly
+      // the shiny grant.
+      expect(econ.gold - goldBefore - baselineDelta).toBe(18)
+      expect(econ.pendingIncome).toBe(pendingBefore)   // bots never defer
+    })
+
+    it('a zero shinyGold grant changes nothing beyond the round settlement itself, for both seat kinds', () => {
+      const run = newRun(botSeats())
+      const humanEcon = run.players[0]
+      const botEcon = run.players[1]
+      const humanGoldBefore = humanEcon.gold
+      const botGoldBefore = botEcon.gold
+
+      settleSeat(run, 0, { won: false, draw: true, survivorStars: 0, round: 4 }, 0, 0, rng)
+      settleSeat(run, 1, { won: false, draw: true, survivorStars: 0, round: 4 }, 0, 0, rng)
+
+      // A draw's own settlement leaves econ.gold untouched for a human
+      // (deferred to pendingIncome) and only moves a bot's gold by that
+      // seat's own base/interest/streak income — never by a phantom shiny
+      // amount, since shinyGold was 0.
+      expect(humanEcon.gold).toBe(humanGoldBefore)
+      expect(botEcon.gold).toBeGreaterThanOrEqual(botGoldBefore)
+    })
   })
 })
 

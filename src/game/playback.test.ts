@@ -112,7 +112,7 @@ describe('applyFrame — reconciliation', () => {
     }
     const log: FightLog = {
       seatA: 0, seatB: 1, stage: 1, winner: 'player', ticksElapsed: 1,
-      survivorStarsA: 1, survivorStarsB: 0, quakesA: 0, quakesB: 0,
+      survivorStarsA: 1, survivorStarsB: 0, quakesA: 0, quakesB: 0, shinyGoldA: 0, shinyGoldB: 0,
       frames: [frame],
     }
     const state = createPlaybackState(log)
@@ -143,7 +143,7 @@ describe('applyFrame — reconciliation', () => {
     }
     const log: FightLog = {
       seatA: 0, seatB: 1, stage: 1, winner: 'draw', ticksElapsed: 2,
-      survivorStarsA: 0, survivorStarsB: 0, quakesA: 0, quakesB: 0,
+      survivorStarsA: 0, survivorStarsB: 0, quakesA: 0, quakesB: 0, shinyGoldA: 0, shinyGoldB: 0,
       frames: [frame0, frame1],
     }
 
@@ -169,7 +169,7 @@ describe('applyFrame — reconciliation', () => {
     }
     const log: FightLog = {
       seatA: 0, seatB: 1, stage: 1, winner: 'player', ticksElapsed: 2,
-      survivorStarsA: 1, survivorStarsB: 0, quakesA: 0, quakesB: 0,
+      survivorStarsA: 1, survivorStarsB: 0, quakesA: 0, quakesB: 0, shinyGoldA: 0, shinyGoldB: 0,
       frames: [frame0, frame1],
     }
 

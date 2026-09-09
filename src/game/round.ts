@@ -474,6 +474,8 @@ export interface FightLog {
   survivorStarsB: number
   quakesA: number
   quakesB: number
+  shinyGoldA: number   // Sableye-style mid-combat gold grants (see shinyEffects.ts's grantShinyGold)
+  shinyGoldB: number
   frames: FightFrame[]
 }
 
@@ -632,6 +634,8 @@ function runRecordedFight(playerUnits: Unit[], enemyUnits: Unit[], stage: number
     survivorStarsA, survivorStarsB,
     quakesA: cs.earthquakeCounts.get('player') ?? 0,
     quakesB: cs.earthquakeCounts.get('enemy') ?? 0,
+    shinyGoldA: cs.shinyGoldEarned.get('player') ?? 0,
+    shinyGoldB: cs.shinyGoldEarned.get('enemy') ?? 0,
     frames,
   }
 }
@@ -654,6 +658,8 @@ export function recordFight(state: RunState, seatA: number, seatB: number, stage
       survivorStarsB: econB.board.length === 0 ? 0 : boardStarSum(econB.board),
       quakesA: 0,
       quakesB: 0,
+      shinyGoldA: 0,
+      shinyGoldB: 0,
       frames: [],
     }
   }
@@ -687,7 +693,7 @@ function recordCreepFight(state: RunState, seat: number, round: number, stage: n
     return {
       seatA: seat, seatB: -1, stage, winner: 'enemy',
       ticksElapsed: 0, survivorStarsA: 0, survivorStarsB,
-      quakesA: 0, quakesB: 0, frames: [],
+      quakesA: 0, quakesB: 0, shinyGoldA: 0, shinyGoldB: 0, frames: [],
     }
   }
 
@@ -721,14 +727,19 @@ export interface RoundResult {
 
 // Settles one seat and applies every side effect settlement can trigger, in
 // the order resolveBotRound establishes: settle → defer (humans only) →
-// crawler rewards → pool return. The reward roll must land before a seat can
-// be wiped, and before that seat plans (bot re-planning always runs after
-// every settleSeat call in the branches below).
-function settleSeat(
+// crawler rewards → shiny gold → pool return. The reward roll must land
+// before a seat can be wiped, and before that seat plans (bot re-planning
+// always runs after every settleSeat call in the branches below).
+//
+// Exported solely so round.test.ts can drive it directly for the Sableye
+// shiny-gold plumbing test without going through resolveRound's planAllBots
+// — every internal caller in this file still calls it unqualified.
+export function settleSeat(
   state: RunState,
   seat: number,
   result: { won: boolean; draw: boolean; survivorStars: number; round: number },
   quakes: number,
+  shinyGold: number,
   rng: Rng,
 ): { hpLost: number; eliminated: boolean } {
   const econ = state.players[seat]
@@ -752,6 +763,15 @@ function settleSeat(
   // the live roll rather than leaving both in place.
   if (quakes > 0 && !settlement.eliminated) {
     rollCrawlerEarthquakeRewards(state, econ, quakes, rng)
+  }
+
+  // Sableye-style shiny gold grants (src/core/systems/shinyEffects.ts's
+  // grantShinyGold), rolled during the fight and surfaced through the log's
+  // shinyGoldA/shinyGoldB. Same direct-to-gold routing as the crawler
+  // reward above, human and bot alike — no pendingIncome deferral, which is
+  // specific to the round's own base income (settlement.total) above.
+  if (shinyGold > 0 && !settlement.eliminated) {
+    econ.gold += shinyGold
   }
 
   if (settlement.eliminated) {
@@ -786,12 +806,13 @@ function settleByeShaped(
   round: number,
   rng: Rng,
   quakesFor: (seat: number) => number,
+  shinyGoldFor: (seat: number) => number,
   logIndexFor: (seat: number) => number | null,
 ): { seats: SeatFightResult[]; eliminated: number[] } {
   const seats: SeatFightResult[] = []
   const eliminated: number[] = []
   for (const seat of livingPlayers(state)) {
-    const settlement = settleSeat(state, seat, { won: false, draw: true, survivorStars: 0, round }, quakesFor(seat), rng)
+    const settlement = settleSeat(state, seat, { won: false, draw: true, survivorStars: 0, round }, quakesFor(seat), shinyGoldFor(seat), rng)
     seats.push({
       seat, opponentSeat: -1, won: false, draw: true, survivorStars: 0,
       hpLost: settlement.hpLost, eliminated: settlement.eliminated, logIndex: logIndexFor(seat),
@@ -896,7 +917,7 @@ function resolvePvpRound(state: RunState, round: number, roundSeed: number, rng:
     if (pair.b === -1) {
       // Odd seat out: bye, settled as a draw — no fight recorded, matching
       // resolveBotRound's odd-bot-out handling.
-      const settlement = settleSeat(state, pair.a, { won: false, draw: true, survivorStars: 0, round }, 0, rng)
+      const settlement = settleSeat(state, pair.a, { won: false, draw: true, survivorStars: 0, round }, 0, 0, rng)
       seats.push({
         seat: pair.a, opponentSeat: -1, won: false, draw: true, survivorStars: 0,
         hpLost: settlement.hpLost, eliminated: settlement.eliminated, logIndex: null,
@@ -936,8 +957,8 @@ function resolvePvpRound(state: RunState, round: number, roundSeed: number, rng:
       const starsForSa = saWon ? 0 : log.survivorStarsB   // sa lost → sb's surviving stars
       const starsForSb = sbWon ? 0 : log.survivorStarsA   // sb lost → sa's surviving stars
 
-      const settlementSa = settleSeat(state, sa, { won: saWon, draw, survivorStars: starsForSa, round }, log.quakesA, rng)
-      const settlementSb = settleSeat(state, sb, { won: sbWon, draw, survivorStars: starsForSb, round }, log.quakesB, rng)
+      const settlementSa = settleSeat(state, sa, { won: saWon, draw, survivorStars: starsForSa, round }, log.quakesA, log.shinyGoldA, rng)
+      const settlementSb = settleSeat(state, sb, { won: sbWon, draw, survivorStars: starsForSb, round }, log.quakesB, log.shinyGoldB, rng)
 
       seats.push({
         seat: sa, opponentSeat: sb, won: saWon, draw, survivorStars: starsForSa,
@@ -958,8 +979,12 @@ function resolvePvpRound(state: RunState, round: number, roundSeed: number, rng:
       const starsForA = aWon ? 0 : fight.survivorStars
       const starsForB = bWon ? 0 : fight.survivorStars
 
-      const settlementA = settleSeat(state, pair.a, { won: aWon, draw, survivorStars: starsForA, round }, fight.quakes, rng)
-      const settlementB = settleSeat(state, pair.b, { won: bWon, draw, survivorStars: starsForB, round }, fight.quakes, rng)
+      // resolveBotFight is a statistical (non-recorded) estimate — it has no
+      // real CombatState to source a shinyGold count from, so this path
+      // never grants Sableye-style gold (0), the same way it estimates
+      // `quakes` from tick duration rather than a real earthquake count.
+      const settlementA = settleSeat(state, pair.a, { won: aWon, draw, survivorStars: starsForA, round }, fight.quakes, 0, rng)
+      const settlementB = settleSeat(state, pair.b, { won: bWon, draw, survivorStars: starsForB, round }, fight.quakes, 0, rng)
 
       seats.push({
         seat: pair.a, opponentSeat: pair.b, won: aWon, draw, survivorStars: starsForA,
@@ -1008,7 +1033,7 @@ function resolvePvpRound(state: RunState, round: number, roundSeed: number, rng:
 // calling resolveRound — exactly as src/main.ts's finishItemRound does today.
 // This function must never choose for the player.
 function resolveItemRound(state: RunState, round: number, rng: Rng): RoundResult {
-  const { seats, eliminated } = settleByeShaped(state, round, rng, () => 0, () => null)
+  const { seats, eliminated } = settleByeShaped(state, round, rng, () => 0, () => 0, () => null)
 
   planAllBots(state, rng, bot => {
     const item = chooseBotItem(bot, botOwnedItems(bot), rng)
@@ -1040,6 +1065,10 @@ function resolveCreepRound(state: RunState, round: number, rng: Rng): RoundResul
     seat => {
       const idx = logIndexBySeat.get(seat)
       return idx !== undefined ? logs[idx].quakesA : 0
+    },
+    seat => {
+      const idx = logIndexBySeat.get(seat)
+      return idx !== undefined ? logs[idx].shinyGoldA : 0
     },
     seat => logIndexBySeat.get(seat) ?? null,
   )

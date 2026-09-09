@@ -173,6 +173,8 @@ export function mirrorFightLogForSeat(log: FightLog, localSeat: number): FightLo
   mirrored.survivorStarsB = log.survivorStarsA
   mirrored.quakesA = log.quakesB
   mirrored.quakesB = log.quakesA
+  mirrored.shinyGoldA = log.shinyGoldB
+  mirrored.shinyGoldB = log.shinyGoldA
   // The single place the outcome is remapped. 'draw' stays 'draw'.
   mirrored.winner = log.winner === 'player' ? 'enemy' : log.winner === 'enemy' ? 'player' : 'draw'
 

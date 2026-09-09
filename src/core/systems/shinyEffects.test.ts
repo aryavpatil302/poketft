@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
-import { SHINY_EFFECT_REGISTRY, initShinyEffects } from './shinyEffects'
+import { SHINY_EFFECT_REGISTRY, initShinyEffects, grantShinyGold } from './shinyEffects'
 import type { Unit, CombatState } from '../types'
 
 // Ensure all abilities are registered (required by createCombatState → initAbilityPassives)
@@ -207,5 +207,73 @@ describe('shinyEffects — universal stat passive', () => {
     expect(shinyUnit.maxMana).toBe(110)
     expect(shinyUnit.moveSpeed).toBe(controlUnit.moveSpeed)
     expect(shinyUnit.currentMana).toBe(controlUnit.currentMana)
+  })
+})
+
+// ─── grantShinyGold: cross-cutting plumbing (Sableye) ───────────────────────
+// No per-species shiny effect calls this yet (Sableye's own 30%-chance-roll
+// lands in a later batch) — this proves the mechanism itself: the counter on
+// CombatState, its per-team keying, and the zero-amount no-op.
+
+describe('grantShinyGold — plumbing', () => {
+  it('(a) a single grant lands exactly on the given team, the other team stays untouched', () => {
+    const player = makeUnit('tangela', 'player', 1)
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    const state = makeState([player], [enemy])
+
+    grantShinyGold(state, 'player', 25)
+
+    expect(state.shinyGoldEarned.get('player')).toBe(25)
+    expect(state.shinyGoldEarned.get('enemy')).toBeUndefined()
+  })
+
+  it('(b) repeated grants on the same team accumulate rather than overwrite', () => {
+    const player = makeUnit('tangela', 'player', 1)
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    const state = makeState([player], [enemy])
+
+    grantShinyGold(state, 'player', 10)
+    grantShinyGold(state, 'player', 15)
+
+    expect(state.shinyGoldEarned.get('player')).toBe(25)
+  })
+
+  it('(c) grants on both teams accumulate independently, with no cross-team bleed', () => {
+    const player = makeUnit('tangela', 'player', 1)
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    const state = makeState([player], [enemy])
+
+    grantShinyGold(state, 'player', 40)
+    grantShinyGold(state, 'enemy', 5)
+
+    expect(state.shinyGoldEarned.get('player')).toBe(40)
+    expect(state.shinyGoldEarned.get('enemy')).toBe(5)
+  })
+
+  it('(d) a zero-amount grant is a no-op — the counter is left unset, nothing throws', () => {
+    const player = makeUnit('tangela', 'player', 1)
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    const state = makeState([player], [enemy])
+
+    expect(() => grantShinyGold(state, 'player', 0)).not.toThrow()
+    expect(state.shinyGoldEarned.get('player')).toBeUndefined()
+  })
+
+  it('(e) a negative amount is also a no-op (defensive — never a valid caller input)', () => {
+    const player = makeUnit('tangela', 'player', 1)
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    const state = makeState([player], [enemy])
+
+    grantShinyGold(state, 'player', -5)
+
+    expect(state.shinyGoldEarned.get('player')).toBeUndefined()
+  })
+
+  it('(f) createCombatState starts shinyGoldEarned empty — no grant, no entries', () => {
+    const player = makeUnit('tangela', 'player', 1)
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    const state = makeState([player], [enemy])
+
+    expect(state.shinyGoldEarned.size).toBe(0)
   })
 })
