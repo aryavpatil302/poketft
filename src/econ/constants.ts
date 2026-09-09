@@ -122,6 +122,15 @@ export const SHINY_TIER = 2 as const
 // (guaranteed pity) — see PlayerEcon.shinyPityCounter and rollShop.
 export const SHINY_PITY_ROLLS = 4
 
+// Bad-luck protection: a species offered as the Chosen and passed on (shop
+// refreshes with the offer still unbought) is excluded from being picked as
+// the shiny candidate for this many subsequent shop refreshes (round-end
+// roll or paid/free reroll — every real rollShop call counts, not just ones
+// where a shiny pass fires). Independent of SHINY_PITY_ROLLS/ownership —
+// this only steers WHICH species gets picked once a shiny pass fires, never
+// WHETHER one fires. See PlayerEcon.shinyExclusion and rollShop.
+export const SHINY_EXCLUSION_SHOPS = 5
+
 // Traits excluded from the Chosen-trait roll: each has only a `count: 1`
 // threshold (or, for soul_bonded, a presence-check-based 1/2), never a real
 // "N members" species-count threshold — doubling membership toward one of
