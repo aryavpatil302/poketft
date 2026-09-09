@@ -269,10 +269,22 @@ describe('Sableye shiny-gold plumbing', () => {
     return run
   }
 
+  // Registry hygiene: SHINY_EFFECT_REGISTRY is module-global, and by this
+  // point in the module graph it already carries every real per-species
+  // shiny effect shipped so far (including a real 'zubat'/'tangela' entry,
+  // both used below as scratch keys for test-only stubs via
+  // SHINY_EFFECT_REGISTRY.set). EXPECTED_SIZE_AFTER_CLEANUP is computed once
+  // from the real pre-test registry as "everything except zubat/tangela" —
+  // exactly what unconditionally deleting both keys every afterEach
+  // converges to, whether or not a given test touched them. A leaked entry
+  // (anything beyond that) still fails loudly here.
+  const EXPECTED_SIZE_AFTER_CLEANUP = SHINY_EFFECT_REGISTRY.size
+    - (SHINY_EFFECT_REGISTRY.has('zubat') ? 1 : 0)
+    - (SHINY_EFFECT_REGISTRY.has('tangela') ? 1 : 0)
   afterEach(() => {
     SHINY_EFFECT_REGISTRY.delete('zubat')
     SHINY_EFFECT_REGISTRY.delete('tangela')
-    expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+    expect(SHINY_EFFECT_REGISTRY.size).toBe(EXPECTED_SIZE_AFTER_CLEANUP)
   })
 
   describe('recordFight — log surfacing', () => {

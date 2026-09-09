@@ -16,13 +16,22 @@ function makeState(players: Unit[], enemies: Unit[]): CombatState {
   return createCombatState(players, enemies)
 }
 
-// Registry hygiene: SHINY_EFFECT_REGISTRY is module-global and shared across
-// test files in the same worker. Every test that registers an entry removes
-// it here, and we assert it returns to empty so a leaked entry fails loudly
-// here rather than corrupting an unrelated suite.
+// Registry hygiene: SHINY_EFFECT_REGISTRY is module-global. Importing
+// createCombatState above transitively loads shinyEffects/index.ts, which
+// registers every real per-species shiny effect shipped so far (including a
+// real 'tangela' entry) — so the registry is NOT empty by the time this
+// file's tests run, and this file's own tests reuse the 'tangela' key as a
+// scratch slot (some tests overwrite it with a throwaway test double via
+// SHINY_EFFECT_REGISTRY.set). EXPECTED_SIZE_AFTER_CLEANUP is computed once,
+// from the real pre-test registry, as "everything except tangela" — exactly
+// what unconditionally deleting 'tangela' every afterEach converges to,
+// whether or not a given test touched that key. A leaked entry (anything
+// beyond that) still fails loudly here rather than corrupting an unrelated
+// suite.
+const EXPECTED_SIZE_AFTER_CLEANUP = SHINY_EFFECT_REGISTRY.size - (SHINY_EFFECT_REGISTRY.has('tangela') ? 1 : 0)
 afterEach(() => {
   SHINY_EFFECT_REGISTRY.delete('tangela')
-  expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+  expect(SHINY_EFFECT_REGISTRY.size).toBe(EXPECTED_SIZE_AFTER_CLEANUP)
 })
 
 // ─── initShinyEffects: dispatch ────────────────────────────────────────────────
@@ -30,6 +39,13 @@ afterEach(() => {
 describe('shinyEffects — dispatch', () => {
 
   it('(a) empty registry, shiny unit — no effect and no crash; shields/statusEffects match a non-shiny control', () => {
+    // 'tangela' now carries a real shipped shiny effect (a team shield) —
+    // clear it so this test genuinely exercises the "no registered effect
+    // for this species" dispatch path it's named for. afterEach's own
+    // unconditional delete already treats a missing 'tangela' entry as the
+    // steady state, so this is a no-op for registry hygiene.
+    SHINY_EFFECT_REGISTRY.delete('tangela')
+
     const shiny = makeUnit('tangela', 'player', 1)
     shiny.isShiny = true
     const control = makeUnit('tangela', 'player', 1)
