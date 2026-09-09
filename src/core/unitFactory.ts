@@ -106,6 +106,9 @@ export function computeStats(unit: Unit, _traitBonuses?: Partial<UnitBaseStats>)
       case 'dmg_buff':
         attack += mag  // flat bonus
         break
+      case 'sp_buff':
+        special += mag  // flat bonus (mirrors dmg_buff, for special instead of attack)
+        break
       case 'chill':
         attackSpeed -= attackSpeed * mag
         break
