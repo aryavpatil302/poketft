@@ -25,7 +25,7 @@ import { loadRun, saveRun as persistRunToStorage, clearRun, newRun, type RunStat
 // travels through dispatchAction -> applyAction, the same function the room
 // server calls. rollShop survives only because initFreshRun seeds a brand-new
 // solo run's shops before any action can be dispatched against it.
-import { rollShop } from './econ/shop'
+import { rollShop, pickChosenTrait } from './econ/shop'
 import { tierComposition, detectTierChanges, type TierChange, type TierChangeKind } from './econ/tierChanges'
 import { xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
@@ -2071,7 +2071,11 @@ function placeUnit(hex: OffsetCoord): void {
   const key  = hexId(hex)
   const team = hex.row <= 3 ? 'enemy' : 'player'
   const unit = makeUnit(selectedUnitId, team, selectedTier)
-  if (rosterShiny) unit.isShiny = true
+  if (rosterShiny) {
+    unit.isShiny = true
+    const chosen = pickChosenTrait(selectedUnitId, Math.random)
+    if (chosen) unit.chosenTrait = chosen
+  }
   unit.hexPos = { ...hex }
   unit.visualPos = hexToPixel(hex, HEX_SIZE)
   unit.placedAt = ++placementCounter
