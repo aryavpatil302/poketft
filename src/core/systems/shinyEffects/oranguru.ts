@@ -7,7 +7,7 @@ import { addStatusEffect } from '../statusEffect'
 // via the existing `atkSpd_buff` case (fractional bonus of current speed).
 registerShinyEffect('oranguru', {
   id: 'shiny_oranguru',
-  description: 'Gain full mana and +15% attack speed at combat start.',
+  description: 'Starts combat with full Mana and +15% Attack Speed.',
   onCombatStart(self: Unit, _state: CombatState): void {
     self.currentMana = self.maxMana
     addStatusEffect(self, {

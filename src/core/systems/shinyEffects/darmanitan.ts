@@ -17,7 +17,7 @@ import type { Unit, CombatState } from '../../types'
 // comment) without needing a special case for ability-hook-only effects.
 registerShinyEffect('darmanitan', {
   id: 'shiny_darmanitan',
-  description: 'Flare Blitz: 50% of each hit\'s damage is dealt as true damage instead of physical.',
+  description: "50% of Flare Blitz's damage is dealt as true damage.",
   onCombatStart(_self: Unit, _state: CombatState): void {
     // Intentional no-op — see file comment above.
   },

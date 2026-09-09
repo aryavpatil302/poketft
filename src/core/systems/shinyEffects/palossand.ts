@@ -7,7 +7,7 @@ import { addShield } from '../shield'
 // 10 magic resist.
 registerShinyEffect('palossand', {
   id: 'shiny_palossand',
-  description: 'Self: +200 shield, +10 armor, +10 magic resist at combat start.',
+  description: 'Starts combat with a 200-Health shield and +10 Defense and Sp. Defense.',
   onCombatStart(self: Unit, state: CombatState): void {
     addShield(self, {
       id: crypto.randomUUID(),

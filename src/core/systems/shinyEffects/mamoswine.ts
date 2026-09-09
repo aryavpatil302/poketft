@@ -10,7 +10,7 @@ const MAMOSWINE_HP_BONUS = 150
 // this per-species hook.
 registerShinyEffect('mamoswine', {
   id: 'shiny_mamoswine_team_hp',
-  description: 'Team-wide +150 max HP at combat start.',
+  description: 'Grants all allies +150 max Health.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

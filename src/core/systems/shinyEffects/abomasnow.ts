@@ -7,7 +7,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // to make here.
 registerShinyEffect('abomasnow', {
   id: 'shiny_abomasnow_burst_and_burn',
-  description: 'Blizzard deals 1.3x initial burst damage and burns every target hit.',
+  description: "Blizzard's initial damage is 1.3x as effective and applies burn to affected enemies for the duration.",
   onCombatStart(): void {
     // Intentional no-op — see ../../abilities/abomasnow.ts for the effect.
   },

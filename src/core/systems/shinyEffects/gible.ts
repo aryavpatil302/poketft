@@ -9,7 +9,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // tooltip description have something to read.
 registerShinyEffect('gible', {
   id: 'shiny_gible_crushing_jaws',
-  description: 'Shiny: Bite reduces the target\'s armor and magic resist by 5% each.',
+  description: "Bite reduces the target's durability (Defense and Sp. Defense) by 5%.",
   onCombatStart(): void {
     // No combat-start action — see gible.ts's onCast for the real effect.
   },

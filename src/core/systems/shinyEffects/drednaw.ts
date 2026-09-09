@@ -7,7 +7,7 @@ import type { Unit, CombatState } from '../../types'
 // combat start. Ranged allies are excluded entirely.
 registerShinyEffect('drednaw', {
   id: 'shiny_drednaw_melee_buff',
-  description: 'All melee allies gain +10 attack.',
+  description: 'Grants all melee allies +10 Attack.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy || ally.state === 'dead') continue

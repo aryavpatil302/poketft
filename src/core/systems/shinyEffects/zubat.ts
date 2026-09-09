@@ -9,7 +9,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // other registered shiny species.
 registerShinyEffect('zubat', {
   id: 'zubat_shiny_toxic_fangs',
-  description: 'Poison Sting deals double poison damage.',
+  description: 'Poison damage is doubled.',
   onCombatStart(_self: Unit, _state: CombatState): void {
     // No-op — the doubling lives in abilities/zubat.ts's onCast.
   },

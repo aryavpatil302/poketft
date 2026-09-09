@@ -12,7 +12,7 @@ import { addStatusEffect } from '../statusEffect'
 // file) is intentionally untouched — this effect needs no cast-time hook.
 registerShinyEffect('armarouge', {
   id: 'shiny_armarouge_ember_focus',
-  description: 'Shiny: Armarouge gains +15 attack and +15% attack speed at the start of combat.',
+  description: 'Gains +15 Attack and +15% Attack Speed.',
   onCombatStart(self: Unit): void {
     addStatusEffect(self, {
       id: 'dmg_buff',

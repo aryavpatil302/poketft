@@ -14,7 +14,7 @@ const STAT_POOL: StatKey[] = ['attack', 'special', 'defense', 'spDefense']
 // it rather than double-counting it.
 registerShinyEffect('unown', {
   id: 'shiny_unown_stat_boost',
-  description: 'All allies gain +3 to 2 random stats.',
+  description: 'Grants all allies +3 to 2 random stats (Attack, Special Attack, Defense, Sp. Defense).',
   onCombatStart(self: Unit, state: CombatState): void {
     const pool = [...STAT_POOL]
     const picked: StatKey[] = []

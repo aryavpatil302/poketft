@@ -11,7 +11,7 @@ const REGEN_PCT_PER_SEC = 0.01
 
 registerShinyEffect('tapu_bulu', {
   id: 'shiny_tapu_bulu',
-  description: 'Regenerates 1% of max HP every second for the whole combat.',
+  description: 'Regenerates 1% of max Health per second.',
 
   onCombatStart(self: Unit, _state: CombatState): void {
     addStatusEffect(self, {

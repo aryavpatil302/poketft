@@ -15,7 +15,7 @@ const DURABILITY_PCT = 0.10
 
 registerShinyEffect('salamence', {
   id: 'shiny_salamence',
-  description: 'Self full mana + 10% durability at combat start.',
+  description: 'Starts combat with full Mana and +10% durability.',
   onCombatStart(self: Unit, _state: CombatState): void {
     self.currentMana = self.maxMana
     addStatusEffect(self, {

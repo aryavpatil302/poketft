@@ -15,7 +15,7 @@ import { addStatusEffect } from '../statusEffect'
 // switch on `id`.
 registerShinyEffect('a_raichu', {
   id: 'shiny_a_raichu',
-  description: 'All allies gain +10 special.',
+  description: 'Grants all allies +10 Special Attack.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

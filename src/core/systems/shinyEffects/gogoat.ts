@@ -10,7 +10,7 @@ const HP_BONUS = 50
 // bonus loop), so it composes on top of it rather than replacing it.
 registerShinyEffect('gogoat', {
   id: 'gogoat_shiny_grass_pelt',
-  description: 'All allies gain +50 max HP at combat start.',
+  description: 'Grants all allies +50 max Health.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

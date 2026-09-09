@@ -8,7 +8,7 @@ import { addStatusEffect } from '../statusEffect'
 // non-dummy. Nothing is dead at combat start, so no state !== 'dead' check.
 export const ShinyNoivernEffect: ShinyEffect = {
   id: 'shiny_noivern',
-  description: 'All allies gain +20 Special at combat start.',
+  description: 'Grants all allies +20 Special Attack.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

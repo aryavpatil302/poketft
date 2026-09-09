@@ -6,7 +6,7 @@ import { addStatusEffect } from '../statusEffect'
 // top of the universal +5% shiny bonus (which already ran before this fires).
 export const ShinyPidgeottoEffect: ShinyEffect = {
   id: 'shiny_pidgeotto',
-  description: '+15 Attack at combat start.',
+  description: 'Starts combat with +15 Attack.',
   onCombatStart(self: Unit, _state: CombatState): void {
     addStatusEffect(self, {
       id: 'dmg_buff',

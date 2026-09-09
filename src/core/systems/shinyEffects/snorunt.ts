@@ -7,7 +7,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // description in the shared registry.
 registerShinyEffect('snorunt', {
   id: 'shiny_snorunt_bigger_shield',
-  description: 'Ice Body shields for 1.5x as much.',
+  description: 'Its shield is 1.5x as effective.',
   onCombatStart(): void {
     // Intentional no-op — see ../../abilities/snorunt.ts for the effect.
   },

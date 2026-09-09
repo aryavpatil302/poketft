@@ -10,7 +10,7 @@ const SHIELD_VALUE = 75
 
 registerShinyEffect('tangela', {
   id: 'shiny_tangela',
-  description: 'Shields every ally for 75 HP at the start of combat.',
+  description: 'Grants all allies a 75-Health shield at the start of combat.',
 
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {

@@ -8,7 +8,7 @@ const TEAM_CRIT_CHANCE_BUFF = 0.15
 
 registerShinyEffect('excadrill', {
   id: 'excadrill_shiny_drill_focus',
-  description: 'Grants the whole team +15% crit chance at combat start.',
+  description: 'Grants all allies +15% critical strike chance.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy || ally.state === 'dead') continue

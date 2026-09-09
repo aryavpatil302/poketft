@@ -14,7 +14,7 @@ function isInFrontTwoRows(row: number, team: Team): boolean {
 
 registerShinyEffect('venusaur', {
   id: 'shiny_venusaur',
-  description: "Grants allies in this Venusaur's own front 2 rows +100 max HP at combat start.",
+  description: 'Grants allies in the front 2 rows +100 max Health.',
 
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {

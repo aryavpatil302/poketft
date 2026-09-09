@@ -6,7 +6,7 @@ import type { Unit, CombatState } from '../../types'
 // (spDefBuff), once, at combat start.
 registerShinyEffect('quagsire', {
   id: 'shiny_quagsire_spdef_buff',
-  description: 'All allies gain +20 Sp. Def.',
+  description: 'Grants all allies +20 Sp. Defense.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy || ally.state === 'dead') continue

@@ -9,7 +9,7 @@ const SPDEF_MULT = 1.5
 
 registerShinyEffect('latias', {
   id: 'shiny_latias',
-  description: 'Self special defense ×1.5 at combat start.',
+  description: 'Gains 1.5x base Sp. Defense.',
   onCombatStart(self: Unit, _state: CombatState): void {
     self.spDefense = Math.round(self.spDefense * SPDEF_MULT)
     self._computedStats = null

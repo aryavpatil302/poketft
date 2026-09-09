@@ -10,7 +10,7 @@ import { addStatusEffect } from '../statusEffect'
 // no-op, not a self-buff.
 registerShinyEffect('h_avalugg', {
   id: 'shiny_h_avalugg_row_durability',
-  description: 'Allies in the same row gain +15 armor and +15 special defense at combat start.',
+  description: 'Grants all units in the same row +15 Defense and Sp. Defense.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.id === self.id) continue

@@ -7,7 +7,7 @@ import type { Unit, CombatState } from '../../types'
 // fires, so this composes on top of it rather than replacing it.
 registerShinyEffect('bellibolt', {
   id: 'shiny_bellibolt_max_hp',
-  description: '+300 max HP.',
+  description: 'Starts combat with +300 max Health.',
   onCombatStart(self: Unit, _state: CombatState): void {
     self.maxHp += 300
     // Assign (not add) from the new maxHp — mirrors the universal +5% bonus's

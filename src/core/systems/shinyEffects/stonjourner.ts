@@ -10,7 +10,7 @@ import { getNeighbors, hexId } from '../../hexGrid'
 // a living ally.
 registerShinyEffect('stonjourner', {
   id: 'shiny_stonjourner_bulwark',
-  description: 'Adjacent allies gain +5 armor and +5 special defense.',
+  description: 'Grants adjacent allies +5 Defense and +5 Sp. Defense.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const hex of getNeighbors(self.hexPos)) {
       const uid = state.hexOccupancy.get(hexId(hex))

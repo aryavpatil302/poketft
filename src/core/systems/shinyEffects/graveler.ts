@@ -5,7 +5,7 @@ import { addStatusEffect } from '../statusEffect'
 // Shiny Graveler: team-wide +5 armor (defense) at combat start.
 registerShinyEffect('graveler', {
   id: 'shiny_graveler_iron_hide',
-  description: 'Shiny: your whole team gains +5 armor at the start of combat.',
+  description: 'Grants the whole team +5 Defense.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

@@ -8,7 +8,7 @@ import { addStatusEffect } from '../statusEffect'
 // combat start, so isDummy is the only exclusion that matters here.
 registerShinyEffect('kingler', {
   id: 'shiny_kingler',
-  description: 'All allies gain +5 attack.',
+  description: 'Grants all allies +5 Attack.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue

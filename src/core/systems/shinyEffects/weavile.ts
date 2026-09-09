@@ -9,7 +9,7 @@ import { addStatusEffect } from '../statusEffect'
 // (traitEffects.ts:1184-1193).
 registerShinyEffect('weavile', {
   id: 'shiny_weavile_team_buff',
-  description: 'Team-wide +5 attack and +5% attack speed at combat start.',
+  description: 'Grants the team +5 Attack and +5% Attack Speed.',
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue
