@@ -2817,6 +2817,7 @@ function startNetPlayback(log: FightLog): void {
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
     if (e.item) unit.items = [e.item]
     if (e.isShiny) unit.isShiny = true
+    if (e.chosenTrait) unit.chosenTrait = e.chosenTrait
     placedUnits.set(hexId(unit.hexPos), unit)
   }
   preCombatSnapshot = getPlacedUnitsArray()
@@ -2827,6 +2828,7 @@ function startNetPlayback(log: FightLog): void {
       hexPos: { ...u.hexPos },
       item: u.items[0],
       isShiny: u.isShiny,
+      chosenTrait: u.chosenTrait,
     }))
 
   // The win-prediction calibration loop is a SOLO learner fed by battles this
@@ -2902,7 +2904,7 @@ function syncBoardToRun(): void {
     .filter(u => u.team === 'player' && !u.isDummy)
     .map(u => ({
       definitionId: u.definitionId, tier: u.tier as 1 | 2 | 3, hexPos: { ...u.hexPos },
-      item: u.items[0], isShiny: u.isShiny,
+      item: u.items[0], isShiny: u.isShiny, chosenTrait: u.chosenTrait,
     }))
 }
 
@@ -3030,6 +3032,7 @@ function autoFieldFromBench(): void {
     unit.hexPos = { ...hex }
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
     if (entry.isShiny) unit.isShiny = true
+    if (entry.chosenTrait) unit.chosenTrait = entry.chosenTrait
     placedUnits.set(hexId(hex), unit)
     h.bench[slot] = null
   }
@@ -3044,6 +3047,7 @@ function syncRunToBoard(): void {
     unit.placedAt = ++placementCounter
     if (e.item) unit.items = [e.item]
     if (e.isShiny) unit.isShiny = true
+    if (e.chosenTrait) unit.chosenTrait = e.chosenTrait
     placedUnits.set(hexId(unit.hexPos), unit)
   }
 }
@@ -4906,6 +4910,7 @@ let playbackIndex = 0
 
 interface UnitSnapshot {
   definitionId: string; tier: number; hexPos: { col: number; row: number }; item?: string; isShiny?: boolean
+  chosenTrait?: string
 }
 let preCombatSnapshot: UnitSnapshot[] = []
 let autoResetTimer: ReturnType<typeof setTimeout> | null = null
@@ -5042,6 +5047,7 @@ function startCombat(): void {
       unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
       if (e.item) unit.items = [e.item]
       if (e.isShiny) unit.isShiny = true
+      if (e.chosenTrait) unit.chosenTrait = e.chosenTrait
       placedUnits.set(hexId(unit.hexPos), unit)
     }
     playerUnits = getPlacedUnitsArray().filter(u => u.team === 'player')
@@ -5051,6 +5057,7 @@ function startCombat(): void {
       hexPos: { ...u.hexPos },
       item: u.items[0],
       isShiny: u.isShiny,
+      chosenTrait: u.chosenTrait,
     }))
     if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
 
@@ -5064,6 +5071,7 @@ function startCombat(): void {
         u.visualPos = hexToPixel(u.hexPos, HEX_SIZE)
         if (e2.item) u.items = [e2.item]
         if (e2.isShiny) u.isShiny = true
+        if (e2.chosenTrait) u.chosenTrait = e2.chosenTrait
         return u
       })
       calibParams = loadCalibration()
@@ -5139,6 +5147,7 @@ function restorePlayerBoard(): void {
     unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
     if (snap.item) unit.items = [snap.item]
     if (snap.isShiny) unit.isShiny = true
+    if (snap.chosenTrait) unit.chosenTrait = snap.chosenTrait
     placedUnits.set(hexId(unit.hexPos), unit)
   }
 
