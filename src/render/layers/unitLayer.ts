@@ -4,6 +4,7 @@ import { hexToPixel } from '../../core/hexGrid'
 import { UNIT_MAP } from '../../data/units'
 import { ITEM_MAP } from '../../data/items'
 import { windupTicks, attackCooldownTicks } from '../../core/systems/attack'
+import { loadAnimatedGif } from '../animatedGif'
 
 // Lazy image cache for equipped-item icons drawn beside units.
 const itemIconCache = new Map<string, HTMLImageElement>()
@@ -153,10 +154,11 @@ cliffRImg.src = '/visuals/trait icons/cliff-r.png'
 const megaEvoImg = new Image()
 megaEvoImg.src = '/visuals/sprites/sky_strikers/mega-evo-sprite.png'
 
-// Shiny sparkle overlay — animated GIF; browser advances its frames on its own once loaded,
-// so drawImage() against it samples the current frame with no DOM attachment needed.
-const shinyEffectImg = new Image()
-shinyEffectImg.src = '/visuals/shiny_sprites/shiny_effect.gif'
+// Shiny sparkle overlay — animated GIF. Canvas drawImage() cannot sample an
+// animated GIF's current frame (it freezes on frame 0, DOM attachment or
+// not — see animatedGif.ts's header for the investigation), so this decodes
+// every frame up front and hands back whichever one is due at draw time.
+const shinyEffectGif = loadAnimatedGif('/visuals/shiny_sprites/shiny_effect.gif')
 
 const iceMarkImg = new Image()
 iceMarkImg.src = '/visuals/trait icons/ice-mark.png'
@@ -2452,11 +2454,14 @@ export class UnitLayer {
 
       // Shiny sparkle overlay — continuously animating over the sprite box for shiny units.
       // Reset filter so the sparkle is not recolored by any tint block set above.
-      if (unit.isShiny === true && shinyEffectImg.complete && shinyEffectImg.naturalWidth > 0) {
-        ctx.save()
-        ctx.filter = 'none'
-        ctx.drawImage(shinyEffectImg, -finalDw / 2, -finalDh / 2, finalDw, finalDh)
-        ctx.restore()
+      if (unit.isShiny === true) {
+        const shinyFrame = shinyEffectGif.getCurrentFrame()
+        if (shinyFrame) {
+          ctx.save()
+          ctx.filter = 'none'
+          ctx.drawImage(shinyFrame, -finalDw / 2, -finalDh / 2, finalDw, finalDh)
+          ctx.restore()
+        }
       }
 
       // Mega evo flash overlay (fades in then out over 36-tick evo shake)
