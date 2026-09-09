@@ -584,7 +584,13 @@ export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGeno
 
 // ─── Fielding: choose and place the best boardCap units ──────────────────────
 
-interface Fieldable { definitionId: string; tier: 1 | 2 | 3; fromBench: number | null }
+interface Fieldable {
+  definitionId: string
+  tier: 1 | 2 | 3
+  fromBench: number | null
+  isShiny?: boolean
+  chosenTrait?: string | null
+}
 
 // Choose exactly min(level, owned) units to field. Distinct species are
 // strongly preferred (duplicates add no trait counts).
@@ -599,10 +605,10 @@ interface Fieldable { definitionId: string; tier: 1 | 2 | 3; fromBench: number |
 // has carried all game. Net effect: bots keep their genuinely-strong pieces
 // (starred cheap 3★ carries stay — their unitPowerScore is high) but swap weak
 // trait-filler bodies for costlier units and their trait trees over time.
-function chooseFielded(econ: PlayerEcon, persona: BotPersona, stage: number, priorityTraits?: Map<string, number>, explorationMode = false, rng: Rng = Math.random): Fieldable[] {
+export function chooseFielded(econ: PlayerEcon, persona: BotPersona, stage: number, priorityTraits?: Map<string, number>, explorationMode = false, rng: Rng = Math.random): Fieldable[] {
   const candidates: Fieldable[] = []
-  econ.bench.forEach((b, i) => { if (b) candidates.push({ definitionId: b.definitionId, tier: b.tier, fromBench: i }) })
-  for (const u of econ.board) candidates.push({ definitionId: u.definitionId, tier: u.tier, fromBench: null })
+  econ.bench.forEach((b, i) => { if (b) candidates.push({ definitionId: b.definitionId, tier: b.tier, fromBench: i, isShiny: b.isShiny, chosenTrait: b.chosenTrait }) })
+  for (const u of econ.board) candidates.push({ definitionId: u.definitionId, tier: u.tier, fromBench: null, isShiny: u.isShiny, chosenTrait: u.chosenTrait })
 
   const cap = boardCap(econ)
   const picked: Fieldable[] = []
@@ -638,7 +644,14 @@ function chooseFielded(econ: PlayerEcon, persona: BotPersona, stage: number, pri
         for (const t of def.types) {
           const have = currentTraits.get(t)?.size ?? 0
           const thresholds = getThresholds(t)
-          const crosses = thresholds.includes(have + 1)
+          // A shiny's chosenTrait counts as TWO species toward that trait's
+          // total (mirrors the identical rule in scoreUnit's breakpoint-cross
+          // check), so fielding it can cross a threshold an ordinary
+          // same-species field wouldn't. bump=1 for every other
+          // trait/candidate collapses this to the original
+          // thresholds.includes(have + 1) check.
+          const bump = (c.isShiny && t === c.chosenTrait) ? 2 : 1
+          const crosses = thresholds.some(th => th > have + bump - 1 && th <= have + bump)
           if (crosses) s += 2.5 * traitWeight    // fielding this hits a breakpoint
           else if (have > 0) s += 0.9 * traitWeight  // progresses an open tree
           else s += 0.3 * traitWeight            // opens a new tree
