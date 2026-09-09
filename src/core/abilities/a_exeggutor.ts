@@ -7,6 +7,49 @@ import { getSpellBuff, incrementSpellBuff } from '../systems/spellBuff'
 import { hexDistance } from '../hexGrid'
 import { combatRng } from '../rng'
 
+// Picks a random living enemy of `source` within 2 hexes of `fromUnit`,
+// excluding `fromUnit` itself — the bounce-target-selection step shared by
+// every bounce (primary → bounce 1, and bounce 1 → bounce 2 for shiny).
+function selectBounceTarget(source: Unit, fromUnit: Unit, state: CombatState): Unit | undefined {
+  const candidates = [...state.units.values()].filter(u =>
+    u.team !== source.team &&
+    u.state !== 'dead' &&
+    u.id !== fromUnit.id &&
+    hexDistance(fromUnit.hexPos, u.hexPos) <= 2
+  )
+  if (candidates.length === 0) return undefined
+  return candidates[Math.floor(combatRng() * candidates.length)]
+}
+
+// Launches one egg-bounce projectile from `fromUnit`'s position toward
+// `toTarget`, dealing `baseAmount * damageMult` magic damage. `onHit` lets a
+// bounce chain into a further bounce (shiny's second bounce only).
+function launchEggBounce(
+  source: Unit,
+  fromUnit: Unit,
+  toTarget: Unit,
+  baseAmount: number,
+  damageMult: number,
+  state: CombatState,
+  onHit?: (source: Unit | undefined, target: Unit, state: CombatState) => void,
+): void {
+  const bdx = toTarget.visualPos.x - fromUnit.visualPos.x
+  const bdy = toTarget.visualPos.y - fromUnit.visualPos.y
+  const bounceDist = Math.sqrt(bdx * bdx + bdy * bdy)
+  const bounceProj = createProjectile({
+    sourceId: source.id,
+    targetId: toTarget.id,
+    startPos: { ...fromUnit.visualPos },
+    speed: 6,
+    arcHeight: 80,
+    launchDist: bounceDist,
+    damagePayload: { baseAmount: Math.round(baseAmount * damageMult), damageType: 'magic', canCrit: false, abilityScalingStat: 'special' },
+    abilityId: 'a_exeggutor_egg_bounce',
+    onHit,
+  })
+  state.projectiles.set(bounceProj.id, bounceProj)
+}
+
 export const AExeggutorAbility: AbilityHandler = {
   abilityId: 'a_exeggutor_egg_bomb',
   // castTimeTicks=35: cock-back (30 ticks) then forward swing — the egg launches partway
@@ -55,28 +98,22 @@ export const AExeggutorAbility: AbilityHandler = {
         }
 
         // Bounce always fires, even if the first hit killed the target
-        const bounceTargets = [...st.units.values()].filter(u =>
-          u.team !== source.team &&
-          u.state !== 'dead' &&
-          u.id !== hitTarget.id &&
-          hexDistance(hitTarget.hexPos, u.hexPos) <= 2
-        )
-        if (bounceTargets.length === 0) return
-        const bounceTgt = bounceTargets[Math.floor(combatRng() * bounceTargets.length)]
-        const bdx = bounceTgt.visualPos.x - hitTarget.visualPos.x
-        const bdy = bounceTgt.visualPos.y - hitTarget.visualPos.y
-        const bounceDist = Math.sqrt(bdx * bdx + bdy * bdy)
-        const bounceProj = createProjectile({
-          sourceId: source.id,
-          targetId: bounceTgt.id,
-          startPos: { ...hitTarget.visualPos },
-          speed: 6,
-          arcHeight: 80,
-          launchDist: bounceDist,
-          damagePayload: { baseAmount: Math.round(baseAmount * 0.5), damageType: 'magic', canCrit: false, abilityScalingStat: 'special' },
-          abilityId: 'a_exeggutor_egg_bounce',
-        })
-        st.projectiles.set(bounceProj.id, bounceProj)
+        const bounceTgt = selectBounceTarget(source, hitTarget, st)
+        if (!bounceTgt) return
+
+        // Shiny: the egg bounces one EXTRA time (at 25% damage) after this
+        // bounce lands, chained off ITS landing target — a non-shiny caster
+        // gets exactly this one unconditional bounce, unchanged.
+        const chainSecondBounce = source.isShiny
+          ? (src2: Unit | undefined, tgt2: Unit, st2: CombatState) => {
+              if (!src2) return
+              const secondBounceTgt = selectBounceTarget(src2, tgt2, st2)
+              if (!secondBounceTgt) return
+              launchEggBounce(src2, tgt2, secondBounceTgt, baseAmount, 0.25, st2)
+            }
+          : undefined
+
+        launchEggBounce(source, hitTarget, bounceTgt, baseAmount, 0.5, st, chainSecondBounce)
       },
       abilityId: 'a_exeggutor_egg_bomb',
     })

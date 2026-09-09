@@ -72,6 +72,24 @@ export const TapuFiniAbility: AbilityHandler = {
             tgt.currentMana  -= drained
             fini.currentMana  = Math.min(fini.maxMana, fini.currentMana + drained)
           }
+
+          // Shiny: whirlpools execute enemies at or below 10% of their max
+          // HP — checked against the post-pulse HP so a target the pulse
+          // itself brought down to the threshold is caught the same tick.
+          // Overwhelming true damage guarantees the kill through shields,
+          // mirroring Tapu Bulu's own execute (tapubulu.ts). currentHp > 0
+          // (not tgt.state !== 'dead') because the periodic applyDamage
+          // above already narrowed tgt.state to exclude 'dead' at the top
+          // of this callback — TS can't see applyDamage may have just set
+          // it back to 'dead', so the equivalent HP check reads cleanly.
+          if (fini.isShiny && tgt.currentHp > 0 && tgt.currentHp <= tgt.maxHp * 0.10) {
+            applyDamage(fini, tgt, {
+              baseAmount: tgt.maxHp * 10,
+              damageType: 'true',
+              canCrit: false,
+              abilityId: 'tapufini_natures_madness',
+            }, st)
+          }
         },
         onExpire: (tgt) => {
           tgt.whirlpooled = false
