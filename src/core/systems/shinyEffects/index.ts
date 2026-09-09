@@ -53,3 +53,10 @@ import './latios'
 import './latias'
 import './salamence'
 import './darmanitan'
+// Sky Strikers
+import './pidgeotto'
+import './noivern'
+import './rayquaza'
+// Wailord and Talonflame's shiny effects hook their own ability files
+// directly (src/core/abilities/wailord.ts, talonflame.ts) — no onCombatStart
+// registration needed for them.

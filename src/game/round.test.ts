@@ -269,6 +269,14 @@ describe('Sableye shiny-gold plumbing', () => {
     return run
   }
 
+  // Registry hygiene baseline: SHINY_EFFECT_REGISTRY is module-global.
+  // createCombatState's import chain now side-effect-imports the real
+  // shinyEffects/index.ts barrel, which carries real per-species
+  // registrations (this batch's pidgeotto/noivern/rayquaza, and every other
+  // wave's own entries) — so the registry is no longer empty by default.
+  // Snapshot that real baseline before each test and assert it's restored
+  // after deleting this suite's own zubat/tangela test-only leaks, instead
+  // of asserting a hardcoded 0 (mirrors the same fix in shinyEffects.test.ts).
   afterEach(() => {
     // NOTE: the registry is no longer empty at rest — real per-species shiny
     // effects (e.g. druddigon, sableye, excadrill, ...) register themselves
