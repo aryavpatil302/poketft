@@ -93,13 +93,39 @@ function blitzNext(
   startLeap(unit, destHex, state, haste, (u, s) => {
     const tgt = s.units.get(target.id)
     if (tgt && tgt.state !== 'dead') {
-      applyDamage(u, tgt, {
-        baseAmount: damage,
-        damageType: 'physical',
-        canCrit: true,
-        abilityId: 'darmanitan_flair_blitz',
-        traitFrac: zenFrac > 0 ? { trait: 'zen', frac: zenFrac } : undefined,
-      }, s)
+      const traitFrac = zenFrac > 0 ? { trait: 'zen', frac: zenFrac } as const : undefined
+      if (u.isShiny) {
+        // Shiny Flare Blitz: half of this hit's damage bypasses mitigation as
+        // true damage. Split by remainder (not two independent
+        // Math.round(damage * 0.5) calls) so the two baseAmounts always sum to
+        // exactly `damage`, even when `damage` is odd. applyDamage no-ops on
+        // an already-dead target (see the guard at its top), so the second
+        // call is safe even if the physical half already lands the kill.
+        const physicalHalf = Math.round(damage * 0.5)
+        const trueHalf = damage - physicalHalf
+        applyDamage(u, tgt, {
+          baseAmount: physicalHalf,
+          damageType: 'physical',
+          canCrit: true,
+          abilityId: 'darmanitan_flair_blitz',
+          traitFrac,
+        }, s)
+        applyDamage(u, tgt, {
+          baseAmount: trueHalf,
+          damageType: 'true',
+          canCrit: false,
+          abilityId: 'darmanitan_flair_blitz',
+          traitFrac,
+        }, s)
+      } else {
+        applyDamage(u, tgt, {
+          baseAmount: damage,
+          damageType: 'physical',
+          canCrit: true,
+          abilityId: 'darmanitan_flair_blitz',
+          traitFrac,
+        }, s)
+      }
     }
     blitzNext(u, s, targetIds, index + 1, damage, homeHex, zenFrac)
   }, undefined, true)   // visual-only: hexPos stays home until the sequence ends
