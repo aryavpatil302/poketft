@@ -50,6 +50,13 @@ export interface PlayerEcon {
   // time a shiny is picked up (rather than carrying over stale progress from
   // a previous shiny that was sold/lost). See src/econ/shop.ts's rollShop.
   shinyPityCounter: number
+  // Bad-luck protection: maps a definitionId to the number of remaining
+  // shop refreshes it is excluded from being picked as the shiny candidate
+  // for — set whenever a Chosen offer is passed on (shop refreshes with it
+  // still unbought), decremented by 1 on every rollShop call and removed
+  // once it reaches 0. Independent of shinyPityCounter — see
+  // SHINY_EXCLUSION_SHOPS and src/econ/shop.ts's rollShop.
+  shinyExclusion: Record<string, number>
   shopLocked: boolean
   eliminated: boolean
   cliffPositions?: Record<string, { col: number; row: number }>   // human only: remembered Ascender pillar hexes
@@ -116,6 +123,7 @@ export function emptyEcon(name: string, personaId: string | null): PlayerEcon {
     shopShiny: Array(SHOP_SLOTS).fill(false),
     shopShinyTrait: Array(SHOP_SLOTS).fill(null),
     shinyPityCounter: 0,
+    shinyExclusion: {},
     shopLocked: false,
     eliminated: false,
     cliffPositions: {},
@@ -168,6 +176,8 @@ export function loadRun(storage: EconStorage | null = defaultStorage()): RunStat
     // Migrate saves from before the Chosen-trait shop-slot array and pity counter.
     for (const p of parsed.state.players) if (!Array.isArray(p.shopShinyTrait)) p.shopShinyTrait = Array(SHOP_SLOTS).fill(null)
     for (const p of parsed.state.players) if (typeof p.shinyPityCounter !== 'number') p.shinyPityCounter = 0
+    // Migrate saves from before the shiny species cooldown.
+    for (const p of parsed.state.players) if (!p.shinyExclusion || typeof p.shinyExclusion !== 'object') p.shinyExclusion = {}
     return parsed.state as RunState
   } catch {
     return null
