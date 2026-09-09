@@ -1093,10 +1093,9 @@ function applyFroststoneMark(
 
 function applyFroststone(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
-    const froststoneUnits = [...state.units.values()].filter(u =>
-      u.team === team && !u.isDummy && u.types.includes('froststone')
-    )
-    const n = new Set(froststoneUnits.map(u => u.definitionId)).size
+    const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
+    const froststoneUnits = teamUnits.filter(u => u.types.includes('froststone'))
+    const n = traitMemberCount(teamUnits, 'froststone')
     const level = n >= 6 ? 6 : n >= 4 ? 4 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
@@ -1139,7 +1138,7 @@ function applyPromoter(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits     = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const promoterUnits = teamUnits.filter(u => u.types.includes('promoter'))
-    const n             = new Set(promoterUnits.map(u => u.definitionId)).size
+    const n             = traitMemberCount(teamUnits, 'promoter')
     const shieldFlat    = n >= 6 ? 450 : n >= 4 ? 300 : n >= 2 ? 200 : 0
     const atkspdBonus   = n >= 6 ? 0.30 : n >= 4 ? 0.20 : n >= 2 ? 0.10 : 0
     if (shieldFlat === 0) continue
@@ -1205,7 +1204,7 @@ function applySubstitutor(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits        = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const substitutorUnits = teamUnits.filter(u => u.types.includes('substitutor'))
-    const n   = new Set(substitutorUnits.map(u => u.definitionId)).size
+    const n   = traitMemberCount(teamUnits, 'substitutor')
     // Substitute HP ramps with the stage instead of being full-strength from
     // round 1 — an early substitute was so much effective HP that fights kept
     // stalling into overtime. The same multiplier scales all three breakpoints,
@@ -1274,7 +1273,7 @@ function applyKeenEye(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const keenUnits = teamUnits.filter(u => u.types.includes('keen_eye'))
-    const n = new Set(keenUnits.map(u => u.definitionId)).size
+    const n = traitMemberCount(teamUnits, 'keen_eye')
     if (n < 2) continue
 
     // Breakpoints 2 / 4 / 6: +1/+2/+3 mana per second team-wide, and Keen Eye
@@ -1324,7 +1323,7 @@ function applyStalwart(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits     = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const stalwartUnits = teamUnits.filter(u => u.types.includes('stalwart'))
-    const n             = new Set(stalwartUnits.map(u => u.definitionId)).size
+    const n             = traitMemberCount(teamUnits, 'stalwart')
     const bonus         = n >= 6 ? 60 : n >= 4 ? 40 : n >= 2 ? 20 : 0
     if (bonus === 0) continue
 
