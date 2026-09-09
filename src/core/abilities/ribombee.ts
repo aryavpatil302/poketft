@@ -47,8 +47,11 @@ export const RibombeeAbility: AbilityHandler = {
     const healValues   = [100, 175, 300] as const
     const damageValues = [200, 275, 400] as const
     const spMult = (unit._computedStats ?? computeStats(unit)).special / 100
-    const heal   = Math.round(healValues[tier - 1] * spMult)
-    const damage = damageValues[tier - 1]
+    // Shiny caster: both the heal and damage puff scale ×1.5 — one insertion
+    // point so both consumers below inherit it identically.
+    const shinyMult = unit.isShiny ? 1.5 : 1
+    const heal   = Math.round(healValues[tier - 1] * spMult * shinyMult)
+    const damage = Math.round(damageValues[tier - 1] * shinyMult)
 
     // ── Healing puff → lowest health ally ─────────────────────────────────
     const allyTarget = findLowestHealthAlly(unit, state)

@@ -40,6 +40,21 @@ export const VikavoltAbility: AbilityHandler = {
     // Visual: flash the targeted row
     state.events.push({ type: 'vfx', effectId: 'discharge_row', sourceId: unit.id, targetRow })
 
+    // Shiny caster: find the highest-current-HP enemy in the targeted row —
+    // that unit takes +33% bonus damage below.
+    let shinyBonusTargetId: string | null = null
+    if (unit.isShiny) {
+      let bestHp = -Infinity
+      for (const other of state.units.values()) {
+        if (other.team === unit.team || other.state === 'dead') continue
+        if (other.hexPos.row !== targetRow) continue
+        if (other.currentHp > bestHp) {
+          bestHp = other.currentHp
+          shinyBonusTargetId = other.id
+        }
+      }
+    }
+
     // Apply damage + stun to all enemies in that row
     for (const other of state.units.values()) {
       if (other.team === unit.team || other.state === 'dead') continue
@@ -49,8 +64,11 @@ export const VikavoltAbility: AbilityHandler = {
       const totalShieldHp = other.shields.reduce((sum, s) => sum + s.value, 0)
       const shieldBonus   = Math.round(totalShieldHp * 0.33)
 
+      // Shiny: +33% bonus damage to the highest-current-HP unit in the row
+      const shinyBonus = other.id === shinyBonusTargetId ? Math.round(damage * 0.33) : 0
+
       applyDamage(unit, other, {
-        baseAmount:        damage + shieldBonus,
+        baseAmount:        damage + shieldBonus + shinyBonus,
         damageType:        'magic',
         canCrit:           false,
         abilityScalingStat: 'special',
