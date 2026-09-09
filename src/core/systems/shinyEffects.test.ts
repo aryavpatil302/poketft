@@ -17,12 +17,19 @@ function makeState(players: Unit[], enemies: Unit[]): CombatState {
 }
 
 // Registry hygiene: SHINY_EFFECT_REGISTRY is module-global and shared across
-// test files in the same worker. Every test that registers an entry removes
-// it here, and we assert it returns to empty so a leaked entry fails loudly
-// here rather than corrupting an unrelated suite.
+// test files in the same worker. Real per-species files (pulled in above via
+// combatEngine's shinyEffects/index barrel) register permanently at module
+// load, so the registry is no longer empty by default once any species batch
+// has landed. BASELINE_REGISTRY_SIZE snapshots that real, permanent count
+// before any test adds its own throwaway entry — every test that registers
+// one removes it here, and we assert the registry returns to that baseline
+// (not to 0) so a leaked *test* entry still fails loudly without asserting
+// something no longer true.
+const BASELINE_REGISTRY_SIZE = SHINY_EFFECT_REGISTRY.size
+
 afterEach(() => {
   SHINY_EFFECT_REGISTRY.delete('tangela')
-  expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+  expect(SHINY_EFFECT_REGISTRY.size).toBe(BASELINE_REGISTRY_SIZE)
 })
 
 // ─── initShinyEffects: dispatch ────────────────────────────────────────────────

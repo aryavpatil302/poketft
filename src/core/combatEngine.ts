@@ -13,6 +13,7 @@ import { tickMarks } from './systems/marks'
 import { tickPersistentAoEZones } from './systems/persistentAoE'
 import { initTraitEffects } from './systems/traitEffects'
 import { initShinyEffects } from './systems/shinyEffects'
+import './systems/shinyEffects/index'
 import { initItemPassives } from '../data/items'
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
