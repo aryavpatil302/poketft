@@ -3,7 +3,7 @@ import type { CombatState, Unit } from '../types'
 import type { OffsetCoord } from '../hexGrid'
 import { TICK_RATE, HEX_SIZE } from '../constants'
 import { applyDamage } from '../systems/damage'
-import { addStatusEffect } from '../systems/statusEffect'
+import { addStatusEffect, applyBurn } from '../systems/statusEffect'
 import { hexesInRange, hexId, hexToPixel } from '../hexGrid'
 
 const ZONE_RADIUS   = 1
@@ -63,10 +63,11 @@ export const AbomasnowAbility: AbilityHandler = {
       targets.push(target)
     }
 
-    // Instant burst damage
+    // Instant burst damage. Shiny Abomasnow: 1.3x initial burst.
+    const shinyBurstDmg = unit.isShiny ? Math.round(castDmg * 1.3) : castDmg
     for (const target of targets) {
       applyDamage(unit, target, {
-        baseAmount:        castDmg,
+        baseAmount:        shinyBurstDmg,
         damageType:        'magic',
         canCrit:           false,
         abilityScalingStat: 'special',
@@ -115,6 +116,15 @@ export const AbomasnowAbility: AbilityHandler = {
         magnitude: 30,
         stackId: `blizzard_shred_${zoneId}_${targetId}`,
       })
+
+      // Shiny Abomasnow: also burns every target hit by the burst.
+      // applyBurn's fixed 4s duration (ITEM_BURN_DURATION_SEC) happens to
+      // equal ZONE_DURATION above, so the burn and the blizzard's own tick
+      // effect run out together — using it directly here is intentional,
+      // not a coincidence relied on elsewhere.
+      if (unit.isShiny) {
+        applyBurn(target, casterId, state)
+      }
 
       // Mini blizzard VFX that follows this unit for the blizzard duration
       state.events.push({ type: 'vfx', effectId: 'abomasnow_blizzard_unit', targetId, zoneId })

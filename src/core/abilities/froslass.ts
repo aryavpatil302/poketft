@@ -50,13 +50,34 @@ function spawnWind(
         if (localHitSet.has(t.id) || t.state === 'dead') continue
         if (projDist >= unitDists[i] - HIT_THRESHOLD) {
           localHitSet.add(t.id)
-          applyDamage(source, t, {
-            baseAmount:        damages[i],
-            damageType:        'magic',
-            canCrit:           false,
-            abilityScalingStat: 'special',
-            abilityId:         'froslass_icy_wind',
-          }, st)
+          if (i === 0 && source.isShiny) {
+            // Shiny Froslass: the first/nearest target takes 10% of the hit
+            // as true damage instead of magic (bypasses spDefense
+            // mitigation on that slice only); the remaining 90% stays
+            // magic as normal. Second+ targets are unaffected.
+            applyDamage(source, t, {
+              baseAmount:        Math.round(damages[i] * 0.9),
+              damageType:        'magic',
+              canCrit:           false,
+              abilityScalingStat: 'special',
+              abilityId:         'froslass_icy_wind',
+            }, st)
+            applyDamage(source, t, {
+              baseAmount:        Math.round(damages[i] * 0.10),
+              damageType:        'true',
+              canCrit:           false,
+              abilityScalingStat: 'special',
+              abilityId:         'froslass_icy_wind',
+            }, st)
+          } else {
+            applyDamage(source, t, {
+              baseAmount:        damages[i],
+              damageType:        'magic',
+              canCrit:           false,
+              abilityScalingStat: 'special',
+              abilityId:         'froslass_icy_wind',
+            }, st)
+          }
           addStatusEffect(t, {
             id: 'chill',
             sourceUnitId: casterId,
