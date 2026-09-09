@@ -495,7 +495,6 @@ function applyCaveCrawler(state: CombatState): void {
 function applyRiver(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits   = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const riverUnits  = teamUnits.filter(u => u.types.includes('river'))
     const n = traitMemberCount(teamUnits, 'river')
     if (n < 2) continue
 
