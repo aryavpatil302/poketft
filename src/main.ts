@@ -786,6 +786,7 @@ function dimSidePanel(active: boolean): void {
 let selectedUnitId: string | null = null
 let selectedTier: 1 | 2 | 3 = 1
 let rosterSearch = ''
+let rosterShiny = false
 const collapsedTraits = new Set<string>()
 
 const TRAIT_COLOR: Record<string, string> = {
@@ -1794,6 +1795,10 @@ function renderRoster() {
       background:#0a1220; border:1px solid #2a3a50; color:#aabbdd;
       border-radius:4px; font-size:11px; outline:none;
     ">
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:#aabbdd;margin-bottom:8px;">
+      <input type="checkbox" id="roster-shiny-toggle" style="cursor:pointer;" ${rosterShiny ? 'checked' : ''}>
+      ✨ Shiny
+    </label>
     ${groups.size === 0
       ? '<p style="color:#445;font-size:11px;text-align:center;margin-top:12px;">No units found</p>'
       : sections}
@@ -1809,6 +1814,12 @@ function renderRoster() {
     searchEl.focus()
     searchEl.setSelectionRange(searchEl.value.length, searchEl.value.length)
   }
+
+  const shinyEl = roster.querySelector('#roster-shiny-toggle') as HTMLInputElement
+  shinyEl.addEventListener('change', () => {
+    rosterShiny = shinyEl.checked
+    renderRoster()
+  })
 
   roster.querySelectorAll('[data-trait]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2041,6 +2052,7 @@ function placeUnit(hex: OffsetCoord): void {
   const key  = hexId(hex)
   const team = hex.row <= 3 ? 'enemy' : 'player'
   const unit = makeUnit(selectedUnitId, team, selectedTier)
+  if (rosterShiny) unit.isShiny = true
   unit.hexPos = { ...hex }
   unit.visualPos = hexToPixel(hex, HEX_SIZE)
   unit.placedAt = ++placementCounter
