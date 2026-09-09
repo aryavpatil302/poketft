@@ -432,8 +432,7 @@ function applyCaveCrawler(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits    = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const crawlerUnits = teamUnits.filter(u => u.types.includes('cave_crawler'))
-    const crawlerSpecies = new Set(crawlerUnits.map(u => u.definitionId))
-    const n = crawlerSpecies.size
+    const n = traitMemberCount(teamUnits, 'cave_crawler')
     if (n < 3) continue
 
     const totalStarPoints = crawlerUnits.reduce((sum, u) => sum + Math.pow(3, u.tier - 1), 0)
@@ -497,8 +496,7 @@ function applyRiver(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits   = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const riverUnits  = teamUnits.filter(u => u.types.includes('river'))
-    const riverSpecies = new Set(riverUnits.map(u => u.definitionId))
-    const n = riverSpecies.size
+    const n = traitMemberCount(teamUnits, 'river')
     if (n < 2) continue
 
     const omnivamp      = n >= 3 ? 0.25 : 0.15
@@ -602,10 +600,7 @@ function applyRiver(state: CombatState): void {
 function applyBruiser(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const bruiserSpecies = new Set(
-      teamUnits.filter(u => u.types.includes('bruiser')).map(u => u.definitionId)
-    )
-    const n = bruiserSpecies.size
+    const n = traitMemberCount(teamUnits, 'bruiser')
     if (n < 2) continue
     const pct = n >= 6 ? 0.60 : n >= 4 ? 0.40 : 0.25
 
@@ -623,10 +618,7 @@ function applyBruiser(state: CombatState): void {
 function applyBeachy(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const beachySpecies = new Set(
-      teamUnits.filter(u => u.types.includes('beachy')).map(u => u.definitionId)
-    )
-    const n = beachySpecies.size
+    const n = traitMemberCount(teamUnits, 'beachy')
     const hpBonus = n >= 6 ? 450 : n >= 4 ? 300 : n >= 2 ? 150 : 0
     if (hpBonus === 0) continue
 
@@ -642,10 +634,7 @@ function applyBeachy(state: CombatState): void {
 function applyTemporalWoods(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const twSpecies = new Set(
-      teamUnits.filter(u => u.types.includes('temporal_woods')).map(u => u.definitionId)
-    )
-    const n = twSpecies.size
+    const n = traitMemberCount(teamUnits, 'temporal_woods')
     const level = n >= 6 ? 6 : n >= 4 ? 4 : n >= 2 ? 2 : 0
     if (level === 0) continue
 
