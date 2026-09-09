@@ -74,6 +74,28 @@ export const GibleAbility: AbilityHandler = {
         abilityId: 'gible_bite',
       }, s)
 
+      // Shiny Gible: Bite also reduces the target's durability (def + spDef)
+      // by 5% each. sunder_pct/shred_pct already implement "reduce def/spDef
+      // by X%" natively in computeStats (unitFactory.ts) — no new status id
+      // needed. Distinct stackIds so this stacks across repeated bites within
+      // the fight rather than refreshing a single application.
+      if (u.isShiny && tgt.state !== 'dead') {
+        addStatusEffect(tgt, {
+          id: 'sunder_pct',
+          sourceUnitId: casterId,
+          durationTicks: -1,
+          magnitude: 0.05,
+          stackId: `shiny_gible_sunder_${tgtId}_${s.tick}`,
+        })
+        addStatusEffect(tgt, {
+          id: 'shred_pct',
+          sourceUnitId: casterId,
+          durationTicks: -1,
+          magnitude: 0.05,
+          stackId: `shiny_gible_shred_${tgtId}_${s.tick}`,
+        })
+      }
+
       if (tgt.state !== 'dead') {
         addStatusEffect(tgt, {
           id: 'stun',
