@@ -1,4 +1,4 @@
-import type { Unit, CombatState } from '../types'
+import type { Unit, CombatState, Team } from '../types'
 
 // This file has TWO separate mechanics that merely share one hook:
 //
@@ -67,6 +67,28 @@ export function registerShinyEffect(definitionId: string, effect: ShinyEffect): 
 
 export function getShinyEffect(definitionId: string): ShinyEffect | undefined {
   return SHINY_EFFECT_REGISTRY.get(definitionId)
+}
+
+// ─── Shiny gold plumbing (Sableye) ──────────────────────────────────────────
+// Core combat has no mechanism to grant economy gold mid-fight — it is
+// deliberately econ-agnostic (see traitEffects.ts's Cave Crawler comment).
+// This mirrors the already-shipped Cave Crawler earthquake-reward shape
+// exactly: a per-team counter on CombatState (`shinyGoldEarned`, sibling to
+// `earthquakeCounts`), surfaced through the fight result the same way
+// `quakesA`/`quakesB` are (see round.ts's runRecordedFight), and settled
+// straight into `econ.gold` in settleSeat — the same direct-to-gold routing
+// rollCrawlerEarthquakeRewards already uses for crawler gold, human and bot
+// alike. There is no pendingIncome deferral here: that deferral is specific
+// to the round's own base income (settleRound's total), not mid-fight bonus
+// gold — the earthquake-reward precedent this mirrors never deferred either.
+//
+// This function only accumulates the counter; it does not roll or gate
+// anything. A future per-species shiny effect (Sableye's 30%-chance-per-cast
+// roll) calls this from its own hook once it lands.
+export function grantShinyGold(state: CombatState, team: Team, amount: number): void {
+  if (amount <= 0) return
+  const total = (state.shinyGoldEarned.get(team) ?? 0) + amount
+  state.shinyGoldEarned.set(team, total)
 }
 
 // ─── Universal stat passive ─────────────────────────────────────────────────────

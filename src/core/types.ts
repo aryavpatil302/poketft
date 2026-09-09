@@ -468,6 +468,7 @@ export interface CombatState {
   terrain: TerrainState
   tailwind: { player: boolean; enemy: boolean }  // Sky Striker: per-team — true once that team's first sky striker casts
   earthquakeCounts: Map<string, number>  // team → total earthquakes fired (Cave Crawler)
+  shinyGoldEarned: Map<string, number>  // team → total gold granted mid-combat by a shiny effect (Sableye)
   spellBuffCounters: Map<string, number>  // unitId → Beachy cast stack count
   persistentAoEZones: PersistentAoEZone[]
   stage?: number   // econ stage (see stageOf in econ/constants); scales stage-dependent traits. Omitted = full strength.

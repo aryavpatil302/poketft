@@ -44,7 +44,8 @@ function unitAt(id: string, hexPos: { col: number; row: number }, visualPos: { x
 function logWith(frames: FightFrame[]): FightLog {
   return {
     seatA: 0, seatB: 1, stage: 4, winner: 'player', ticksElapsed: frames.length,
-    survivorStarsA: 5, survivorStarsB: 2, quakesA: 3, quakesB: 1, frames,
+    survivorStarsA: 5, survivorStarsB: 2, quakesA: 3, quakesB: 1,
+    shinyGoldA: 7, shinyGoldB: 2, frames,
   }
 }
 
@@ -82,7 +83,7 @@ describe('mirrorFightLogForSeat — identity', () => {
 // ─── Meta swaps ──────────────────────────────────────────────────────────────
 
 describe('mirrorFightLogForSeat — log metadata', () => {
-  it('swaps seatA/seatB, survivorStars and quakes for the seatB viewer', () => {
+  it('swaps seatA/seatB, survivorStars, quakes and shinyGold for the seatB viewer', () => {
     const log = logWith([])
     const mirrored = mirrorFightLogForSeat(log, 1)
     expect(mirrored.seatA).toBe(1)
@@ -91,6 +92,8 @@ describe('mirrorFightLogForSeat — log metadata', () => {
     expect(mirrored.survivorStarsB).toBe(5)
     expect(mirrored.quakesA).toBe(1)
     expect(mirrored.quakesB).toBe(3)
+    expect(mirrored.shinyGoldA).toBe(2)
+    expect(mirrored.shinyGoldB).toBe(7)
     expect(mirrored.stage).toBe(log.stage)
     expect(mirrored.ticksElapsed).toBe(log.ticksElapsed)
   })

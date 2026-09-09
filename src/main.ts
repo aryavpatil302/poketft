@@ -6022,6 +6022,7 @@ function frame(ts: number): void {
       terrain: { electric: false, psychic: false, grassy: false, misty: false, sunny: false },
       tailwind: { player: false, enemy: false },
       earthquakeCounts: new Map(),
+      shinyGoldEarned: new Map(),
       spellBuffCounters: new Map(),
       persistentAoEZones: [],
     })
