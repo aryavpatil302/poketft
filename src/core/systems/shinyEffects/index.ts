@@ -60,3 +60,12 @@ import './rayquaza'
 // Wailord and Talonflame's shiny effects hook their own ability files
 // directly (src/core/abilities/wailord.ts, talonflame.ts) — no onCombatStart
 // registration needed for them.
+// ─── Jungle ──────────────────────────────────────────────────────────────────
+import './tangela'
+import './ribombee'
+import './venusaur'
+import './vigoroth'
+import './vikavolt'
+import './toucannon'
+import './tropius'
+import './tapu_bulu'
