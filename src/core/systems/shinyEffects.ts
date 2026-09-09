@@ -1,5 +1,13 @@
 import type { Unit, CombatState, Team } from '../types'
-import './shinyEffects/index'
+// Per-species shiny effects import the registry FROM this file — do not
+// import the shinyEffects/index barrel here, or the cycle breaks module
+// evaluation order: each species file's top-level `registerShinyEffect(...)`
+// call would run before this file's own `SHINY_EFFECT_REGISTRY`/
+// `registerShinyEffect` declarations have finished evaluating, throwing
+// "registerShinyEffect is not a function" (confirmed via a live repro).
+// The barrel is instead imported as a SIBLING (not nested) import from
+// combatEngine.ts, right alongside this file's own import — see the
+// comment there for the non-circular ordering that fixes it.
 
 // This file has TWO separate mechanics that merely share one hook:
 //
