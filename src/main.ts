@@ -1213,6 +1213,14 @@ function activeTraitsOnBoard(board: BoardEntry[]): Array<[string, number]> {
       counts.set(t, (counts.get(t) ?? 0) + 1)
     }
   }
+  // Chosen-trait shiny bonus: a shiny entry's chosenTrait counts as +1 extra
+  // toward that one trait's displayed count — mirrors traitMemberCount in
+  // src/core/systems/traitEffects.ts (the combat-side equivalent of this fix).
+  for (const entry of board) {
+    if (entry.isShiny && entry.chosenTrait && !NON_DISPLAY_TRAITS.has(entry.chosenTrait)) {
+      counts.set(entry.chosenTrait, (counts.get(entry.chosenTrait) ?? 0) + 1)
+    }
+  }
   const active = [...counts.entries()].filter(([trait, count]) => getThresholds(trait).some(t => count >= t))
   return sortTraitEntries(new Map(active))
 }
@@ -1270,10 +1278,10 @@ function renderTraitDisplay(): void {
 
   // Count unique species per trait, player team only.
   // During combat read from combatState so auto-generated boards (empty-board
-  // starts) show their traits too; otherwise from the placed bench.
-  const source: Iterable<Unit> = combatState
-    ? combatState.units.values()
-    : placedUnits.values()
+  // starts) show their traits too; otherwise from the placed bench. Collected
+  // into an array (not left as the live Map iterator) because the
+  // chosen-trait bonus pass below needs a second walk over the same units.
+  const source: Unit[] = [...(combatState ? combatState.units.values() : placedUnits.values())]
 
   const counts = new Map<string, number>()
   const seenDefs = new Set<string>()
@@ -1284,6 +1292,16 @@ function renderTraitDisplay(): void {
     for (const t of unit.types) {
       if (NON_DISPLAY_TRAITS.has(t)) continue
       counts.set(t, (counts.get(t) ?? 0) + 1)
+    }
+  }
+
+  // Chosen-trait shiny bonus: a shiny unit's chosenTrait counts as +1 extra
+  // toward that one trait's displayed count — mirrors traitMemberCount in
+  // src/core/systems/traitEffects.ts (the combat-side equivalent of this fix).
+  for (const unit of source) {
+    if (unit.isDummy || unit.team !== 'player') continue
+    if (unit.isShiny && unit.chosenTrait && !NON_DISPLAY_TRAITS.has(unit.chosenTrait)) {
+      counts.set(unit.chosenTrait, (counts.get(unit.chosenTrait) ?? 0) + 1)
     }
   }
 
