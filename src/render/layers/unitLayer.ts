@@ -128,6 +128,9 @@ enragedImg.src = '/visuals/ability_icons/enraged.png'
 const megaRayquazaImg = new Image()
 megaRayquazaImg.src = '/visuals/sprites/sky_strikers/mega-rayquaza-sprite.webp'
 
+const megaRayquazaShinyImg = new Image()
+megaRayquazaShinyImg.src = '/visuals/shiny_sprites/sky_strikers/shiny_mega_rayquaza.webp'
+
 // Darmanitan Zen form sprite — swapped in while 'zen_form' is active.
 const darmanitanZenImg = new Image()
 darmanitanZenImg.src = '/visuals/sprites/misc/darmanitan_zen_sprite.png'
@@ -2395,14 +2398,20 @@ export class UnitLayer {
       let finalDw = dw
       let finalDh = dh
       if (unit.definitionId === 'rayquaza'
-          && unit.statusEffects.some(fx => fx.id === 'rayquaza_is_mega')
-          && megaRayquazaImg.complete && megaRayquazaImg.naturalWidth > 0) {
-        const mIw    = megaRayquazaImg.naturalWidth
-        const mIh    = megaRayquazaImg.naturalHeight
-        const mScale = mIh > 0 ? Math.min(half * 2 / mIw, half * 2 / mIh) : 1
-        finalSprite = megaRayquazaImg
-        finalDw     = mIw * mScale
-        finalDh     = mIh * mScale
+          && unit.statusEffects.some(fx => fx.id === 'rayquaza_is_mega')) {
+        // Shiny mega: only swap to the bespoke shiny art once it has finished loading —
+        // otherwise fall back to the normal mega sprite so mega-evo never renders blank.
+        const useShinyMega = unit.isShiny === true
+            && megaRayquazaShinyImg.complete && megaRayquazaShinyImg.naturalWidth > 0
+        const megaImg = useShinyMega ? megaRayquazaShinyImg : megaRayquazaImg
+        if (megaImg.complete && megaImg.naturalWidth > 0) {
+          const mIw    = megaImg.naturalWidth
+          const mIh    = megaImg.naturalHeight
+          const mScale = mIh > 0 ? Math.min(half * 2 / mIw, half * 2 / mIh) : 1
+          finalSprite = megaImg
+          finalDw     = mIw * mScale
+          finalDh     = mIh * mScale
+        }
       }
       // Darmanitan: swap to Zen sprite while in Zen form (shielded)
       if (unit.definitionId === 'darmanitan'
