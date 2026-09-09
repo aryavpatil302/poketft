@@ -44,7 +44,8 @@ export function triggerAbility(unit: Unit, state: CombatState): void {
     }, state)
     state.events.push({ type: 'vfx', effectId: 'wandering_spirit_consume', unitId: unit.id })
     applyManaLock(unit)
-    unit.currentMana = Math.round(unit.maxMana * 0.5)
+    // Shiny Runerigus: drain the target's mana fully instead of half.
+    unit.currentMana = source.isShiny ? 0 : Math.round(unit.maxMana * 0.5)
     return
   }
 
