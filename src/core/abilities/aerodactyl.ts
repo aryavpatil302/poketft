@@ -52,7 +52,13 @@ export const AerodactylAbility: AbilityHandler = {
         suppressManaGain: true,
         stackId: 'aerodactyl_no_mana',
       })
-      unit.range += 1
+      // Shiny Aerodactyl: +2 range instead of +1. Overridden right at this
+      // one existing insertion point (Ancient Power's range grant is a
+      // once-per-cast branch gated behind the stackId guard above, with no
+      // standalone combat-start hook to attach to) rather than granting a
+      // separate +1 from the shiny registry on top of this — see
+      // src/core/systems/shinyEffects/aerodactyl.ts for the full note.
+      unit.range += unit.isShiny ? 2 : 1
       unit._computedStats = null
 
       // Dash 1 hex behind (away from his target), dropping aggro for the dash —
