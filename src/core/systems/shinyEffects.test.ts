@@ -22,7 +22,11 @@ function makeState(players: Unit[], enemies: Unit[]): CombatState {
 // here rather than corrupting an unrelated suite.
 afterEach(() => {
   SHINY_EFFECT_REGISTRY.delete('tangela')
-  expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+  // Registry hygiene: this only guarantees THIS suite's own temporary
+  // registration didn't leak — it can no longer assert the registry is
+  // otherwise empty, now that real per-species shiny effects are
+  // registered in production (see src/core/systems/shinyEffects/index.ts).
+  expect(SHINY_EFFECT_REGISTRY.has('tangela')).toBe(false)
 })
 
 // ─── initShinyEffects: dispatch ────────────────────────────────────────────────

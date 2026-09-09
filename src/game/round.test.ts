@@ -272,7 +272,12 @@ describe('Sableye shiny-gold plumbing', () => {
   afterEach(() => {
     SHINY_EFFECT_REGISTRY.delete('zubat')
     SHINY_EFFECT_REGISTRY.delete('tangela')
-    expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+    // Registry hygiene: this only guarantees THIS suite's own temporary
+    // registrations didn't leak — it can no longer assert the registry is
+    // otherwise empty, now that real per-species shiny effects are
+    // registered in production (see src/core/systems/shinyEffects/index.ts).
+    expect(SHINY_EFFECT_REGISTRY.has('zubat')).toBe(false)
+    expect(SHINY_EFFECT_REGISTRY.has('tangela')).toBe(false)
   })
 
   describe('recordFight — log surfacing', () => {
