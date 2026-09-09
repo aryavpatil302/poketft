@@ -3498,19 +3498,30 @@ const CARD_GLYPH_SCALE: Record<string, number> = {
   zen:            1,
 }
 
+// Chosen-trait gold accent — the amber TFT uses to mark "the trait that
+// would be counted twice" (see this session's shiny-gold accent elsewhere:
+// the shiny-effect card block below, SHINY_EFFECT_GIF sparkle, etc).
+const CHOSEN_TRAIT_GOLD = '#f4c542'
+
 // Mini trait row for a shop card: white glyph inside a small grey hexagon,
-// trait name beside it (TFT card style)
-function cardTraitRowHTML(trait: string): string {
+// trait name beside it (TFT card style). `highlighted` marks this as a
+// shiny unit/slot's Chosen trait — a gold glow/border on the hex plus a
+// gold-tinted label, layered on top of the existing look rather than a
+// full re-skin.
+function cardTraitRowHTML(trait: string, highlighted: boolean = false): string {
   const file = GLYPH_OVERRIDES[trait] ?? `${trait}_trait_icon.png`
   const scale = CARD_GLYPH_SCALE[trait] ?? 1
+  const hexHighlightCss = highlighted
+    ? `box-shadow:0 0 0 1px ${CHOSEN_TRAIT_GOLD},0 0 5px 1px rgba(244,197,66,0.85);border:1px solid ${CHOSEN_TRAIT_GOLD};`
+    : ''
   return `<div style="display:flex;align-items:center;gap:4px;">
     <div style="width:14px;height:15px;clip-path:${HEX_CLIP};background:#5a5f68;flex-shrink:0;
-                display:flex;align-items:center;justify-content:center;">
+                display:flex;align-items:center;justify-content:center;${hexHighlightCss}">
       <img src="/visuals/trait icons/main icons/${file}"
         style="width:10px;height:10px;object-fit:contain;filter:brightness(0) invert(1);transform:scale(${scale});"
         onerror="this.style.display='none'">
     </div>
-    <span style="font-size:9px;color:#e8ecf4;text-shadow:0 1px 2px rgba(0,0,0,0.9);white-space:nowrap;">${traitDisplayName(trait)}</span>
+    <span style="font-size:9px;color:${highlighted ? CHOSEN_TRAIT_GOLD : '#e8ecf4'};text-shadow:0 1px 2px rgba(0,0,0,0.9);white-space:nowrap;">${traitDisplayName(trait)}</span>
   </div>`
 }
 
@@ -3546,9 +3557,12 @@ function shopCardHTML(slot: number): string {
   if (!def) return ''
   const border = COST_BORDER[def.cost] ?? '#9aa0a6'
   const isShinySlot = h.shopShiny[slot] === true
+  const chosenTraitSlot = isShinySlot ? h.shopShinyTrait[slot] : null
   const displayCost = isShinySlot ? shinyPrice(def.cost) : def.cost
   const affordable = h.gold >= displayCost
-  const traitRows = def.types.slice(0, 3).map(cardTraitRowHTML).join('')
+  const traitRows = def.types.slice(0, 3)
+    .map(t => cardTraitRowHTML(t, t === chosenTraitSlot))
+    .join('')
 
   // Already owned (bench or board) → small pokeball marker, upper-left.
   const owned = h.bench.some(b => b?.definitionId === defId) || h.board.some(u => u.definitionId === defId)
@@ -3631,14 +3645,16 @@ function keenEyeRegenBonus(defId: string, team: 'player' | 'enemy' = 'player'): 
 // `liveUnit` sources actual current HP/mana from a real Unit (fielded during
 // planning or mid-combat) so the card stays live-accurate; omitted for shop/
 // bench previews, which show a full-health, start-mana snapshot instead.
-function unitCardHTML(defId: string, tier: 1 | 2 | 3, liveUnit?: Unit, isShiny: boolean = false): string {
+function unitCardHTML(
+  defId: string, tier: 1 | 2 | 3, liveUnit?: Unit, isShiny: boolean = false, chosenTrait?: string | null,
+): string {
   const def = UNIT_MAP.get(defId)
   if (!def) return ''
   const preview = makeUnit(defId, 'player', tier)
   const stats = computeStats(preview)
   const border = COST_BORDER[def.cost] ?? '#9aa0a6'
 
-  const traitCol = def.types.map(cardTraitRowHTML).join('')
+  const traitCol = def.types.map(t => cardTraitRowHTML(t, isShiny && t === chosenTrait)).join('')
 
   const maxHp = liveUnit ? liveUnit.maxHp : stats.maxHp
   const curHp = liveUnit ? Math.round(liveUnit.currentHp) : maxHp
@@ -3774,7 +3790,7 @@ function showShopCardTooltip(card: HTMLElement): void {
   if (!defId) { tooltipHiddenReset(); return }
   ensureTooltipShown(`shop:${slot}:${defId}`)
   tooltipEl.style.width = `${UNIT_CARD_WIDTH}px`
-  tooltipEl.innerHTML = unitCardHTML(defId, 1, undefined, humanEcon().shopShiny[slot] === true)
+  tooltipEl.innerHTML = unitCardHTML(defId, 1, undefined, humanEcon().shopShiny[slot] === true, humanEcon().shopShinyTrait[slot])
   positionTooltipAboveRect(card.getBoundingClientRect())
 }
 
@@ -3784,7 +3800,7 @@ function showBenchCardTooltip(cell: HTMLElement): void {
   if (!b) { tooltipHiddenReset(); return }
   ensureTooltipShown(`bench:${slot}:${b.definitionId}:${b.tier}`)
   tooltipEl.style.width = `${UNIT_CARD_WIDTH}px`
-  tooltipEl.innerHTML = unitCardHTML(b.definitionId, b.tier, undefined, b.isShiny === true)
+  tooltipEl.innerHTML = unitCardHTML(b.definitionId, b.tier, undefined, b.isShiny === true, b.chosenTrait)
   // The bench unit's visual (bars + sprite) is bottom-anchored and overflows
   // above the cell's own (short) box — anchor to the actual top of the bar
   // stack, not the cell's bounding rect, so the tooltip starts above the
@@ -3801,7 +3817,7 @@ function showBenchCardTooltip(cell: HTMLElement): void {
 function showBoardUnitCardAt(defId: string, tier: 1 | 2 | 3, x: number, y: number, sourceKey: string, liveUnit?: Unit): void {
   ensureTooltipShown(sourceKey)
   tooltipEl.style.width = `${UNIT_CARD_WIDTH}px`
-  tooltipEl.innerHTML = unitCardHTML(defId, tier, liveUnit, liveUnit?.isShiny === true)
+  tooltipEl.innerHTML = unitCardHTML(defId, tier, liveUnit, liveUnit?.isShiny === true, liveUnit?.chosenTrait)
   positionTooltipNearPoint(x, y)
 }
 
