@@ -8,6 +8,7 @@ import { shopEligibleUnits } from './runState'
 import {
   SHOP_SLOTS, SHOP_ODDS, REROLL_COST, sellValue, copiesHeld,
   SHINY_ROLL_CHANCE, SHINY_COST_ODDS, SHINY_TIER, shinyPrice,
+  SHINY_PITY_ROLLS, CHOSEN_TRAIT_INELIGIBLE,
 } from './constants'
 import { tryCombine, wouldCombine, type CombineResult } from './combine'
 
@@ -63,12 +64,31 @@ function bucketTotals(pool: Record<string, number>): number[] {
   return totals
 }
 
-// True when a shiny is already owned anywhere — bench or board. TFT Set 4's
-// rule: never offer a second shiny (Chosen) while holding one.
+// True when a shiny is already owned anywhere — bench or board. Ownership no
+// longer blocks further Chosen offers outright (see rollShop's shiny pass
+// below) — it instead switches the offer mechanism from probabilistic to a
+// guaranteed periodic pity timer, matching TFT's real Chosen mechanic.
 export function hasShinyOwned(econ: PlayerEcon): boolean {
   if (econ.bench.some(b => b?.isShiny)) return true
   if (econ.board.some(u => u.isShiny)) return true
   return false
+}
+
+// Rolls the ONE Chosen trait a newly-shiny candidate gets, from its own
+// UNIT_MAP types, EXCLUDING the single-unit-presence traits in
+// CHOSEN_TRAIT_INELIGIBLE (doubling those is meaningless — they have no real
+// "N members" threshold). Falls back to the unfiltered type list in the
+// (should-be-rare/never) case where every one of a unit's types is
+// ineligible. Draws exactly one rng() call — via the same injected `rng` the
+// rest of the shiny pass uses, for test determinism — except in the
+// (unreachable in practice) case where a unit has zero types at all.
+function pickChosenTrait(defId: string, rng: Rng): string | null {
+  const def = UNIT_MAP.get(defId)
+  if (!def || def.types.length === 0) return null
+  const eligible = def.types.filter(t => !CHOSEN_TRAIT_INELIGIBLE.has(t))
+  const pool = eligible.length > 0 ? eligible : def.types
+  const idx = Math.min(pool.length - 1, Math.floor(rng() * pool.length))
+  return pool[idx]
 }
 
 // Fill every shop slot. Slots roll independently (TFT-style); a unit's draw
@@ -91,23 +111,46 @@ export function rollShop(econ: PlayerEcon, pool: Record<string, number>, rng: Rn
   // ─── Shiny pass ────────────────────────────────────────────────────────
   // Independently-rolled instant-2★ offer (TFT Set 4 "Chosen"-style), run
   // AFTER the normal per-slot loop above and BEFORE any early return so
-  // shopShiny always resets in sync with a fresh shop. Order below is
-  // load-bearing for test determinism: reset -> ownership gate -> chance
-  // roll -> cost tier -> candidate id -> slot. No cross-tier fallback: a
-  // depleted or empty tier is a normal outcome, not retried against
-  // another tier.
-  for (let i = 0; i < SHOP_SLOTS; i++) econ.shopShiny[i] = false
-  if (hasShinyOwned(econ)) return
-  if (rng() >= SHINY_ROLL_CHANCE) return
+  // shopShiny/shopShinyTrait always reset in sync with a fresh shop. A
+  // Chosen offer, when it appears, ALWAYS lands in the rightmost slot
+  // (SHOP_SLOTS - 1) — real TFT behavior, not a random slot among the 5.
+  //
+  // Cadence depends on ownership (see hasShinyOwned):
+  //   - NOT owning: unchanged — a probabilistic roll every shop
+  //     (rng() < SHINY_ROLL_CHANCE).
+  //   - Owning: the probabilistic roll is REPLACED (not stacked) by a
+  //     guaranteed periodic pity timer — every 4th roll while owned is a
+  //     guaranteed Chosen offer, rolls 1-3 offer nothing. shinyPityCounter
+  //     resets to 0 whenever ownership is false, so it always starts fresh
+  //     the next time a shiny is picked up, and also resets to 0 the moment
+  //     it fires (on the guaranteed 4th roll).
+  //
+  // Order below is load-bearing for test determinism: reset -> ownership
+  // branch -> cost tier -> candidate id -> chosen-trait pick. No cross-tier
+  // fallback: a depleted or empty tier is a normal outcome, not retried
+  // against another tier.
+  for (let i = 0; i < SHOP_SLOTS; i++) { econ.shopShiny[i] = false; econ.shopShinyTrait[i] = null }
+
+  if (hasShinyOwned(econ)) {
+    econ.shinyPityCounter++
+    if (econ.shinyPityCounter < SHINY_PITY_ROLLS) return   // rolls 1-3 while owned: no offer
+    econ.shinyPityCounter = 0   // the guaranteed 4th roll: fall through to the offer, then reset
+  } else {
+    econ.shinyPityCounter = 0
+    if (rng() >= SHINY_ROLL_CHANCE) return
+  }
+
   const shinyOdds = SHINY_COST_ODDS[Math.max(1, Math.min(9, econ.level))]
   const shinyCost = pickWeightedIndex(shinyOdds, rng)
   if (shinyCost === 0) return
   const shinyCandidates = byCost[shinyCost].filter(u => u.copies >= copiesHeld(SHINY_TIER))
   if (shinyCandidates.length === 0) return
   const shinyId = pickWeightedId(shinyCandidates, rng)
-  const shinySlot = Math.min(SHOP_SLOTS - 1, Math.floor(rng() * SHOP_SLOTS))
+  const chosenTrait = pickChosenTrait(shinyId, rng)
+  const shinySlot = SHOP_SLOTS - 1
   econ.shop[shinySlot] = shinyId
   econ.shopShiny[shinySlot] = true
+  econ.shopShinyTrait[shinySlot] = chosenTrait
 }
 
 // Paid (or free) reroll. Clears the lock (TFT behavior).
@@ -137,6 +180,7 @@ export function buyUnit(state: RunState, econ: PlayerEcon, slot: number): BuyRes
   // sell-back. strict === true because a legacy save's backfilled shopShiny
   // array is the only thing guaranteeing the index exists.
   const shiny = econ.shopShiny[slot] === true
+  const chosenTrait = shiny ? econ.shopShinyTrait[slot] : null
   const price = shiny ? shinyPrice(def.cost) : def.cost
   const copies = shiny ? copiesHeld(SHINY_TIER) : 1
   const tier = shiny ? SHINY_TIER : 1
@@ -160,9 +204,14 @@ export function buyUnit(state: RunState, econ: PlayerEcon, slot: number): BuyRes
   state.pool[defId] -= copies
   econ.shop[slot] = null
   econ.shopShiny[slot] = false
+  econ.shopShinyTrait[slot] = null
 
   if (benchSlot !== -1) {
-    econ.bench[benchSlot] = { definitionId: defId, tier, ...(shiny && { isShiny: true }) }
+    econ.bench[benchSlot] = {
+      definitionId: defId, tier,
+      ...(shiny && { isShiny: true }),
+      ...(chosenTrait && { chosenTrait }),
+    }
     return { ok: true, combined: tryCombine(econ, defId) }
   }
 
