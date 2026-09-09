@@ -16,13 +16,17 @@ function makeState(players: Unit[], enemies: Unit[]): CombatState {
   return createCombatState(players, enemies)
 }
 
-// Registry hygiene: SHINY_EFFECT_REGISTRY is module-global and shared across
-// test files in the same worker. Every test that registers an entry removes
-// it here, and we assert it returns to empty so a leaked entry fails loudly
-// here rather than corrupting an unrelated suite.
+// Registry hygiene: SHINY_EFFECT_REGISTRY is module-global. Every test that
+// registers a 'tangela' entry removes it here, and we assert the key is
+// gone so a leaked entry fails loudly here rather than corrupting an
+// unrelated suite. This does NOT assert the registry is otherwise empty —
+// createCombatState (via combatEngine.ts's barrel side-effect import) now
+// legitimately registers real per-species shiny effects (Drednaw, Bellibolt,
+// Quagsire, ... as wave-2 batches land), so a bare size check would be
+// wrong by design, not a leak.
 afterEach(() => {
   SHINY_EFFECT_REGISTRY.delete('tangela')
-  expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+  expect(SHINY_EFFECT_REGISTRY.has('tangela')).toBe(false)
 })
 
 // ─── initShinyEffects: dispatch ────────────────────────────────────────────────
