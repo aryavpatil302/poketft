@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { newRun } from './runState'
-import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides, botCanAttemptBuy, scoreUnit } from './bots'
+import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides, botCanAttemptBuy, scoreUnit, applyBenchHygiene } from './bots'
 import { settleRound } from './income'
 import { UNIT_MAP } from '../data/units'
 import { boardCap } from './xp'
@@ -253,9 +253,111 @@ describe('bots', () => {
       const genome = resolveGenome(persona.id)
       econ.bench = Array(9).fill(null)   // empty — keeps hasEstablishedComp false, starUpMult at 1
       econ.board = []
+      // Backward-compatible: shinyTrait not passed, defaults to null — confirms
+      // existing call sites (and this pre-existing regression test) still work
+      // unmodified after adding the 14th param.
       const normalScore = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, false)
       const shinyScore = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, undefined, false, 0, false, Math.random, undefined, undefined, true)
       expect(shinyScore).toBeGreaterThan(normalScore)
+    })
+  })
+
+  describe('scoreUnit — comp-aware shiny valuation (shinyTrait)', () => {
+    // tangela: cost 1, types ['jungle', 'stalwart'].  jungle thresholds are
+    // [3, 5, 7] — at have=0 a shiny (counts as +2 species) reaches 2, which
+    // crosses nothing, so this isolates the comp-fit bonus with no
+    // breakpoint-cross noise. ribombee is a second, distinct jungle species
+    // (cost 1, types ['jungle', 'promoter']) used below to seed have=1.
+    it('comp-fit bonus: shinyTrait matching a priorityTraits entry scores strictly higher than shinyTrait=null (species/cost/every other arg held constant)', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById(econ.personaId)!
+      const genome = resolveGenome(persona.id)
+      econ.bench = Array(9).fill(null)   // have=0 for jungle — no breakpoint cross possible
+      econ.board = []
+      const priorityJungle = new Map([['jungle', 1.0]])
+      const withTrait = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, priorityJungle, false, 0, false, Math.random, undefined, undefined, true, 'jungle')
+      const withoutTrait = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, priorityJungle, false, 0, false, Math.random, undefined, undefined, true, null)
+      expect(withTrait).toBeGreaterThan(withoutTrait)
+      // Isolated delta should be exactly the comp-fit bonus (priorityTraits
+      // held constant across both calls, so the pre-existing generic
+      // per-trait nudge fires identically in both and cancels out).
+      expect(withTrait - withoutTrait).toBeCloseTo(genome.shinyPriorityFitBonus * 1.0, 5)
+    })
+
+    it('breakpoint-cross bonus: crossing a real threshold scores strictly higher than merely matching a priorityTraits entry without crossing', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById(econ.personaId)!
+      const genome = resolveGenome(persona.id)
+      // Seed have=1 for jungle via a second distinct species (ribombee) so
+      // buying the tangela shiny (+2 species toward jungle) reaches 3 —
+      // crossing the first jungle threshold — while an ordinary buy
+      // (have+1=2) would not.
+      econ.bench = Array(9).fill(null)
+      econ.bench[0] = { definitionId: 'ribombee', tier: 1 }
+      econ.board = []
+      // priorityTraits deliberately empty so the comp-fit bonus (and the
+      // pre-existing generic nudge) never fires — isolates the breakpoint
+      // bonus alone.
+      const crossing = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, new Map(), false, 0, false, Math.random, undefined, undefined, true, 'jungle')
+      const notCrossing = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, new Map(), false, 0, false, Math.random, undefined, undefined, true, null)
+      expect(crossing).toBeGreaterThan(notCrossing)
+      expect(crossing - notCrossing).toBeCloseTo(genome.shinyBreakpointBonus, 5)
+
+      // And per the design intent (breakpoint-crossing is the stronger
+      // signal): a real breakpoint cross outscores a fit-only match on a
+      // fresh econ with no crossing available.
+      econ.bench = Array(9).fill(null)   // have=0 — comp-fit only, no crossing
+      const priorityJungle = new Map([['jungle', 1.0]])
+      const fitOnly = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, priorityJungle, false, 0, false, Math.random, undefined, undefined, true, 'jungle')
+      expect(crossing).toBeGreaterThan(fitOnly)
+    })
+
+    it('both bonuses stack additively: matching a priority trait AND crossing a breakpoint scores strictly higher than either alone', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById(econ.personaId)!
+      const genome = resolveGenome(persona.id)
+      econ.bench = Array(9).fill(null)
+      econ.bench[0] = { definitionId: 'ribombee', tier: 1 }   // have=1 for jungle — this buy crosses
+      econ.board = []
+      const priorityJungle = new Map([['jungle', 1.0]])
+
+      const breakpointOnly = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, new Map(), false, 0, false, Math.random, undefined, undefined, true, 'jungle')
+      const fitAndNudgeOnly = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, priorityJungle, false, 0, false, Math.random, undefined, undefined, true, null)
+      const both = scoreUnit(econ, persona, genome, 'tangela', undefined, 0, false, priorityJungle, false, 0, false, Math.random, undefined, undefined, true, 'jungle')
+
+      // Both new if-statements fired independently (verified explicitly, per
+      // the task's own emphasis): the combined score beats each single-bonus
+      // variant, not just matches one of them.
+      expect(both).toBeGreaterThan(breakpointOnly)
+      expect(both).toBeGreaterThan(fitAndNudgeOnly)
+    })
+  })
+
+  describe('applyBenchHygiene — staleCheapStar shiny exemption', () => {
+    it('never sells a shiny bench slot even when every other staleCheapStar condition is met; a non-shiny stale-cheap-2★ in the same run can still be sold', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById(econ.personaId)!
+      const genome = resolveGenome(persona.id)
+
+      // Stage >= 5, no reroll target, tier 2, cost <= 2 for both — the exact
+      // staleCheapStar carve-out condition — but one is shiny.
+      econ.bench = [
+        { definitionId: 'tangela', tier: 2, isShiny: true, chosenTrait: 'jungle' },
+        { definitionId: 'ribombee', tier: 2 },
+        ...Array(7).fill(null).map(() => ({ definitionId: 'charizard', tier: 1 as const })),
+      ]
+      econ.board = []
+
+      applyBenchHygiene(run, econ, persona, genome, null, 0, new Map(), false, 5, false, Math.random, undefined, undefined)
+
+      expect(econ.bench[0]).not.toBeNull()
+      expect(econ.bench[0]?.definitionId).toBe('tangela')
+      expect(econ.bench[0]?.isShiny).toBe(true)
+      expect(econ.bench[1]).toBeNull()   // the non-shiny stale-cheap-2★ was sellable and got sold
     })
   })
 
