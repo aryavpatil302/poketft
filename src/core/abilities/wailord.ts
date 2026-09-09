@@ -24,7 +24,8 @@ export const WailordAbility: AbilityHandler = {
     const stunSeconds  = [1,   1,   1.5] as const
 
     const shieldAmount = shieldValues[tier - 1]
-    const damageAmount = damageValues[tier - 1]
+    // Shiny Wailord: Bounce damage is tripled.
+    const damageAmount = damageValues[tier - 1] * (unit.isShiny ? 3 : 1)
     const stunDuration = stunSeconds[tier - 1]
 
     // Shield doesn't stack — replace existing Bounce shield
