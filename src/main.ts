@@ -3520,12 +3520,13 @@ function shopCardHTML(slot: number): string {
 
   // Buying this card would complete a combine right now → pulse in size AND
   // glow the tier color it's about to become (silver = 2★, gold = 3★).
-  // A shiny buy lands directly at 2-star, so it can never consume 1-star copies
-  // to reach 2-star — a shiny slot's pulse is driven by c2 alone (3-star only).
+  // A shiny buy always instantly produces a 2-star unit regardless of c1, so a
+  // shiny slot always pulses at least silver — and escalates to gold (3-star)
+  // when the player already holds 2 copies of the 2-star tier (c2 === 2).
   let c1 = 0, c2 = 0
   for (const b of h.bench) if (b && b.definitionId === defId) { if (b.tier === 1) c1++; else if (b.tier === 2) c2++ }
   for (const u of h.board) if (u.definitionId === defId) { if (u.tier === 1) c1++; else if (u.tier === 2) c2++ }
-  const starUpTier = isShinySlot ? (c2 === 2 ? 3 : null) : (c1 === 2 ? (c2 === 2 ? 3 : 2) : null)
+  const starUpTier = isShinySlot ? (c2 === 2 ? 3 : 2) : (c1 === 2 ? (c2 === 2 ? 3 : 2) : null)
   const tierPulseClass = starUpTier === 3 ? 'tier-pulse-gold' : starUpTier === 2 ? 'tier-pulse-silver' : ''
   const starUpPulseClass = starUpTier ? 'shop-card-owned' : ''
   const tierBgPulseClass = starUpTier === 3 ? 'tier-bg-pulse-gold' : starUpTier === 2 ? 'tier-bg-pulse-silver' : ''
