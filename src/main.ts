@@ -1,5 +1,6 @@
 import { BoardLayer } from './render/layers/boardLayer'
 import { activeTerrainPulseColor, activeTerrainLabel } from './core/systems/terrain'
+import { getShinyEffect } from './core/systems/shinyEffects'
 import { UnitLayer } from './render/layers/unitLayer'
 import { EffectLayer } from './render/layers/effectLayer'
 import { calcBoardProfile, getThresholds } from './enemy/boardPower'
@@ -3653,6 +3654,19 @@ function unitCardHTML(defId: string, tier: 1 | 2 | 3, liveUnit?: Unit, isShiny: 
       </div>
     </div>` : ''
 
+  // Shiny units get a second block below the ability, showing their shiny
+  // combat effect — same layout/sizing as abilityHtml above it, but with a
+  // distinct amber accent and a sparkle prefix on the label so it reads as
+  // a separate shiny effect, not a duplicate ability entry.
+  const shinyEffect = isShiny ? getShinyEffect(defId) : undefined
+  const shinyEffectHtml = shinyEffect ? `
+    <div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid #2a3550;">
+      <div style="min-width:0;">
+        <div style="font-weight:bold;color:#f4c542;font-size:11px;margin-bottom:3px;">✨ Shiny Effect</div>
+        <div style="font-size:10px;color:#c7cede;line-height:1.4;">${shinyEffect.description}</div>
+      </div>
+    </div>` : ''
+
   return `<div style="width:100%;box-sizing:border-box;font-family:sans-serif;">
     <div style="display:flex;gap:10px;align-items:flex-start;">
       <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;padding-top:2px;">
@@ -3690,6 +3704,7 @@ function unitCardHTML(defId: string, tier: 1 | 2 | 3, liveUnit?: Unit, isShiny: 
       <div style="flex-shrink:0;">${statsHtml}</div>
     </div>
     ${abilityHtml}
+    ${shinyEffectHtml}
   </div>`
 }
 
