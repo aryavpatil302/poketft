@@ -19,7 +19,10 @@ export const ZubatAbility: AbilityHandler = {
 
     const damage        = damages[tier - 1]
     const spMult        = (unit._computedStats ?? computeStats(unit)).special / 100
-    const poisonPerTick = Math.round(poisonTotal[tier - 1] / POISON_TICKS * spMult)
+    // Shiny: poison damage is doubled — multiplied once here at the source so
+    // every consumer of poisonPerTick (the single tickEffect closure below)
+    // inherits it, same shape as Spiritomb's shiny multiply-at-source.
+    const poisonPerTick = Math.round(poisonTotal[tier - 1] / POISON_TICKS * spMult) * (unit.isShiny ? 2 : 1)
 
     const atkTarget = unit.targetId ? state.units.get(unit.targetId) : undefined
     const target = (atkTarget && atkTarget.state !== 'dead' && atkTarget.team !== unit.team)

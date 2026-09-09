@@ -270,9 +270,15 @@ describe('Sableye shiny-gold plumbing', () => {
   }
 
   afterEach(() => {
+    // NOTE: the registry is no longer empty at rest — real per-species shiny
+    // effects (e.g. druddigon, sableye, excadrill, ...) register themselves
+    // permanently via the shinyEffects/index barrel (wired through
+    // combatEngine.ts), so we assert this test's own overrides were removed
+    // rather than asserting the whole registry is empty.
     SHINY_EFFECT_REGISTRY.delete('zubat')
     SHINY_EFFECT_REGISTRY.delete('tangela')
-    expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+    expect(SHINY_EFFECT_REGISTRY.has('zubat')).toBe(false)
+    expect(SHINY_EFFECT_REGISTRY.has('tangela')).toBe(false)
   })
 
   describe('recordFight — log surfacing', () => {

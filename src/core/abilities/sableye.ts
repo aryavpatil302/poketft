@@ -5,6 +5,10 @@ import { addStatusEffect } from '../systems/statusEffect'
 import { createProjectile } from '../projectile'
 import { findNearestEnemies } from '../systems/targeting'
 import { addShield } from '../systems/shield'
+import { combatRng } from '../rng'
+import { grantShinyGold } from '../systems/shinyEffects'
+
+const SHINY_GOLD_CHANCE = 0.30
 
 const RUMBLE_TICKS   = 15
 const SHIELD_DURATION = 3 * TICK_RATE
@@ -21,6 +25,13 @@ export const SableyeAbility: AbilityHandler = {
   castTimeTicks: 20,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {
+    // Shiny: each cast has an independent 30% chance to grant the caster's
+    // team 1 gold — rolled once per cast, one roll regardless of whether
+    // this cast resolves as a shield or a damage cast.
+    if (unit.isShiny && combatRng() < SHINY_GOLD_CHANCE) {
+      grantShinyGold(state, unit.team, 1)
+    }
+
     const shieldValues = [250, 325, 425] as const
     const damageValues = [200, 300, 550] as const
     const shieldAmt = shieldValues[tier - 1]
