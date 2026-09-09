@@ -217,10 +217,7 @@ function applyTerrainEffects(state: CombatState): void {
 function applyJungle(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
-    const jungleSpecies = new Set(
-      teamUnits.filter(u => u.types.includes('jungle')).map(u => u.definitionId)
-    )
-    const threshold = getJungleThreshold(jungleSpecies.size)
+    const threshold = getJungleThreshold(traitMemberCount(teamUnits, 'jungle'))
     if (!threshold) continue
 
     const [teamBonus, jungleBonus] = threshold
@@ -243,8 +240,7 @@ function applyVolcano(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const volcanoUnits = teamUnits.filter(u => u.types.includes('volcanic'))
-    const volcanoSpecies = new Set(volcanoUnits.map(u => u.definitionId))
-    const n = volcanoSpecies.size
+    const n = traitMemberCount(teamUnits, 'volcanic')
 
     let hpBonus = 0
     let adaptiveForce = 0
@@ -338,8 +334,7 @@ function applySkyStriker(state: CombatState): void {
   for (const team of ['player', 'enemy'] as const) {
     const teamUnits = [...state.units.values()].filter(u => u.team === team && !u.isDummy)
     const skyUnits  = teamUnits.filter(u => u.types.includes('sky_striker'))
-    const skySpecies = new Set(skyUnits.map(u => u.definitionId))
-    const n = skySpecies.size
+    const n = traitMemberCount(teamUnits, 'sky_striker')
 
     let tailwindBonus = 0
     let executeThreshold = 0
