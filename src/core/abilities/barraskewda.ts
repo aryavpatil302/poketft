@@ -58,6 +58,9 @@ export const BarraskewdaAbility: AbilityHandler = {
                 baseAmount: damage,
                 damageType: 'physical',
                 canCrit: true,
+                // Shiny Barraskewda's Fishous Rend ignores 30% of the
+                // target's defense.
+                armorPiercePct: u2.isShiny ? 0.30 : undefined,
                 abilityId: 'barraskewda_fishous_rend',
               }, st2)
             }

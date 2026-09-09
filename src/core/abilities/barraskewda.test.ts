@@ -137,3 +137,64 @@ describe('Barraskewda - Fishous Rend', () => {
     expect(caster.maxMana).toBe(manaBefore)
   })
 })
+
+// Shiny Barraskewda: Fishous Rend ignores 30% of the target's defense.
+// isShiny is set AFTER createCombatState in every case below so the
+// universal +5% shiny stat bonus (applied once, at combat-start) never
+// fires — isolating the armor-pierce effect, which is checked live at
+// damage-application time via u2.isShiny, not baked in at combat start.
+describe('Barraskewda - Fishous Rend (shiny armor pierce)', () => {
+  function setup(defense: number): { caster: Unit; enemy: Unit; state: CombatState } {
+    const c = makeUnit('barraskewda', 'player', 1)
+    c.hexPos = { col: 3, row: 5 }
+    c.critChance = 0
+    c._computedStats = null
+    const e = makeUnit('dummy', 'enemy', 1)
+    e.hexPos = { col: 3, row: 4 }
+    e.defense = defense
+    // makeUnit() already cached _computedStats using the pre-mutation default
+    // defense (30) — invalidate it so computeStats() re-derives from the
+    // mutated base field on next read (see the codebase-wide convention:
+    // any direct mutation of a base stat must null _computedStats).
+    e._computedStats = null
+    const s = createCombatState([c], [e])
+    return { caster: c, enemy: e, state: s }
+  }
+
+  function strikeDamage(caster: Unit, enemy: Unit, state: CombatState): number {
+    castAndStrike(caster, state)
+    const dmgEvent = state.events.find(ev => ev.type === 'damage' && ev.targetId === enemy.id)
+    return dmgEvent?.type === 'damage' ? dmgEvent.amount : 0
+  }
+
+  it('deals more damage to a defended target when shiny (30% armor pierce) than when not shiny', () => {
+    const shinyRun = setup(30)
+    shinyRun.caster.isShiny = true  // set after createCombatState — no universal +5% bonus
+    const shinyDmg = strikeDamage(shinyRun.caster, shinyRun.enemy, shinyRun.state)
+
+    const controlRun = setup(30)
+    // controlRun.caster.isShiny left false — non-shiny control
+    const controlDmg = strikeDamage(controlRun.caster, controlRun.enemy, controlRun.state)
+
+    expect(controlRun.caster.isShiny).toBeFalsy()
+    expect(shinyDmg).toBeGreaterThan(controlDmg)
+  })
+
+  it('non-shiny control: identical setup with isShiny left false takes the full (non-pierced) defense hit', () => {
+    const { caster, enemy, state } = setup(30)
+    expect(caster.isShiny).toBeFalsy()
+    const dmg = strikeDamage(caster, enemy, state)
+    expect(dmg).toBeGreaterThan(0)
+  })
+
+  it('edge case: zero-defense target — armor pierce has no mitigation to reduce, shiny and non-shiny deal identical damage', () => {
+    const shinyRun = setup(0)
+    shinyRun.caster.isShiny = true
+    const shinyDmg = strikeDamage(shinyRun.caster, shinyRun.enemy, shinyRun.state)
+
+    const controlRun = setup(0)
+    const controlDmg = strikeDamage(controlRun.caster, controlRun.enemy, controlRun.state)
+
+    expect(shinyDmg).toBe(controlDmg)
+  })
+})
