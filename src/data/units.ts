@@ -735,8 +735,8 @@ export const BELLIBOLT: UnitDefinition = {
     description: 'Passive: Gain 1 charge (max 10) whenever Bellibolt is hit; each charge grants +5 Defense and +5 Sp. Def. On cast, heal for 300/400/600 and discharge in a 1-hex radius dealing 50/90/120% of total Defense + Sp. Def as magic damage, then lose all charges.',
     scaling: { scalingPct: [50, 90, 120], healAmount: [300, 400, 600] },
   },
-  spritePath: '/visuals/sprites/river/belliboilt-sprite.webp',
-  spriteScale: 0.8,
+  spritePath: '/visuals/sprites/river/bellibolt-sprite.webp',
+  spriteScale: 1.3,
 }
 
 export const QUAGSIRE: UnitDefinition = {
