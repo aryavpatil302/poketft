@@ -382,13 +382,17 @@ export function applyDamage(
   if (payload.abilityId === 'auto_attack' && target.state !== 'dead' && source.state !== 'dead') {
     const ironBarbs = target.statusEffects.find(fx => fx.id === 'iron_barbs')
     if (ironBarbs?.magnitude) {
-      applyDamage(target, source, {
+      const retaliation = applyDamage(target, source, {
         baseAmount:        ironBarbs.magnitude,
         damageType:        'magic',
         canCrit:           false,
         abilityScalingStat: 'special',
         abilityId:         'ferrothorn_iron_barbs',
       }, state)
+      // Shiny Ferrothorn: heal for 100% of the counter-hit damage that actually landed
+      if (target.isShiny && retaliation.finalDamage > 0) {
+        applyHeal(target, retaliation.finalDamage, target.id, state)
+      }
       // Refresh hit-flash pulse on Ferrothorn (scale bump handled in unitLayer)
       const flashIdx = target.statusEffects.findIndex(fx => fx.stackId === 'ferrothorn_hit_flash')
       if (flashIdx >= 0) {
