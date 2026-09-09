@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { RunState, PlayerEcon } from '../econ/runState'
 import { newRun } from '../econ/runState'
 import { botSeats } from '../econ/bots'
@@ -269,10 +269,22 @@ describe('Sableye shiny-gold plumbing', () => {
     return run
   }
 
+  // Registry hygiene baseline: SHINY_EFFECT_REGISTRY is module-global.
+  // createCombatState's import chain now side-effect-imports the real
+  // shinyEffects/index.ts barrel, which carries real per-species
+  // registrations (this batch's pidgeotto/noivern/rayquaza, and every other
+  // wave's own entries) — so the registry is no longer empty by default.
+  // Snapshot that real baseline before each test and assert it's restored
+  // after deleting this suite's own zubat/tangela test-only leaks, instead
+  // of asserting a hardcoded 0 (mirrors the same fix in shinyEffects.test.ts).
+  let baselineSize = 0
+  beforeEach(() => {
+    baselineSize = SHINY_EFFECT_REGISTRY.size
+  })
   afterEach(() => {
     SHINY_EFFECT_REGISTRY.delete('zubat')
     SHINY_EFFECT_REGISTRY.delete('tangela')
-    expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+    expect(SHINY_EFFECT_REGISTRY.size).toBe(baselineSize)
   })
 
   describe('recordFight — log surfacing', () => {

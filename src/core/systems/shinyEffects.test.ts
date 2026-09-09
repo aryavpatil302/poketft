@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { SHINY_EFFECT_REGISTRY, initShinyEffects, grantShinyGold } from './shinyEffects'
@@ -17,12 +17,21 @@ function makeState(players: Unit[], enemies: Unit[]): CombatState {
 }
 
 // Registry hygiene: SHINY_EFFECT_REGISTRY is module-global and shared across
-// test files in the same worker. Every test that registers an entry removes
-// it here, and we assert it returns to empty so a leaked entry fails loudly
-// here rather than corrupting an unrelated suite.
+// test files in the same worker. `createCombatState` (imported above via
+// '../combatEngine') side-effect-imports the real shinyEffects/index.ts
+// barrel, which now carries real per-species registrations (this batch's
+// pidgeotto/noivern/rayquaza, and every other wave's own entries) — so the
+// registry is no longer empty by default. Snapshot that real baseline before
+// each test, and after deleting this file's own 'tangela' test-only leak,
+// assert the registry returns to exactly that baseline (not a hardcoded 0)
+// — a genuinely leaked entry still fails loudly here.
+let baselineSize = 0
+beforeEach(() => {
+  baselineSize = SHINY_EFFECT_REGISTRY.size
+})
 afterEach(() => {
   SHINY_EFFECT_REGISTRY.delete('tangela')
-  expect(SHINY_EFFECT_REGISTRY.size).toBe(0)
+  expect(SHINY_EFFECT_REGISTRY.size).toBe(baselineSize)
 })
 
 // ─── initShinyEffects: dispatch ────────────────────────────────────────────────
