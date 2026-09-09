@@ -3,6 +3,7 @@ import type { CombatState, Unit } from '../types'
 import type { OffsetCoord } from '../hexGrid'
 import { TICK_RATE } from '../constants'
 import { applyDamage } from '../systems/damage'
+import { applyHeal } from '../systems/heal'
 import { findNearestEnemies } from '../systems/targeting'
 import { startLeap, findBestAttackHex, claimHex } from '../systems/movement'
 import { hexDistance } from '../hexGrid'
@@ -61,12 +62,19 @@ function diveAt(
   startLeap(unit, enemyHex, state, haste, (u: Unit, s: CombatState) => {
     const tgt = s.units.get(target.id)
     if (tgt && tgt.state !== 'dead') {
-      applyDamage(u, tgt, {
+      const result = applyDamage(u, tgt, {
         baseAmount: finalDmg,
         damageType: 'physical',
         canCrit: true,
         abilityId: 'talonflame_brave_bird',
       }, s)
+      // Shiny Talonflame: a lethal Brave Bird heals for 75% of the damage dealt.
+      // Re-fetch the live unit rather than reusing `tgt` — the guard above
+      // narrows `tgt.state` to exclude 'dead', but applyDamage can still kill
+      // it, so `tgt.state` itself is stale for this check.
+      if (unit.isShiny && s.units.get(target.id)?.state === 'dead') {
+        applyHeal(u, Math.round(result.finalDamage * 0.75), u.id, s)
+      }
     }
 
     if (tgt?.state === 'dead') {
