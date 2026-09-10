@@ -73,7 +73,8 @@ function diveAt(
       // narrows `tgt.state` to exclude 'dead', but applyDamage can still kill
       // it, so `tgt.state` itself is stale for this check.
       if (unit.isShiny && s.units.get(target.id)?.state === 'dead') {
-        applyHeal(u, Math.round(result.finalDamage * 0.75), u.id, s)
+        // Lethal-kill lifesteal is shiny-only — credit it to the shiny rollup.
+        applyHeal(u, Math.round(result.finalDamage * 0.75), u.id, s, 'shiny:' + unit.definitionId)
       }
     }
 

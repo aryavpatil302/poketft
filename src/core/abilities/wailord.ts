@@ -24,8 +24,12 @@ export const WailordAbility: AbilityHandler = {
     const stunSeconds  = [1,   1,   1.5] as const
 
     const shieldAmount = shieldValues[tier - 1]
-    // Shiny Wailord: Bounce damage is tripled.
+    // Shiny Wailord: Bounce damage is tripled — attribute the marginal 2/3 of the
+    // stomp hit to the shiny rollup (the shield below is unchanged by shiny).
     const damageAmount = damageValues[tier - 1] * (unit.isShiny ? 3 : 1)
+    const shinyDmgFrac = unit.isShiny
+      ? { trait: 'shiny:' + unit.definitionId, frac: 2 / 3 } as const
+      : undefined
     const stunDuration = stunSeconds[tier - 1]
 
     // Shield doesn't stack — replace existing Bounce shield
@@ -69,6 +73,7 @@ export const WailordAbility: AbilityHandler = {
           scalingStat: 'special',
           scalingRatio: 0,
           abilityId: 'wailord_bounce',
+          traitFrac: shinyDmgFrac,
         }, s)
 
         if (tgt.currentHp > 0) {

@@ -88,6 +88,9 @@ export const TapuFiniAbility: AbilityHandler = {
               damageType: 'true',
               canCrit: false,
               abilityId: 'tapufini_natures_madness',
+              // Execute is shiny-only — credited HP damage (the target's
+              // remaining HP) rolls up under the shiny effect.
+              traitSource: 'shiny:' + fini.definitionId,
             }, st)
           }
         },

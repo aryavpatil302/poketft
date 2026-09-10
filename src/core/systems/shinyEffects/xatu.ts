@@ -16,6 +16,8 @@ registerShinyEffect('xatu', {
       const ally = state.units.get(uid)
       if (!ally || ally.team !== self.team || ally.isDummy || ally.state === 'dead') continue
 
+      // traitSource: shield exists only because the caster is shiny — credit it
+      // (and damage it absorbs) to the shiny rollup.
       addShield(ally, {
         id: `shiny_xatu_shield_${ally.id}`,
         sourceAbility: 'shiny_xatu_future_sight',
@@ -23,7 +25,7 @@ registerShinyEffect('xatu', {
         value: 100,
         maxValue: 100,
         durationTicks: -1,
-      }, state)
+      }, state, 'shiny:' + self.definitionId)
     }
   },
 })

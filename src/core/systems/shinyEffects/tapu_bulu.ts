@@ -23,7 +23,9 @@ registerShinyEffect('tapu_bulu', {
       tickEffect: (u, st) => {
         if (u.state === 'dead') return
         const amount = Math.max(1, Math.round(u.maxHp * REGEN_PCT_PER_SEC))
-        applyHeal(u, amount, u.id, st)
+        // traitSource: this regen only exists because the unit is shiny — credit
+        // every tick's healing to the shiny rollup.
+        applyHeal(u, amount, u.id, st, 'shiny:' + self.definitionId)
       },
     })
   },

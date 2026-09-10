@@ -25,6 +25,9 @@ export const SnorunAbility: AbilityHandler = {
       durationTicks: 3 * TICK_RATE,
     }
 
-    addShield(unit, shield, state)
+    // Shiny scales this shield ×1.5. addShield has no fractional-credit param, so
+    // when shiny the whole shield (and the damage it absorbs) is credited to the
+    // shiny rollup — a magnitude proxy, not just the marginal +50%.
+    addShield(unit, shield, state, unit.isShiny ? 'shiny:' + unit.definitionId : undefined)
   },
 }

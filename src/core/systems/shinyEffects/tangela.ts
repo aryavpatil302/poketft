@@ -16,6 +16,9 @@ registerShinyEffect('tangela', {
     for (const ally of state.units.values()) {
       if (ally.team !== self.team || ally.isDummy) continue
 
+      // traitSource: this shield only exists because the caster is shiny — credit
+      // the amount (and any damage it later absorbs) to the shiny effect so it
+      // shows in the report's "Shiny effect impact" rollup.
       addShield(ally, {
         id: crypto.randomUUID(),
         sourceAbility: 'shiny_tangela',
@@ -23,7 +26,7 @@ registerShinyEffect('tangela', {
         value: SHIELD_VALUE,
         maxValue: SHIELD_VALUE,
         durationTicks: -1,
-      }, state)
+      }, state, 'shiny:' + self.definitionId)
     }
   },
 })
