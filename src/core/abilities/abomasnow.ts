@@ -65,6 +65,11 @@ export const AbomasnowAbility: AbilityHandler = {
 
     // Instant burst damage. Shiny Abomasnow: 1.3x initial burst.
     const shinyBurstDmg = unit.isShiny ? Math.round(castDmg * 1.3) : castDmg
+    // Shiny scales the burst ×1.3 — attribute the marginal 0.3/1.3 of each burst
+    // hit to the shiny rollup (the DoT ticks below are unchanged by shiny).
+    const shinyBurstFrac = unit.isShiny
+      ? { trait: 'shiny:' + unit.definitionId, frac: 0.3 / 1.3 } as const
+      : undefined
     for (const target of targets) {
       applyDamage(unit, target, {
         baseAmount:        shinyBurstDmg,
@@ -72,6 +77,7 @@ export const AbomasnowAbility: AbilityHandler = {
         canCrit:           false,
         abilityScalingStat: 'special',
         abilityId:         'abomasnow_blizzard',
+        traitFrac:         shinyBurstFrac,
       }, state)
     }
 

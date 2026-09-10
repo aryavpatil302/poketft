@@ -66,13 +66,16 @@ export const VikavoltAbility: AbilityHandler = {
 
       // Shiny: +33% bonus damage to the highest-current-HP unit in the row
       const shinyBonus = other.id === shinyBonusTargetId ? Math.round(damage * 0.33) : 0
+      const totalBase  = damage + shieldBonus + shinyBonus
 
       applyDamage(unit, other, {
-        baseAmount:        damage + shieldBonus + shinyBonus,
+        baseAmount:        totalBase,
         damageType:        'magic',
         canCrit:           false,
         abilityScalingStat: 'special',
         abilityId:         'vikavolt_discharge',
+        // Attribute the shiny bonus slice of this hit to the shiny rollup.
+        traitFrac:         shinyBonus > 0 ? { trait: 'shiny:' + unit.definitionId, frac: shinyBonus / totalBase } : undefined,
       }, state)
 
       if (other.currentHp <= 0) continue

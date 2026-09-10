@@ -9,13 +9,16 @@ registerShinyEffect('palossand', {
   id: 'shiny_palossand',
   description: 'Starts combat with a 200-Health shield and +10 Defense and Sp. Defense.',
   onCombatStart(self: Unit, state: CombatState): void {
+    // traitSource: this shield is the shiny effect — credit its value (and any
+    // damage it absorbs) to the shiny rollup. The armor/spDef buffs below have no
+    // discrete contribution call and aren't instrumented.
     addShield(self, {
       id: crypto.randomUUID(),
       sourceAbility: 'shiny_palossand',
       value: 200,
       maxValue: 200,
       durationTicks: -1,
-    }, state)
+    }, state, 'shiny:' + self.definitionId)
     addStatusEffect(self, {
       id: 'armorBuff',
       sourceUnitId: self.id,

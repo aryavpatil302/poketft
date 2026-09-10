@@ -14,14 +14,24 @@ declare module '../types' {
 
 const AURA_INTERVAL = TICK_RATE  // 60 ticks = 1 second
 
-function applyAuraDamage(spiritomb: Unit, state: CombatState, dmg: number, heal: number): void {
+// shinyFrac / shinyHealTag: when the caster is shiny, dmg & heal here have been
+// scaled ×1.5 — attribute the marginal 0.5/1.5 of each damage hit and the full
+// scaled heal to the shiny rollup (applyHeal has no fractional-credit param).
+function applyAuraDamage(
+  spiritomb: Unit,
+  state: CombatState,
+  dmg: number,
+  heal: number,
+  shinyFrac?: { trait: string; frac: number },
+  shinyHealTag?: string,
+): void {
   for (const hex of hexesInRange(spiritomb.hexPos, 1)) {
     const uid = state.hexOccupancy.get(hexId(hex))
     if (!uid) continue
     const target = state.units.get(uid)
     if (!target || target.team === spiritomb.team || target.state === 'dead') continue
-    applyDamage(spiritomb, target, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'spiritomb_destiny_bond' }, state)
-    applyHeal(spiritomb, heal, spiritomb.id, state)
+    applyDamage(spiritomb, target, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'spiritomb_destiny_bond', traitFrac: shinyFrac }, state)
+    applyHeal(spiritomb, heal, spiritomb.id, state, shinyHealTag)
   }
 }
 
@@ -43,6 +53,8 @@ export const SpiritombAbility: AbilityHandler = {
       heal = Math.round(heal * 1.5)
     }
     const spiritombId = unit.id
+    const shinyTag  = unit.isShiny ? 'shiny:' + unit.definitionId : undefined
+    const shinyFrac = shinyTag ? { trait: shinyTag, frac: 1 / 3 } as const : undefined
 
     // ── Passive aura (permanent, set up once per cast to refresh closure over tier) ──
     addStatusEffect(unit, {
@@ -51,7 +63,7 @@ export const SpiritombAbility: AbilityHandler = {
       durationTicks: -1,
       tickInterval:  AURA_INTERVAL,
       stackId:      'spiritomb_destiny_aura',
-      tickEffect:   (u, st) => applyAuraDamage(u, st, dmg, heal),
+      tickEffect:   (u, st) => applyAuraDamage(u, st, dmg, heal, shinyFrac, shinyTag),
     })
 
     // ── Mark nearest enemy outside 1-hex radius that hasn't been marked before ──
@@ -79,8 +91,8 @@ export const SpiritombAbility: AbilityHandler = {
         tickEffect:   (u, st) => {
           const spiritomb = st.units.get(spiritombId)
           if (!spiritomb || spiritomb.state === 'dead') return
-          applyDamage(spiritomb, u, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'spiritomb_destiny_bond' }, st)
-          applyHeal(spiritomb, heal, spiritomb.id, st)
+          applyDamage(spiritomb, u, { baseAmount: dmg, damageType: 'magic', canCrit: false, abilityScalingStat: 'special', abilityId: 'spiritomb_destiny_bond', traitFrac: shinyFrac }, st)
+          applyHeal(spiritomb, heal, spiritomb.id, st, shinyTag)
         },
       })
 

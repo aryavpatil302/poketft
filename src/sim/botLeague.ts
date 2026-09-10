@@ -73,6 +73,28 @@ interface FightUnitStat extends Break, Tallies { defId: string; tier: number; te
 interface UTierAcc extends Break, Tallies { fights: number; wins: number; dealt: number; taken: number; casts: number; kills: number; deaths: number; healSelf: number; healAlly: number; shieldSelf: number; shieldAlly: number }
 const unitTierAgg = new Map<string, UTierAcc>()
 
+// Shiny-effect impact (Tier 2): per-species rollup of the combat bonus a shiny's
+// ability/effect actually contributed, from the "shiny:<defId>" keys credited
+// into the per-unit trait tallies. `fights` counts unit-fights where the shiny
+// contributed anything.
+interface ShinyImpactAcc { dmg: number; heal: number; shield: number; mit: number; fights: number }
+const shinyImpactAgg = new Map<string, ShinyImpactAcc>()
+function accShinyImpact(us: FightUnitStat): void {
+  const touched = new Set<string>()
+  const scan = (tally: TraitTally, field: 'dmg' | 'heal' | 'shield' | 'mit'): void => {
+    for (const k in tally) {
+      if (!k.startsWith('shiny:') || tally[k] <= 0) continue
+      const sp = k.slice(6)
+      let a = shinyImpactAgg.get(sp)
+      if (!a) { a = { dmg: 0, heal: 0, shield: 0, mit: 0, fights: 0 }; shinyImpactAgg.set(sp, a) }
+      a[field] += tally[k]
+      touched.add(sp)
+    }
+  }
+  scan(us.traitDmg, 'dmg'); scan(us.traitHeal, 'heal'); scan(us.traitShield, 'shield'); scan(us.traitMitigated, 'mit')
+  for (const sp of touched) shinyImpactAgg.get(sp)!.fights++
+}
+
 // Composition-discovery observability (see src/econ/compositionSignature.ts,
 // src/econ/learnedCompositionAffinities.ts): win/fight counts per trait-pair
 // co-occurrence, per unit-in-board-context, per trait-depth, and per board
@@ -158,7 +180,7 @@ for (let g = 0; g < GAMES; g++) {
     // Real combat with per-unit stat capture (+ the full timeline, recorded for
     // possible retention below), plus head-to-head + per-unit aggregate.
     const { result, unitStats } = tracedFight(a, b, meta.round, g)
-    for (const us of unitStats) accUnit(us, us.team === result.winner)
+    for (const us of unitStats) { accUnit(us, us.team === result.winner); accShinyImpact(us) }
     if (result.winner !== 'draw') {
       const wId = result.winner === 'a' ? a.personaId! : b.personaId!
       const lId = result.winner === 'a' ? b.personaId! : a.personaId!
@@ -538,12 +560,16 @@ function buildReport(): LeagueReport {
   const shinyPresence = compRows(shinyPresenceAgg)
   const shinySpecies = compRows(shinySpeciesAgg)
 
+  const shinyImpact = [...shinyImpactAgg.entries()]
+    .map(([defId, a]) => ({ defId, dmg: a.dmg, heal: a.heal, shield: a.shield, mitigated: a.mit, fights: a.fights }))
+    .sort((x, y) => (y.dmg + y.heal + y.shield + y.mitigated) - (x.dmg + x.heal + x.shield + x.mitigated))
+
   return {
     meta: { games: GAMES, rounds: ROUNDS, seed: SEED, generatedAt: new Date().toISOString() },
     personaOrder: PIDS, personaNames: Object.fromEntries(PNAMES),
     standings, survival, h2h, units, traceRounds, traceFights,
     traitPairs, unitContexts, traitDepths: traitDepthRows, breadths: breadthRows,
-    shinyPresence, shinySpecies,
+    shinyPresence, shinySpecies, shinyImpact,
   }
 }
 

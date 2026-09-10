@@ -32,6 +32,7 @@ function launchEggBounce(
   damageMult: number,
   state: CombatState,
   onHit?: (source: Unit | undefined, target: Unit, state: CombatState) => void,
+  traitSource?: string,
 ): void {
   const bdx = toTarget.visualPos.x - fromUnit.visualPos.x
   const bdy = toTarget.visualPos.y - fromUnit.visualPos.y
@@ -43,7 +44,7 @@ function launchEggBounce(
     speed: 6,
     arcHeight: 80,
     launchDist: bounceDist,
-    damagePayload: { baseAmount: Math.round(baseAmount * damageMult), damageType: 'magic', canCrit: false, abilityScalingStat: 'special' },
+    damagePayload: { baseAmount: Math.round(baseAmount * damageMult), damageType: 'magic', canCrit: false, abilityScalingStat: 'special', traitSource },
     abilityId: 'a_exeggutor_egg_bounce',
     onHit,
   })
@@ -109,7 +110,9 @@ export const AExeggutorAbility: AbilityHandler = {
               if (!src2) return
               const secondBounceTgt = selectBounceTarget(src2, tgt2, st2)
               if (!secondBounceTgt) return
-              launchEggBounce(src2, tgt2, secondBounceTgt, baseAmount, 0.25, st2)
+              // This extra bounce only fires for a shiny caster — credit its
+              // damage to the shiny rollup.
+              launchEggBounce(src2, tgt2, secondBounceTgt, baseAmount, 0.25, st2, undefined, 'shiny:' + src2.definitionId)
             }
           : undefined
 
