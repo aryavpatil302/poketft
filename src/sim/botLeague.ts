@@ -17,7 +17,7 @@
 
 import { writeFileSync } from 'node:fs'
 import { PERSONAS } from '../econ/bots'
-import type { RunState, PlayerEcon } from '../econ/runState'
+import type { RunState, PlayerEcon, BoardEntry } from '../econ/runState'
 import { simulateBotGame, rankBots, seededRng, type FightResolver } from './botGame'
 import { boardToSpecs } from '../econ/botMatches'
 import { makeUnit } from '../core/unitFactory'
@@ -85,6 +85,12 @@ const traitPairAgg = new Map<string, CompAcc>()
 const unitContextAgg = new Map<string, CompAcc>()
 const traitDepthAgg = new Map<string, CompAcc>()
 const breadthAgg = new Map<string, CompAcc>()
+// Shiny-Pokémon observability (Tier 1): per-stage win rate for "board fielded ANY
+// shiny" vs not, and per-shiny-species win rate. Buff-magnitude tracking is a
+// separate later effort — not here. Keys are "stage|shiny"/"stage|none" and
+// "stage|definitionId", built inline (no helper in compositionSignature.ts).
+const shinyPresenceAgg = new Map<string, CompAcc>()
+const shinySpeciesAgg = new Map<string, CompAcc>()
 function accComp(agg: Map<string, CompAcc>, key: string, won: boolean): void {
   let a = agg.get(key)
   if (!a) { a = { fights: 0, wins: 0 }; agg.set(key, a) }
@@ -102,6 +108,15 @@ function recordCompositionOutcomes(board: Array<{ definitionId: string }>, round
   if (signature) for (const u of board) accComp(unitContextAgg, unitContextKey(stage, u.definitionId, signature), won)
   for (const { trait, depth } of traitDepths(board)) accComp(traitDepthAgg, traitDepthKey(stage, trait, depth), won)
   accComp(breadthAgg, breadthKey(stage, traits.length), won)
+}
+// Tier-1 shiny observability: did fielding a shiny correlate with winning this
+// stage, and which specific shiny species performed. Only the first fielded
+// shiny is credited (boards realistically field at most one).
+function recordShinyOutcomes(board: BoardEntry[], round: number, won: boolean): void {
+  const stage = stageOf(round)
+  const shinyUnit = board.find(u => u.isShiny)
+  accComp(shinyPresenceAgg, `${stage}|${shinyUnit ? 'shiny' : 'none'}`, won)
+  if (shinyUnit) accComp(shinySpeciesAgg, `${stage}|${shinyUnit.definitionId}`, won)
 }
 const mergeTally = (into: TraitTally, from: TraitTally): void => { for (const k in from) into[k] = (into[k] ?? 0) + from[k] }
 // Round a live trait tally (drop sub-1 noise) for embedding.
@@ -150,6 +165,8 @@ for (let g = 0; g < GAMES; g++) {
       h2hWins.set(`${wId}>${lId}`, (h2hWins.get(`${wId}>${lId}`) ?? 0) + 1)
       recordCompositionOutcomes(a.board, meta.round, result.winner === 'a')
       recordCompositionOutcomes(b.board, meta.round, result.winner === 'b')
+      recordShinyOutcomes(a.board, meta.round, result.winner === 'a')
+      recordShinyOutcomes(b.board, meta.round, result.winner === 'b')
     }
     const key = pairKey(a.personaId!, b.personaId!)
     h2hTotal.set(key, (h2hTotal.get(key) ?? 0) + 1)
@@ -209,6 +226,8 @@ if (hasFlag('ai-summary')) {
   const ctxLabel = (key: string) => { const [stage, defId, sig] = key.split('|'); return `stage ${stage}: ${unitName(defId)} onto ${sig.split('+').map(traitName).join(' + ')}` }
   const depthLabel = (key: string) => { const [stage, trait, depth] = key.split('|'); return `stage ${stage}: ${traitName(trait)} pushed to breakpoint ${depth}` }
   const breadthLabel = (key: string) => { const [stage, count] = key.split('|'); return `stage ${stage}: ${count} distinct active traits` }
+  const shinyPresenceLabel = (key: string) => { const [stage, label] = key.split('|'); return `stage ${stage}: ${label === 'shiny' ? 'fielded a shiny' : 'no shiny fielded'}` }
+  const shinySpeciesLabel = (key: string) => { const [stage, defId] = key.split('|'); return `stage ${stage}: shiny ${unitName(defId)}` }
 
   const sections: SummarySection[] = [
     {
@@ -235,6 +254,16 @@ if (hasFlag('ai-summary')) {
       title: 'Wide vs. narrow board breadth (this run)',
       preferred: top(report.breadths, breadthLabel),
       avoided: bottom(report.breadths, breadthLabel),
+    },
+    {
+      title: 'Fielding any shiny Pokémon (this run)',
+      preferred: top(report.shinyPresence, shinyPresenceLabel),
+      avoided: bottom(report.shinyPresence, shinyPresenceLabel),
+    },
+    {
+      title: 'Which shiny species performed (this run)',
+      preferred: top(report.shinySpecies, shinySpeciesLabel),
+      avoided: bottom(report.shinySpecies, shinySpeciesLabel),
     },
   ]
   const prompt = buildSummaryPrompt(
@@ -506,12 +535,15 @@ function buildReport(): LeagueReport {
   const unitContexts = compRows(unitContextAgg)
   const traitDepthRows = compRows(traitDepthAgg)
   const breadthRows = compRows(breadthAgg)
+  const shinyPresence = compRows(shinyPresenceAgg)
+  const shinySpecies = compRows(shinySpeciesAgg)
 
   return {
     meta: { games: GAMES, rounds: ROUNDS, seed: SEED, generatedAt: new Date().toISOString() },
     personaOrder: PIDS, personaNames: Object.fromEntries(PNAMES),
     standings, survival, h2h, units, traceRounds, traceFights,
     traitPairs, unitContexts, traitDepths: traitDepthRows, breadths: breadthRows,
+    shinyPresence, shinySpecies,
   }
 }
 
