@@ -35,6 +35,12 @@
       .tier-pulse-silver { --tier-anim: tierPulseSilver 1.1s ease-in-out infinite; }
       .tier-pulse-gold { --tier-anim: tierPulseGold 1.1s ease-in-out infinite; }
       .shop-card:hover { --hop-anim: shopCardHop 1s ease-in-out infinite; }
+      /* Shiny-odds sparkle in the econ bar — hover reveals a per-cost odds
+         callout (shown/positioned by JS in renderEconBar, position:fixed so it
+         is not clipped by #canvas-wrap's overflow when it opens upward). */
+      @keyframes shinyOddsTwinkle { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+      .shiny-odds-trigger { animation: shinyOddsTwinkle 2.4s ease-in-out infinite; }
+      .shiny-odds-trigger:hover { opacity: 1; animation: none; }
       /* Whole-card background tint, synced with the border glow above */
       @keyframes tierBgPulse { 0%, 100% { opacity: 0; } 50% { opacity: 0.55; } }
       .tier-bg-pulse-silver, .tier-bg-pulse-gold { animation: tierBgPulse 1.1s ease-in-out infinite; }

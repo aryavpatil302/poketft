@@ -25,7 +25,7 @@ import { loadRun, saveRun as persistRunToStorage, clearRun, newRun, type RunStat
 // travels through dispatchAction -> applyAction, the same function the room
 // server calls. rollShop survives only because initFreshRun seeds a brand-new
 // solo run's shops before any action can be dispatched against it.
-import { rollShop, pickChosenTrait } from './econ/shop'
+import { rollShop, pickChosenTrait, hasShinyOwned } from './econ/shop'
 import { tierComposition, detectTierChanges, type TierChange, type TierChangeKind } from './econ/tierChanges'
 import { xpToNext, boardCap } from './econ/xp'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
@@ -35,7 +35,7 @@ import { displayedOpponentSeat, displayedRound } from './econ/opponentView'
 import {
   REROLL_COST, XP_BUY_COST, sellValue, stageLabel, SHOP_ODDS,
   BASE_INCOME_BY_ROUND, BASE_INCOME_CAP, MAX_INTEREST, streakBonus, WIN_BONUS, XP_PER_ROUND,
-  shinyPrice,
+  shinyPrice, SHINY_COST_ODDS, SHINY_ROLL_CHANCE, SHINY_PITY_ROLLS,
 } from './econ/constants'
 import {
   startPlanning, resolveRound, pairSeats, applyAction,
@@ -3975,6 +3975,23 @@ function removeHoveredItem(): void {
 // (bar.innerHTML is rebuilt wholesale) and so can't remember its own history.
 let lastRenderedGold: number | null = null
 
+// One persistent shiny-odds callout, parked on <body> so position:fixed
+// resolves against the viewport (the econ bar's ancestors clip overflow and
+// establish containing blocks that would break it). renderEconBar re-points
+// the sparkle icon's hover at this same element each render.
+let shinyOddsCallout: HTMLDivElement | null = null
+function getShinyOddsCallout(): HTMLDivElement {
+  if (!shinyOddsCallout) {
+    const el = document.createElement('div')
+    el.style.cssText = `position:fixed;display:none;width:190px;background:#12161f;
+      border:1px solid #f4c542;border-radius:6px;padding:9px 11px;z-index:9999;
+      box-shadow:0 6px 20px rgba(0,0,0,0.55);text-align:left;pointer-events:none;`
+    document.body.appendChild(el)
+    shinyOddsCallout = el
+  }
+  return shinyOddsCallout
+}
+
 function renderEconBar(): void {
   const bar = document.getElementById('econ-bar')
   if (!bar) return
@@ -3997,6 +4014,36 @@ function renderEconBar(): void {
         opacity:${p > 0 ? 1 : 0.35};"></span>${p}%
     </span>`).join('')
 
+  // Shiny-odds sparkle (upper-right of the econ bar): hover reveals the per-cost
+  // odds for a shiny at this level. The SHINY_COST_ODDS table stops at level 9
+  // (matches rollShop's own clamp).
+  const shinyOdds = SHINY_COST_ODDS[Math.max(1, Math.min(9, h.level))]
+  const ownsShiny = hasShinyOwned(h)
+  const shinyCadenceLine = ownsShiny
+    ? `A new Shiny is guaranteed every ${SHINY_PITY_ROLLS} shops while you own one`
+    : `${Math.round(SHINY_ROLL_CHANCE * 100)}% chance of a Shiny offer per shop`
+  const shinyOddsRows = shinyOdds.map((p, i) => `
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:${p > 0 ? '#dbe2ec' : '#556'};margin-top:3px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:${COST_BORDER[i + 1]};display:inline-block;
+        opacity:${p > 0 ? 1 : 0.3};"></span>
+      <span style="flex:1;">${i + 1}-cost</span>
+      <span style="font-variant-numeric:tabular-nums;font-weight:${p > 0 ? 'bold' : 'normal'};">${p}%</span>
+    </div>`).join('')
+  // Just the icon here — the callout is a single persistent element parked on
+  // <body> (see shinyOddsCallout), JS-positioned above the icon on hover. It
+  // can't live inside the econ bar: #canvas-wrap clips overflow, and the icon's
+  // own drop-shadow filter + #econ-wrap's transform both make a containing
+  // block that breaks position:fixed math.
+  const shinyOddsCalloutHtml = `
+    <div style="font-size:11px;font-weight:bold;color:#f4c542;letter-spacing:0.03em;">
+      SHINY ODDS · LVL ${h.level}</div>
+    <div style="font-size:10px;color:#9aa6b4;margin-top:2px;">${shinyCadenceLine}</div>
+    <div style="font-size:9px;color:#6f7b89;margin-top:5px;">If a Shiny appears, its cost is:</div>
+    ${shinyOddsRows}`
+  const shinyOddsHtml = `
+    <span class="shiny-odds-trigger" style="font-size:14px;line-height:1;cursor:help;color:#f4c542;
+      text-shadow:0 0 4px rgba(244,197,66,0.7);" tabindex="0">✦</span>`
+
   bar.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:6px;">
       <!-- Top strip: level + xp progress | odds | gold | streak | board cap -->
@@ -4018,6 +4065,7 @@ function renderEconBar(): void {
           ${streakIcon ? `<span style="font-size:12px;color:#ff9955;">${streakIcon} ${Math.abs(h.streak)}</span>` : ''}
           <span style="font-size:11px;color:#cc6666;">♥ ${h.hp}</span>
           <span style="font-size:10px;color:${capped ? '#ff6666' : '#667'};">Board ${boardCount}/${boardCap(h)}</span>
+          ${shinyOddsHtml}
         </div>
       </div>
       <!-- Bottom row: Buy XP / Reroll stacked on the left, then the 5 cards, then lock -->
@@ -4050,6 +4098,29 @@ function renderEconBar(): void {
     if (econPhase === 'gameOver') return
     dispatchAction({ t: 'lock', locked: !humanEcon().shopLocked })
   })
+  // Shiny-odds callout: the shared <body> element, shown and placed just ABOVE
+  // the sparkle on hover (right edges aligned, viewport-clamped). Re-wired every
+  // render — the icon is a brand-new DOM node each time renderEconBar runs.
+  const shinyTrigger = bar.querySelector<HTMLElement>('.shiny-odds-trigger')
+  if (shinyOddsCallout) shinyOddsCallout.style.display = 'none'   // never leave it stuck across a re-render
+  if (shinyTrigger) {
+    const callout = getShinyOddsCallout()
+    const show = (): void => {
+      callout.innerHTML = shinyOddsCalloutHtml
+      callout.style.display = 'block'
+      const t = shinyTrigger.getBoundingClientRect()
+      const c = callout.getBoundingClientRect()
+      const left = Math.max(6, Math.min(t.right - c.width, window.innerWidth - c.width - 6))
+      callout.style.left = `${left}px`
+      callout.style.top = `${Math.max(6, t.top - c.height - 8)}px`
+    }
+    const hide = (): void => { callout.style.display = 'none' }
+    shinyTrigger.addEventListener('mouseenter', show)
+    shinyTrigger.addEventListener('focus', show)
+    shinyTrigger.addEventListener('mouseleave', hide)
+    shinyTrigger.addEventListener('blur', hide)
+  }
+
   bar.querySelectorAll<HTMLElement>('.shop-card').forEach(card => {
     card.addEventListener('click', () => {
       if (econPhase === 'gameOver') return
