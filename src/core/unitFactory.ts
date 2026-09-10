@@ -379,3 +379,89 @@ export function makeUnit(
 
   return unit
 }
+
+// Runtime-only combat entities (the Ruiner stone, and any future spawn like it)
+// exist in `state.units` but have no UnitDefinition in UNIT_MAP — they are
+// hand-built where they spawn (see traitEffects.ts's ruiner stone). Economy
+// replay records every unit in the frame and rebuilds it on playback; without
+// this, applyFrame's makeUnit call throws "Unknown unit definition" the moment
+// such an entity appears, which aborts the whole render frame (blank board).
+// This returns a bare Unit shell with zeroed combat stats — playback overwrites
+// every field the renderer reads (hp, pos, state, statusEffects, …) from the
+// recorded frame, so only the shape and the identity fields matter here.
+export function makeSyntheticUnit(
+  definitionId: string,
+  team: Team,
+  tier: 1 | 2 | 3 = 1,
+): Unit {
+  const unit: Unit = {
+    id: `${definitionId}_${team}_${Math.random().toString(36).slice(2, 7)}`,
+    definitionId,
+    name: definitionId,
+    team,
+    tier,
+
+    hexPos:       { col: 0, row: 0 },
+    visualPos:    { x: 0, y: 0 },
+    moveProgress: 0,
+    path:         [],
+
+    maxHp:        1,
+    currentHp:    1,
+    maxMana:      0,
+    currentMana:  0,
+
+    attack:     0,
+    special:    0,
+    defense:    0,
+    spDefense:  0,
+    attackSpeed: 0,
+    critChance:  0,
+    critDamage:  1,
+    range:       0,
+    moveSpeed:   0,
+
+    role:     undefined,
+    isDummy:  true,
+
+    state:    'idle',
+    targetId: null,
+
+    attackTimer:       0,
+    attackWindupTimer: 0,
+    isInWindup:        false,
+    pendingCrit:       false,
+
+    manaLockTimer:    0,
+    abilityCastTimer: 0,
+
+    items:  [],
+    types: [definitionId],
+
+    statusEffects: [],
+    shields:       [],
+
+    attackModifiers: [],
+    passiveAttackHandlers: [],
+    passiveCastHandlers: [],
+    placedAt: 0,
+    attackCount: 0,
+    damageTakenThisCombat: 0,
+    damageDealtThisCombat: 0,
+    dmgDealt: { physical: 0, magic: 0, true: 0 },
+    dmgTaken: { physical: 0, magic: 0, true: 0 },
+    traitDmg: {},
+    traitHeal: {},
+    traitShield: {},
+    traitMitigated: {},
+    traitCount: {},
+    silenced: false,
+    whirlpooled: false,
+    marks: [],
+    incomingDamageMult: 1.0,
+
+    _computedStats: null,
+  }
+
+  return unit
+}

@@ -5,7 +5,8 @@
 // instead of from a local recordFight call (see src/game/round.ts).
 
 import type { CombatState, Projectile } from '../core/types'
-import { makeUnit } from '../core/unitFactory'
+import { makeUnit, makeSyntheticUnit } from '../core/unitFactory'
+import { UNIT_MAP } from '../data/units'
 import { hexId } from '../core/hexGrid'
 import type { FightFrame, FightLog } from './round'
 
@@ -63,7 +64,12 @@ export function applyFrame(state: CombatState, frame: FightFrame): void {
   for (const uf of frame.units) {
     let unit = state.units.get(uf.id)
     if (!unit) {
-      unit = makeUnit(uf.definitionId, uf.team, uf.tier)
+      // Runtime-only entities (the Ruiner stone) have no UnitDefinition —
+      // makeUnit would throw and abort the whole render frame. See
+      // makeSyntheticUnit's header.
+      unit = UNIT_MAP.has(uf.definitionId)
+        ? makeUnit(uf.definitionId, uf.team, uf.tier)
+        : makeSyntheticUnit(uf.definitionId, uf.team, uf.tier)
       unit.id = uf.id   // force the id so later frames and every event's
       // sourceId/targetId resolve back to this same object.
       state.units.set(uf.id, unit)

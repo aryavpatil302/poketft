@@ -128,6 +128,38 @@ describe('applyFrame — reconciliation', () => {
     expect(state.hexOccupancy.size).toBe(1)
   })
 
+  it('reconstructs a runtime-only entity (ruiner_stone) with no UnitDefinition without throwing', () => {
+    // The Ruiner trait spawns a `ruiner_stone` unit mid-combat that has no
+    // entry in UNIT_MAP. captureFrame records it like any other unit; applyFrame
+    // must not call makeUnit on it (that throws "Unknown unit definition", which
+    // aborts the whole render frame → blank board for the stone's lifetime).
+    const frame: FightFrame = {
+      tick: 5,
+      units: [
+        makeUnitFrame({ id: 'xatu1', definitionId: 'xatu' }),
+        makeUnitFrame({
+          id: 'ruiner_stone_player', definitionId: 'ruiner_stone',
+          currentHp: 999999, maxHp: 999999, hexPos: { col: 3, row: 6 }, state: 'idle',
+        }),
+      ],
+      projectiles: [], events: [], terrain: EMPTY_TERRAIN, tailwind: EMPTY_TAILWIND,
+    }
+    const log: FightLog = {
+      seatA: 0, seatB: 1, stage: 1, winner: 'player', ticksElapsed: 5,
+      survivorStarsA: 1, survivorStarsB: 0, quakesA: 0, quakesB: 0, shinyGoldA: 0, shinyGoldB: 0,
+      frames: [frame],
+    }
+    const state = createPlaybackState(log)
+    expect(() => applyFrame(state, frame)).not.toThrow()
+
+    const stone = state.units.get('ruiner_stone_player')!
+    expect(stone).toBeDefined()
+    expect(stone.definitionId).toBe('ruiner_stone')
+    expect(stone.currentHp).toBe(999999)
+    expect(stone.hexPos).toEqual({ col: 3, row: 6 })
+    expect(state.units.get('xatu1')).toBeDefined()
+  })
+
   it('mid-fight arrival: a unit absent from frame 0 exists only after the frame that introduces it', () => {
     // Hand-built: no natural summon fixture is guaranteed available, so this
     // uses a synthetic two-frame FightLog per the plan's fallback.
