@@ -25,6 +25,13 @@ export interface BoardEntry {
   chosenTrait?: string   // TFT "Chosen" trait, picked once at shiny-roll time; zero-migration like isShiny above
 }
 
+// At most one Shiny may be fielded at a time. `excludeIdx` skips a slot that is
+// about to be vacated (the swap case), so it answers "is there ANOTHER fielded
+// shiny besides that one".
+export function hasFieldedShiny(board: BoardEntry[], excludeIdx?: number): boolean {
+  return board.some((u, i) => i !== excludeIdx && u.isShiny === true)
+}
+
 // One seat at the table — the human and every bot share this shape so the
 // shop/xp/income/combine modules operate identically on all of them.
 export interface PlayerEcon {

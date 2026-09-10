@@ -923,6 +923,56 @@ describe('applyAction', () => {
     })
   })
 
+  describe('at most one shiny fielded at a time', () => {
+    it('bench -> empty hex is rejected with shiny-fielded when a shiny is already on the board', () => {
+      const state = newRun(botSeats())
+      state.players[0].level = 3   // board-cap headroom
+      state.players[0].board = [{ definitionId: 'zubat', tier: 2, hexPos: { col: 0, row: 4 }, isShiny: true }]
+      state.players[0].bench[0] = { definitionId: 'tangela', tier: 2, isShiny: true }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: false, reason: 'shiny-fielded' })
+    })
+
+    it('a non-shiny bench unit is unaffected by an already-fielded shiny', () => {
+      const state = newRun(botSeats())
+      state.players[0].level = 3
+      state.players[0].board = [{ definitionId: 'zubat', tier: 2, hexPos: { col: 0, row: 4 }, isShiny: true }]
+      state.players[0].bench[0] = { definitionId: 'tangela', tier: 1 }
+      expect(applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })).toEqual({ ok: true })
+    })
+
+    it('the first shiny fields fine when none is on the board', () => {
+      const state = newRun(botSeats())
+      state.players[0].bench[0] = { definitionId: 'tangela', tier: 2, isShiny: true }
+      expect(applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })).toEqual({ ok: true })
+      expect(state.players[0].board[0]?.isShiny).toBe(true)
+    })
+
+    it('swapping a shiny onto the hex of the ONLY fielded shiny is allowed (it replaces it)', () => {
+      const state = newRun(botSeats())
+      state.players[0].board = [{ definitionId: 'zubat', tier: 2, hexPos: { col: 1, row: 4 }, isShiny: true }]
+      state.players[0].bench[0] = { definitionId: 'tangela', tier: 2, isShiny: true }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: true })
+      expect(state.players[0].board[0]).toEqual({
+        definitionId: 'tangela', tier: 2, hexPos: { col: 1, row: 4 }, isShiny: true,
+      })
+      expect(state.players[0].bench[0]).toEqual({ definitionId: 'zubat', tier: 2, isShiny: true })
+    })
+
+    it('swapping a shiny onto a hex while a DIFFERENT shiny is fielded elsewhere is rejected', () => {
+      const state = newRun(botSeats())
+      state.players[0].level = 3
+      state.players[0].board = [
+        { definitionId: 'zubat', tier: 2, hexPos: { col: 0, row: 4 }, isShiny: true },
+        { definitionId: 'oddish', tier: 1, hexPos: { col: 1, row: 4 } },
+      ]
+      state.players[0].bench[0] = { definitionId: 'tangela', tier: 2, isShiny: true }
+      const result = applyAction(state, 0, { t: 'moveBench', benchIndex: 0, to: { col: 1, row: 4 } })
+      expect(result).toEqual({ ok: false, reason: 'shiny-fielded' })
+    })
+  })
+
   describe('chosenTrait preservation through move handlers', () => {
     it('board -> bench relocation keeps a flagged unit\'s chosenTrait', () => {
       const state = newRun(botSeats())

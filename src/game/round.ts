@@ -4,7 +4,7 @@
 // room server (Phase 3) call into.
 
 import type { RunState, BoardEntry, PlayerEcon, BenchedUnit } from '../econ/runState'
-import { livingPlayers } from '../econ/runState'
+import { livingPlayers, hasFieldedShiny } from '../econ/runState'
 import type { Rng } from '../econ/shop'
 import { rollShop, buyUnit, reroll as shopReroll, sellFromBench, sellFromBoard, returnAllToPool } from '../econ/shop'
 import { buyXp, boardCap } from '../econ/xp'
@@ -67,7 +67,7 @@ export type GameAction =
 export type ActionReason =
   | 'bad-seat' | 'eliminated' | 'empty-slot' | 'no-gold' | 'bench-full'
   | 'pool-empty' | 'board-full' | 'occupied' | 'not-player-hex' | 'no-unit'
-  | 'no-item' | 'max-level' | 'not-implemented' | 'unsellable'
+  | 'no-item' | 'max-level' | 'not-implemented' | 'unsellable' | 'shiny-fielded'
 
 export type ActionResult = { ok: true } | { ok: false; reason: ActionReason }
 
@@ -218,7 +218,12 @@ export function applyAction(
       )
       if (destIdx !== -1) {
         // Swap: the board occupant becomes a benched unit, the bench unit
-        // takes the hex. The fielded count is unchanged, so no cap check.
+        // takes the hex. The fielded count is unchanged, so no board-cap check —
+        // but a shiny swapping in is still blocked if a DIFFERENT shiny is
+        // fielded (the one at destIdx is leaving, so it does not count).
+        if (benchUnit.isShiny && hasFieldedShiny(econ.board, destIdx)) {
+          return { ok: false, reason: 'shiny-fielded' }
+        }
         const destEntry = econ.board[destIdx]
         const displaced: BenchedUnit = { definitionId: destEntry.definitionId, tier: destEntry.tier }
         if (destEntry.item) displaced.item = destEntry.item
@@ -240,6 +245,10 @@ export function applyAction(
       // unless the moving unit is a pillar, which never counts toward the cap.
       if (!isPillar(benchUnit.definitionId) && fieldedCount(econ) >= boardCap(econ)) {
         return { ok: false, reason: 'board-full' }
+      }
+      // At most one Shiny fielded at a time.
+      if (benchUnit.isShiny && hasFieldedShiny(econ.board)) {
+        return { ok: false, reason: 'shiny-fielded' }
       }
       const placed: BoardEntry = {
         definitionId: benchUnit.definitionId, tier: benchUnit.tier,

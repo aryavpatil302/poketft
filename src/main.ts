@@ -2375,6 +2375,7 @@ const REJECT_TEXT: Record<ActionReason | RejectReason, string> = {
   'bench-full': 'Your bench is full.',
   'pool-empty': 'No copies of that unit are left in the pool.',
   'board-full': 'Board is full — level up to field more.',
+  'shiny-fielded': 'Only one Shiny can be fielded at a time.',
   'occupied': 'That hex is already taken.',
   'not-player-hex': 'You can only place units on your own half.',
   'no-unit': 'There is no unit there.',
