@@ -4979,7 +4979,7 @@ function econBoardHover(e: MouseEvent): void {
     // rect.top is OVERLAY_HEADROOM above the board (cEff is grown upward) — add it
     // back so the anchor lands on the unit's on-screen sprite top.
     const anchorY = rect.top + OVERLAY_HEADROOM + unit.visualPos.y * BOARD_PERSP_Y - (BOARD_SPRITE_HALF + BOARD_BARS_CLEARANCE) * BOARD_PERSP_Y
-    showBoardUnitCardAt(unit.definitionId, unit.tier as 1 | 2 | 3, anchorX, anchorY, `board:${key}`)
+    showBoardUnitCardAt(unit.definitionId, unit.tier as 1 | 2 | 3, anchorX, anchorY, `board:${key}`, unit)
     unitLayer.setHoveredUnit(unit.id)
     hoverUnitRef = { kind: 'board', hex }
   } else {
