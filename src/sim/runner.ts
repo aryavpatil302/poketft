@@ -13,6 +13,8 @@ export interface UnitSpec {
   col:  number
   row:  number
   item?: string         // equipped item id (one per unit); its passive fires in combat
+  isShiny?: boolean      // gates initShinyEffects' universal stat bonus + per-species effects
+  chosenTrait?: string   // TFT "Chosen" trait, feeds trait membership counting
 }
 
 export interface DamageBreakdown {
@@ -143,12 +145,16 @@ function runSimulationInner(
       const u = makeUnit(s.id, 'player', s.tier)
       u.hexPos = { col: s.col, row: s.row }
       if (s.item) u.items = [s.item]
+      if (s.isShiny) u.isShiny = true
+      if (s.chosenTrait) u.chosenTrait = s.chosenTrait
       return u
     })
     const enemyUnits = enemySpecs.map(s => {
       const u = makeUnit(s.id, 'enemy', s.tier)
       u.hexPos = { col: s.col, row: s.row }
       if (s.item) u.items = [s.item]
+      if (s.isShiny) u.isShiny = true
+      if (s.chosenTrait) u.chosenTrait = s.chosenTrait
       return u
     })
 
