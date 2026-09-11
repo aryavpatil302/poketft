@@ -43,6 +43,7 @@ function baseReport(): LeagueReport {
     shinyImpact: [
       { defId: 'tangela', dmg: 0, heal: 0, shield: 120, mitigated: 40, fights: 3 },
     ],
+    shinyStageStats: [],
   }
 }
 
