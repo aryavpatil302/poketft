@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { newRun } from './runState'
 import { botSeats, econBoardPower } from './bots'
-import { boardToSpecs, pickNextOpponent, resolveBotRound, resolveBotCreepRound, checkGameOver, humanTablePower } from './botMatches'
+import { boardToSpecs, pickNextOpponent, resolveBotRound, resolveBotCreepRound, checkGameOver, humanTablePower, resolveBotFight } from './botMatches'
+import type { PlayerEcon, BoardEntry } from './runState'
 import '../core/systems/ability'   // register abilities for the headless sim
 
 function seededRng(seed: number): () => number {
@@ -18,6 +19,54 @@ describe('botMatches', () => {
     run.players[1].board = [{ definitionId: 'tangela', tier: 1, hexPos: { col: 3, row: 4 } }]
     expect(boardToSpecs(run.players[1], false)[0].row).toBe(4)
     expect(boardToSpecs(run.players[1], true)[0].row).toBe(3)
+  })
+
+  it('boardToSpecs propagates isShiny/chosenTrait and omits both keys entirely for a plain unit', () => {
+    const run = newRun(botSeats())
+    run.players[1].board = [
+      { definitionId: 'tangela', tier: 1, hexPos: { col: 3, row: 4 }, isShiny: true, chosenTrait: 'grassy' },
+      { definitionId: 'zubat', tier: 1, hexPos: { col: 2, row: 4 } },
+    ]
+    const specs = boardToSpecs(run.players[1], false)
+    expect(specs[0].isShiny).toBe(true)
+    expect(specs[0].chosenTrait).toBe('grassy')
+    // Assert key ABSENCE via `in`, not toBeUndefined() — toBeUndefined() would
+    // also pass for an explicitly-set `isShiny: undefined` key and would not
+    // catch a non-conditional spread that always writes the key.
+    expect('isShiny' in specs[1]).toBe(false)
+    expect('chosenTrait' in specs[1]).toBe(false)
+  })
+
+  // This is a difference-under-identical-seed check, not a balance claim. The
+  // only way an isShiny flag on a board entry can reach the combat engine is
+  // through boardToSpecs -> UnitSpec -> makeUnit; if control and treatment
+  // diverge under an otherwise-identical seed, the flag reaching the Unit is
+  // the only possible source of that divergence.
+  it("flipping isShiny on one board entry changes resolveBotFight's contribA under an identical seed", () => {
+    const board = (shiny: boolean): BoardEntry[] => [
+      { definitionId: 'tangela', tier: 2, hexPos: { col: 2, row: 4 }, ...(shiny ? { isShiny: true } : {}) },
+      { definitionId: 'tangela', tier: 2, hexPos: { col: 3, row: 4 } },
+      { definitionId: 'tangela', tier: 2, hexPos: { col: 4, row: 4 } },
+    ]
+    const makeSide = (aShiny: boolean): [PlayerEcon, PlayerEcon] => {
+      const run = newRun(botSeats())
+      run.players[1].board = board(aShiny)
+      run.players[2].board = board(false)
+      return [run.players[1], run.players[2]]
+    }
+
+    // Fresh seededRng instance per run — the generator is stateful, so reusing
+    // one instance across runs would break the comparison.
+    const [aControl1, bControl1] = makeSide(false)
+    const control1 = resolveBotFight(aControl1, bControl1, seededRng(777))
+    const [aControl2, bControl2] = makeSide(false)
+    const control2 = resolveBotFight(aControl2, bControl2, seededRng(777))
+    // Self-validates the determinism premise the rest of this test rests on.
+    expect(control2.contribA).toEqual(control1.contribA)
+
+    const [aTreat, bTreat] = makeSide(true)
+    const treatment = resolveBotFight(aTreat, bTreat, seededRng(777))
+    expect(treatment.contribA).not.toEqual(control1.contribA)
   })
 
   it('pickNextOpponent avoids immediate rematches and skips the eliminated', () => {

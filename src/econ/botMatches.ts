@@ -30,6 +30,8 @@ export function boardToSpecs(econ: PlayerEcon, asEnemy: boolean): UnitSpec[] {
     col: u.hexPos.col,
     row: asEnemy ? 7 - u.hexPos.row : u.hexPos.row,
     item: u.item,
+    ...(u.isShiny ? { isShiny: true } : {}),
+    ...(u.chosenTrait ? { chosenTrait: u.chosenTrait } : {}),
   }))
 }
 

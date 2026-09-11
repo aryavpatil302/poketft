@@ -329,8 +329,8 @@ function runOneCombat(a: PlayerEcon, b: PlayerEcon, mode: 'stats' | 'full'): {
   const full = mode === 'full'
   const aSpecs = boardToSpecs(a, false)
   const bSpecs = boardToSpecs(b, true)
-  const pUnits = aSpecs.map(s => { const u = makeUnit(s.id, 'player', s.tier); u.hexPos = { col: s.col, row: s.row }; if (s.item) u.items = [s.item]; return u })
-  const eUnits = bSpecs.map(s => { const u = makeUnit(s.id, 'enemy', s.tier); u.hexPos = { col: s.col, row: s.row }; if (s.item) u.items = [s.item]; return u })
+  const pUnits = aSpecs.map(s => { const u = makeUnit(s.id, 'player', s.tier); u.hexPos = { col: s.col, row: s.row }; if (s.item) u.items = [s.item]; if (s.isShiny) u.isShiny = true; if (s.chosenTrait) u.chosenTrait = s.chosenTrait; return u })
+  const eUnits = bSpecs.map(s => { const u = makeUnit(s.id, 'enemy', s.tier); u.hexPos = { col: s.col, row: s.row }; if (s.item) u.items = [s.item]; if (s.isShiny) u.isShiny = true; if (s.chosenTrait) u.chosenTrait = s.chosenTrait; return u })
 
   const label = (u: ReturnType<typeof makeUnit>) => `${u.name}${u.tier > 1 ? '★'.repeat(u.tier) : ''}`
   const nameById = new Map<string, string>(), defById = new Map<string, string>(), teamOf = new Map<string, 'a' | 'b'>()
