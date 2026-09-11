@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { renderReportHtml, type LeagueReport, type UnitAggregate, type ShinyStageRow, type ShinyStageSide } from './leagueReport'
 
-// Render-smoke: a hand-built LeagueReport (the live botLeague.ts CLI can't run —
-// bots.ts has a pre-existing broken import) with "shiny:" trait keys must render
-// the "✦ <Species>" label in the per-unit trait-contributions table and the
-// dedicated "Shiny effect impact" rollup section.
+// Render-smoke: hand-built LeagueReport fixtures (renderReportHtml is a pure
+// function of its LeagueReport input, so these exercise it directly without
+// running the botLeague.ts CLI). Covers: "shiny:" trait keys rendering as the
+// "✦ <Species>" label in the per-unit trait-contributions table and the
+// "Shiny effect impact" rollup section; and the species-filtered
+// "Shiny vs non-shiny performance by stage" section built from
+// shinyStageStats (chips, per-stage shiny/ordinary rows, and the
+// no-comparison marker when a stage has no non-shiny side).
 
 function baseUnit(): UnitAggregate {
   return {
