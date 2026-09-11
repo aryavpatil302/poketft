@@ -685,7 +685,7 @@ export function chooseFielded(econ: PlayerEcon, persona: BotPersona, stage: numb
 // Position on player-half rows 4-7 (row 4 = front). Tanks wall the front,
 // melee carries second row, ranged in the back — mirrors the enemy
 // generator's layout logic.
-function positionFielded(picked: Fieldable[]): Array<{ definitionId: string; tier: 1 | 2 | 3; hexPos: { col: number; row: number } }> {
+function positionFielded(picked: Fieldable[]): Array<{ definitionId: string; tier: 1 | 2 | 3; hexPos: { col: number; row: number }; isShiny?: boolean; chosenTrait?: string }> {
   const tanks:  Fieldable[] = []
   const melee:  Fieldable[] = []
   const ranged: Fieldable[] = []
@@ -699,7 +699,7 @@ function positionFielded(picked: Fieldable[]): Array<{ definitionId: string; tie
   }
 
   const used = new Set<string>()
-  const out: Array<{ definitionId: string; tier: 1 | 2 | 3; hexPos: { col: number; row: number } }> = []
+  const out: Array<{ definitionId: string; tier: 1 | 2 | 3; hexPos: { col: number; row: number }; isShiny?: boolean; chosenTrait?: string }> = []
   const centerOut = [3, 2, 4, 1, 5, 0, 6]
 
   // Rogue: a unit with no adjacent ally at combat start gets a 500 HP shield
@@ -723,7 +723,11 @@ function positionFielded(picked: Fieldable[]): Array<{ definitionId: string; tie
     if (bestHex) {
       used.add(hexId(bestHex))
       for (const h of getNeighbors(bestHex)) used.add(hexId(h))
-      out.push({ definitionId: p.definitionId, tier: p.tier, hexPos: bestHex })
+      out.push({
+        definitionId: p.definitionId, tier: p.tier, hexPos: bestHex,
+        ...(p.isShiny && { isShiny: p.isShiny }),
+        ...(p.chosenTrait && { chosenTrait: p.chosenTrait }),
+      })
     } else {
       melee.push(p)
     }
@@ -737,7 +741,11 @@ function positionFielded(picked: Fieldable[]): Array<{ definitionId: string; tie
           const k = `${col},${row}`
           if (used.has(k)) continue
           used.add(k)
-          out.push({ definitionId: p.definitionId, tier: p.tier, hexPos: { col, row } })
+          out.push({
+            definitionId: p.definitionId, tier: p.tier, hexPos: { col, row },
+            ...(p.isShiny && { isShiny: p.isShiny }),
+            ...(p.chosenTrait && { chosenTrait: p.chosenTrait }),
+          })
           placed = true
           break
         }
@@ -1360,7 +1368,13 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
     const still = keptFromBoard.find(p => p.definitionId === u.definitionId && p.tier === u.tier)
     if (still) { keptFromBoard.splice(keptFromBoard.indexOf(still), 1); continue }
     const free = econ.bench.findIndex(b => b === null)
-    if (free !== -1) econ.bench[free] = { definitionId: u.definitionId, tier: u.tier }
+    if (free !== -1) {
+      econ.bench[free] = {
+        definitionId: u.definitionId, tier: u.tier,
+        ...(u.isShiny && { isShiny: u.isShiny }),
+        ...(u.chosenTrait && { chosenTrait: u.chosenTrait }),
+      }
+    }
     // no bench room → unit is lost (rare; acceptable for bots)
   }
 
