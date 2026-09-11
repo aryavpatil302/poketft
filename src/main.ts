@@ -816,6 +816,12 @@ const HEX_FILL_BRONZE   = '#a87c4f'   // beachy_3.png
 const HEX_FILL_SILVER   = '#bfcad3'   // beachy_5.png
 const HEX_FILL_GOLD     = '#f0c95c'   // volcanic_8.png / sky_striker_4.png
 
+// Chosen-trait gold accent — the amber TFT uses to mark "the trait that
+// would be counted twice" (see this session's shiny-gold accent elsewhere:
+// the shiny-effect card block, SHINY_EFFECT_GIF sparkle, the sidebar trait
+// badge below when a shiny's chosenTrait contributes to it, etc).
+const CHOSEN_TRAIT_GOLD = '#f4c542'
+
 // Glyph filenames in /visuals/trait icons/main icons/ that don't follow the
 // `${trait}_trait_icon.png` convention
 const GLYPH_OVERRIDES: Record<string, string> = {
@@ -878,7 +884,12 @@ function hexFillForLevel(level: number, maxLevel: number): string {
   return level === 1 ? HEX_FILL_BRONZE : HEX_FILL_SILVER
 }
 
-function traitBadgeHTML(trait: string, count: number): string {
+// `shinyChosen` marks that a fielded shiny unit's "chosen" trait contributes
+// to this trait's count — mirrors the gold chosen-trait text already used on
+// the unit hover card (cardTraitRowHTML) so the same bonus reads consistently
+// in the trait sidebar too. Only affects the active-state name color; an
+// inactive badge (trait not yet at its first threshold) never golds.
+function traitBadgeHTML(trait: string, count: number, shinyChosen: boolean = false): string {
   const thresholds = getThresholds(trait)
   const level      = thresholds.filter(t => count >= t).length
   const active     = level > 0
@@ -933,7 +944,7 @@ function traitBadgeHTML(trait: string, count: number): string {
                     display:flex;align-items:center;justify-content:center;
                     font-size:14px;font-weight:bold;color:#ffffff;padding:0 3px;">${count}</div>
         <div style="display:flex;flex-direction:column;line-height:1.25;min-width:0;">
-          <span style="font-size:12px;font-weight:bold;color:#ffffff;
+          <span style="font-size:12px;font-weight:bold;color:${shinyChosen ? CHOSEN_TRAIT_GOLD : '#ffffff'};
                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
           <span style="font-size:10px;font-weight:bold;">${bpHtml}</span>
         </div>
@@ -967,6 +978,8 @@ function traitBadgeHTML(trait: string, count: number): string {
 const TRAIT_PAGE_SIZE = 8
 const traitPages    = new Map<string, number>()                    // containerId → page
 const traitListData = new Map<string, Array<[string, number]>>()   // containerId → entries
+// containerId → traits whose count includes a shiny unit's chosenTrait bonus
+const traitShinyChosenData = new Map<string, Set<string>>()
 
 // 3 = gold (final threshold), 2 = silver, 1 = bronze, 0 = inactive —
 // mirrors hexFillForLevel so the sort order matches the badge colors.
@@ -996,10 +1009,11 @@ function renderTraitListInto(containerId: string): void {
   traitPages.set(containerId, page)
 
   const team = containerId.startsWith('enemy') ? 'enemy' : 'player'
+  const shinyChosen = traitShinyChosenData.get(containerId) ?? new Set<string>()
   const shown = entries.slice(page * TRAIT_PAGE_SIZE, (page + 1) * TRAIT_PAGE_SIZE)
   let html = shown.map(([trait, count]) => `
     <div class="trait-badge" data-trait="${trait}" data-count="${count}" data-team="${team}"
-         style="pointer-events:auto;">${traitBadgeHTML(trait, count)}</div>`).join('')
+         style="pointer-events:auto;">${traitBadgeHTML(trait, count, shinyChosen.has(trait))}</div>`).join('')
 
   if (entries.length > TRAIT_PAGE_SIZE) {
     const btn = (dir: number, symbol: string, disabled: boolean) => `
@@ -1261,8 +1275,11 @@ function showLobbyTooltip(row: HTMLElement): void {
   tooltipEl.style.top  = `${Math.min(rect.top, window.innerHeight - ttRect.height - 8)}px`
 }
 
-function setTraitList(containerId: string, entries: Array<[string, number]>): void {
+function setTraitList(
+  containerId: string, entries: Array<[string, number]>, shinyChosen: Set<string> = new Set(),
+): void {
   traitListData.set(containerId, entries)
+  traitShinyChosenData.set(containerId, shinyChosen)
   renderTraitListInto(containerId)
 }
 
@@ -1298,16 +1315,20 @@ function renderTraitDisplay(): void {
   // Chosen-trait shiny bonus: a shiny unit's chosenTrait counts as +1 extra
   // toward that one trait's displayed count — mirrors traitMemberCount in
   // src/core/systems/traitEffects.ts (the combat-side equivalent of this fix).
+  // Also tracked separately (shinyChosen) so the badge can render that
+  // trait's name in the same gold used on the unit's own hover card.
+  const shinyChosen = new Set<string>()
   for (const unit of source) {
     if (unit.isDummy || unit.team !== 'player') continue
     if (unit.isShiny && unit.chosenTrait && !NON_DISPLAY_TRAITS.has(unit.chosenTrait)) {
       counts.set(unit.chosenTrait, (counts.get(unit.chosenTrait) ?? 0) + 1)
+      shinyChosen.add(unit.chosenTrait)
     }
   }
 
   const sorted = counts.size > 0 ? sortTraitEntries(counts) : []
-  setTraitList('active-traits', sorted)
-  setTraitList('trait-overlay-inner', sorted)
+  setTraitList('active-traits', sorted, shinyChosen)
+  setTraitList('trait-overlay-inner', sorted, shinyChosen)
 
   const overlay = overlayModeActive()
   document.getElementById('active-traits')!.style.display = overlay ? 'none' : ''
@@ -1509,6 +1530,17 @@ function renderEnemyTraitDisplay(): void {
     }
   }
 
+  // Chosen-trait shiny bonus — mirrors renderTraitDisplay's player-side pass
+  // above (test mode allows shinies on either team).
+  const shinyChosen = new Set<string>()
+  for (const unit of source) {
+    if (unit.isDummy || unit.team !== 'enemy') continue
+    if (unit.isShiny && unit.chosenTrait && !NON_DISPLAY_TRAITS.has(unit.chosenTrait)) {
+      counts.set(unit.chosenTrait, (counts.get(unit.chosenTrait) ?? 0) + 1)
+      shinyChosen.add(unit.chosenTrait)
+    }
+  }
+
   const overlay = overlayModeActive()
   document.getElementById('enemy-trait-overlay')!.style.display = (overlay && counts.size > 0) ? 'block' : 'none'
 
@@ -1521,8 +1553,8 @@ function renderEnemyTraitDisplay(): void {
 
   const sorted = sortTraitEntries(counts)
   if (section) section.style.display = overlay ? 'none' : ''
-  setTraitList('enemy-traits', sorted)
-  setTraitList('enemy-trait-overlay-inner', sorted)
+  setTraitList('enemy-traits', sorted, shinyChosen)
+  setTraitList('enemy-trait-overlay-inner', sorted, shinyChosen)
 }
 
 // ─── Live damage meter ──────────────────────────────────────────────────────
@@ -3502,11 +3534,6 @@ const CARD_GLYPH_SCALE: Record<string, number> = {
   wave_spirit:    1,
   zen:            1,
 }
-
-// Chosen-trait gold accent — the amber TFT uses to mark "the trait that
-// would be counted twice" (see this session's shiny-gold accent elsewhere:
-// the shiny-effect card block below, SHINY_EFFECT_GIF sparkle, etc).
-const CHOSEN_TRAIT_GOLD = '#f4c542'
 
 // Mini trait row for a shop card: white glyph inside a small grey hexagon,
 // trait name beside it (TFT card style). `highlighted` marks this as a
