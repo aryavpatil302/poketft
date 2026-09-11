@@ -581,4 +581,65 @@ describe('bots', () => {
       expect(ids).not.toContain('kingler')
     })
   })
+
+  describe('botPlanRound — displaced shiny keeps isShiny/chosenTrait', () => {
+    it('a fielded shiny displaced by a stronger bench pick lands on the bench still carrying isShiny/chosenTrait; a displaced ordinary unit does not', () => {
+      // Two-site closed loop (see 260911-jfu PLAN.md <planning_correction>):
+      // positionFielded strips isShiny/chosenTrait on the way FROM bench ONTO
+      // board (Site A), so if it's still buggy, the board entry the
+      // bench-rebuild loop (Site B) copies FROM in a LATER round never had
+      // the flags to begin with. Seeding the shiny directly onto econ.board
+      // would only exercise Site B — this drives two real botPlanRound
+      // rounds so the shiny is actually FIELDED via positionFielded first
+      // (round 1), then displaced from a board entry that positionFielded
+      // itself produced (round 2). A line-1363 (Site B)-only fix still
+      // fails this test, exactly as the plan intends.
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+
+      econ.gold = 0     // shop/reroll/XP-buy all no-op; econ.level stays fixed throughout
+      econ.level = 2    // boardCap(econ) === 2, fixed for both rounds below
+
+      // Round 1: field the shiny + an ordinary control from the bench (the
+      // only two candidates, so both are guaranteed to be picked for the
+      // two available slots) — this is what exercises Site A.
+      econ.bench = mkBench([
+        { definitionId: 'tangela', tier: 2, isShiny: true, chosenTrait: 'jungle' },
+        { definitionId: 'ribombee', tier: 1 },
+      ])
+      econ.board = []
+      botPlanRound(run, econ, 0, seededRng(1))
+
+      // Sanity: round 1 actually fielded both (only two candidates existed).
+      expect(econ.board.map(u => u.definitionId).sort()).toEqual(['ribombee', 'tangela'])
+
+      // Round 2: introduce two cost-5/tier-3 candidates that vastly outscore
+      // both cheap fielded units on raw unitPowerScore, forcing BOTH off the
+      // board and through the bench-rebuild loop (Site B) — which copies
+      // isShiny/chosenTrait FROM the board entries positionFielded wrote in
+      // round 1.
+      const freeSlots = econ.bench
+        .map((b, i) => (b === null ? i : -1))
+        .filter(i => i !== -1)
+      econ.bench[freeSlots[0]] = { definitionId: 'charizard', tier: 3 }
+      econ.bench[freeSlots[1]] = { definitionId: 'latios', tier: 3 }
+      botPlanRound(run, econ, 0, seededRng(2))
+
+      // Precondition: displacement actually happened. Without this the test
+      // could pass vacuously if the shiny (or control) stayed fielded.
+      expect(econ.board.map(u => u.definitionId)).not.toContain('tangela')
+      expect(econ.board.map(u => u.definitionId)).not.toContain('ribombee')
+
+      const shinyOnBench = econ.bench.find(b => b?.definitionId === 'tangela')
+      const controlOnBench = econ.bench.find(b => b?.definitionId === 'ribombee')
+
+      expect(shinyOnBench).toBeDefined()
+      expect(shinyOnBench?.isShiny).toBe(true)
+      expect(shinyOnBench?.chosenTrait).toBe('jungle')
+
+      expect(controlOnBench).toBeDefined()
+      expect(controlOnBench?.isShiny).toBeFalsy()
+      expect(controlOnBench?.chosenTrait).toBeFalsy()
+    })
+  })
 })
