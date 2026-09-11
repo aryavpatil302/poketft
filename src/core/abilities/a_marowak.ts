@@ -20,6 +20,7 @@ export const AMaRowakAbility: AbilityHandler = {
       id: 'a_marowak_bone',
       remainingCharges: 1,
       swingDir,
+      suppressManaGain: true,   // no mana gain during the empowered 3-hit sequence
       onHit: (src: Unit, tgt: Unit, st: CombatState) => {
         applyDamage(src, tgt, { baseAmount: dmg1, damageType: 'magic' as const, canCrit: false, abilityScalingStat: 'special', abilityId: 'a_marowak_shadow_bone' }, st)
       },
@@ -28,6 +29,7 @@ export const AMaRowakAbility: AbilityHandler = {
     const makeFinisher = () => ({
       id: 'a_marowak_bone_3',
       remainingCharges: 1,
+      suppressManaGain: true,   // no mana gain during the empowered 3-hit sequence
       onHit: (src: Unit, tgt: Unit, st: CombatState) => {
         let totalDamage = 0
 

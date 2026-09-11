@@ -61,6 +61,13 @@ describe('A-Marowak – Shadow Bone', () => {
     expect(caster.attackModifiers[2].remainingCharges).toBe(1)
   })
 
+  it('grants no mana on any of the 3 empowered hits', () => {
+    cast(caster, state)
+    expect(caster.attackModifiers[0].suppressManaGain).toBe(true)
+    expect(caster.attackModifiers[1].suppressManaGain).toBe(true)
+    expect(caster.attackModifiers[2].suppressManaGain).toBe(true)
+  })
+
   it('swing modifier swingDir flips between -1 and +1', () => {
     cast(caster, state)
     expect(caster.attackModifiers[0].swingDir).toBe(-1)
