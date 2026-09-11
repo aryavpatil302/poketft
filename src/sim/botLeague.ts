@@ -33,6 +33,10 @@ import {
 } from '../econ/compositionSignature'
 import { stageOf } from '../econ/constants'
 import { generateAiSummary, buildSummaryPrompt, type SummarySection } from '../econ/aiSummary'
+import {
+  BREAK_KEYS, type Break, zeroBreak, type TraitTally, type Tallies, emptyTallies, mergeTally,
+  type FightUnitStat, type UTierAcc, newUTierAcc, addFightStat, recordShinyStageStat, buildShinyStageRows,
+} from './unitStatAgg'
 
 // ─── Args ───────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
@@ -58,20 +62,12 @@ const h2hTotal = new Map<string, number>()
 const elimReg = new Map<string, number>()   // personaId → round it died (per game, reset each game)
 
 // Per-unit combat aggregate across ALL games, keyed `${defId}|${tier}` (per star level).
-// Damage breakdown fields shared by FightUnitStat and UTierAcc (all summable).
-// d* = dealt, t* = taken. Type split: Phys/Magic/True. Source split: Auto/Spell/Emp
-// (empowered-auto bonus damage). tShield = damage absorbed by this unit's shields.
-const BREAK_KEYS = ['dPhys', 'dMagic', 'dTrue', 'dAuto', 'dSpell', 'dEmp', 'tPhys', 'tMagic', 'tTrue', 'tAuto', 'tSpell', 'tShield'] as const
-type BreakKey = typeof BREAK_KEYS[number]
-type Break = Record<BreakKey, number>
-const zeroBreak = (): Break => Object.fromEntries(BREAK_KEYS.map(k => [k, 0])) as Break
-
-// TraitTally: trait id → contributed amount (damage / heal / shield) this fight.
-type TraitTally = Record<string, number>
-interface Tallies { traitDmg: TraitTally; traitHeal: TraitTally; traitShield: TraitTally; traitMitigated: TraitTally; traitCount: TraitTally }
-interface FightUnitStat extends Break, Tallies { defId: string; tier: number; team: 'a' | 'b'; dealt: number; taken: number; casts: number; kills: number; deaths: number; healSelf: number; healAlly: number; shieldSelf: number; shieldAlly: number }
-interface UTierAcc extends Break, Tallies { fights: number; wins: number; dealt: number; taken: number; casts: number; kills: number; deaths: number; healSelf: number; healAlly: number; shieldSelf: number; shieldAlly: number }
+// FightUnitStat / UTierAcc / the Break+Tallies shape they extend all live in
+// unitStatAgg.ts now (moved so they're unit-testable — see that file's header).
 const unitTierAgg = new Map<string, UTierAcc>()
+// Per-species-per-stage-per-shiny-flag aggregate (same UTierAcc shape), feeding
+// the new shinyStageStats report field — see unitStatAgg.ts's recordShinyStageStat.
+const shinyStageAgg = new Map<string, UTierAcc>()
 
 // Shiny-effect impact (Tier 2): per-species rollup of the combat bonus a shiny's
 // ability/effect actually contributed, from the "shiny:<defId>" keys credited
@@ -140,22 +136,15 @@ function recordShinyOutcomes(board: BoardEntry[], round: number, won: boolean): 
   accComp(shinyPresenceAgg, `${stage}|${shinyUnit ? 'shiny' : 'none'}`, won)
   if (shinyUnit) accComp(shinySpeciesAgg, `${stage}|${shinyUnit.definitionId}`, won)
 }
-const mergeTally = (into: TraitTally, from: TraitTally): void => { for (const k in from) into[k] = (into[k] ?? 0) + from[k] }
 // Round a live trait tally (drop sub-1 noise) for embedding.
 const roundTally = (m: TraitTally): TraitTally => { const o: TraitTally = {}; for (const k in m) if (m[k] >= 0.5) o[k] = Math.round(m[k] * 100) / 100; return o }
-const emptyTallies = (): Tallies => ({ traitDmg: {}, traitHeal: {}, traitShield: {}, traitMitigated: {}, traitCount: {} })
 const readTallies = (u: { traitDmg: TraitTally; traitHeal: TraitTally; traitShield: TraitTally; traitMitigated: TraitTally; traitCount: TraitTally }): Tallies =>
   ({ traitDmg: roundTally(u.traitDmg), traitHeal: roundTally(u.traitHeal), traitShield: roundTally(u.traitShield), traitMitigated: roundTally(u.traitMitigated), traitCount: roundTally(u.traitCount) })
 function accUnit(us: FightUnitStat, won: boolean): void {
   const key = `${us.defId}|${us.tier}`
   let a = unitTierAgg.get(key)
-  if (!a) { a = { fights: 0, wins: 0, dealt: 0, taken: 0, casts: 0, kills: 0, deaths: 0, healSelf: 0, healAlly: 0, shieldSelf: 0, shieldAlly: 0, ...emptyTallies(), ...zeroBreak() }; unitTierAgg.set(key, a) }
-  a.fights++; if (won) a.wins++
-  a.dealt += us.dealt; a.taken += us.taken; a.casts += us.casts; a.kills += us.kills; a.deaths += us.deaths
-  a.healSelf += us.healSelf; a.healAlly += us.healAlly; a.shieldSelf += us.shieldSelf; a.shieldAlly += us.shieldAlly
-  mergeTally(a.traitDmg, us.traitDmg); mergeTally(a.traitHeal, us.traitHeal); mergeTally(a.traitShield, us.traitShield)
-  mergeTally(a.traitMitigated, us.traitMitigated); mergeTally(a.traitCount, us.traitCount)
-  for (const k of BREAK_KEYS) a[k] += us[k]
+  if (!a) { a = newUTierAcc(); unitTierAgg.set(key, a) }
+  addFightStat(a, us, won)
 }
 
 function pidOf(run: RunState, slot: number): string { return run.players[slot].personaId! }
@@ -180,7 +169,14 @@ for (let g = 0; g < GAMES; g++) {
     // Real combat with per-unit stat capture (+ the full timeline, recorded for
     // possible retention below), plus head-to-head + per-unit aggregate.
     const { result, unitStats } = tracedFight(a, b, meta.round, g)
-    for (const us of unitStats) { accUnit(us, us.team === result.winner); accShinyImpact(us) }
+    // Same won-expression as accUnit's caller below, so a draw (not a win for
+    // either side) is counted identically in both the per-tier and the
+    // per-stage-shiny aggregate.
+    for (const us of unitStats) {
+      const won = us.team === result.winner
+      accUnit(us, won); accShinyImpact(us)
+      recordShinyStageStat(shinyStageAgg, us, meta.round, won)
+    }
     if (result.winner !== 'draw') {
       const wId = result.winner === 'a' ? a.personaId! : b.personaId!
       const lId = result.winner === 'a' ? b.personaId! : a.personaId!
@@ -307,7 +303,7 @@ console.log(`\nWrote ${FORMAT.toUpperCase()} report → ${OUT}`)
 // ─── Fight resolvers ──────────────────────────────────────────────────────────
 type FightResult = { winner: 'a' | 'b' | 'draw'; survivorStars: number }
 const boardOnlyStats = (e: PlayerEcon, team: 'a' | 'b'): FightUnitStat[] =>
-  e.board.map(u => ({ defId: u.definitionId, tier: u.tier, team, dealt: 0, taken: 0, casts: 0, kills: 0, deaths: 0, healSelf: 0, healAlly: 0, shieldSelf: 0, shieldAlly: 0, ...emptyTallies(), ...zeroBreak() }))
+  e.board.map(u => ({ defId: u.definitionId, tier: u.tier, team, isShiny: u.isShiny === true, dealt: 0, taken: 0, casts: 0, kills: 0, deaths: 0, healSelf: 0, healAlly: 0, shieldSelf: 0, shieldAlly: 0, ...emptyTallies(), ...zeroBreak() }))
 
 // Trace-mode fight: real combat with per-unit stats AND the full damage timeline,
 // which it records into traceFights tagged with game+round (or a forfeit if a board
@@ -421,7 +417,7 @@ function runOneCombat(a: PlayerEcon, b: PlayerEcon, mode: 'stats' | 'full'): {
 
   // Per-unit stats for EVERY fielded unit (so appearances / win rate count units that did nothing).
   const unitStats: FightUnitStat[] = [...pUnits, ...eUnits].map(u => ({
-    defId: u.definitionId, tier: u.tier, team: teamOf.get(u.id)!,
+    defId: u.definitionId, tier: u.tier, team: teamOf.get(u.id)!, isShiny: u.isShiny === true,
     dealt: Math.round(dealtBy.get(u.id) ?? 0), taken: Math.round(takenBy.get(u.id) ?? 0),
     casts: castsBy.get(u.id) ?? 0, kills: killsBy.get(u.id) ?? 0, deaths: deathsBy.get(u.id) ?? 0,
     healSelf: Math.round(healSelfBy.get(u.id) ?? 0), healAlly: Math.round(healAllyBy.get(u.id) ?? 0),
@@ -570,6 +566,7 @@ function buildReport(): LeagueReport {
     standings, survival, h2h, units, traceRounds, traceFights,
     traitPairs, unitContexts, traitDepths: traitDepthRows, breadths: breadthRows,
     shinyPresence, shinySpecies, shinyImpact,
+    shinyStageStats: buildShinyStageRows(shinyStageAgg),
   }
 }
 
