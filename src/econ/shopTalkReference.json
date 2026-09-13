@@ -1,0 +1,1177 @@
+{
+  "personas": {
+    "calc_this": {
+      "name": "calc_this",
+      "avatar": "🧮",
+      "color": "#7a5cc0"
+    },
+    "ProbablyTilted": {
+      "name": "ProbablyTilted",
+      "avatar": "🎲",
+      "color": "#46607a"
+    },
+    "BigNumberGang": {
+      "name": "BigNumberGang",
+      "avatar": "🧱",
+      "color": "#8a6a4a"
+    },
+    "VolcanoSimp": {
+      "name": "VolcanoSimp",
+      "avatar": "🌋",
+      "color": "#c9581f"
+    },
+    "backlineBae": {
+      "name": "backlineBae",
+      "avatar": "🎯",
+      "color": "#7a8290"
+    },
+    "wideisright": {
+      "name": "wideisright",
+      "avatar": "📐",
+      "color": "#7a8290"
+    },
+    "quietanalyst": {
+      "name": "quietanalyst",
+      "avatar": "📎",
+      "color": "#7a5cc0"
+    },
+    "messyboardgang": {
+      "name": "messyboardgang",
+      "avatar": "🗃️",
+      "color": "#7a8290"
+    },
+    "streamlinedboard": {
+      "name": "streamlinedboard",
+      "avatar": "📏",
+      "color": "#2f8f9e"
+    },
+    "boardpowerwatcher": {
+      "name": "boardpowerwatcher",
+      "avatar": "📊",
+      "color": "#7a5cc0"
+    },
+    "slotefficiency": {
+      "name": "slotefficiency",
+      "avatar": "🧩",
+      "color": "#2f8f9e"
+    },
+    "onehexleft": {
+      "name": "onehexleft",
+      "avatar": "⬡",
+      "color": "#7a8290"
+    },
+    "patientgamer": {
+      "name": "patientgamer",
+      "avatar": "🧘",
+      "color": "#3f8f4f"
+    },
+    "impatientgamer": {
+      "name": "impatientgamer",
+      "avatar": "⏩",
+      "color": "#b23a4a"
+    },
+    "TangelaTruther": {
+      "name": "TangelaTruther",
+      "avatar": "🌿",
+      "color": "#3f8f4f"
+    },
+    "shieldstacker": {
+      "name": "shieldstacker",
+      "avatar": "🛡️",
+      "color": "#6b5a45"
+    },
+    "aggroatlas": {
+      "name": "aggroatlas",
+      "avatar": "🔥",
+      "color": "#7a8290"
+    },
+    "verdict_pending": {
+      "name": "verdict_pending",
+      "avatar": "⏳",
+      "color": "#7a8290"
+    },
+    "itsalwaystangela": {
+      "name": "itsalwaystangela",
+      "avatar": "🌿",
+      "color": "#7a8290"
+    },
+    "calmreroll": {
+      "name": "calmreroll",
+      "avatar": "😌",
+      "color": "#3f8f4f"
+    },
+    "loudcarrymain": {
+      "name": "loudcarrymain",
+      "avatar": "📢",
+      "color": "#c9581f"
+    },
+    "freshaccountgg": {
+      "name": "freshaccountgg",
+      "avatar": "🆕",
+      "color": "#7a8290"
+    },
+    "quietfrontline": {
+      "name": "quietfrontline",
+      "avatar": "🛡️",
+      "color": "#6b5a45"
+    },
+    "onecopyenjoyer": {
+      "name": "onecopyenjoyer",
+      "avatar": "1️⃣",
+      "color": "#7a8290"
+    },
+    "rockbottomgang": {
+      "name": "rockbottomgang",
+      "avatar": "🪨",
+      "color": "#7a8290"
+    },
+    "humbleeconomy": {
+      "name": "humbleeconomy",
+      "avatar": "🧾",
+      "color": "#2f6f4f"
+    },
+    "lvl9orDeath": {
+      "name": "lvl9orDeath",
+      "avatar": "🧗",
+      "color": "#2f6fa8"
+    },
+    "spellweaverSicko": {
+      "name": "spellweaverSicko",
+      "avatar": "🔮",
+      "color": "#6a4fb0"
+    },
+    "top4curse": {
+      "name": "top4curse",
+      "avatar": "😬",
+      "color": "#7a8290"
+    },
+    "BenchWarmerBot": {
+      "name": "BenchWarmerBot",
+      "avatar": "🪑",
+      "color": "#4a9f5c"
+    },
+    "twostarornothing": {
+      "name": "twostarornothing",
+      "avatar": "⭐",
+      "color": "#7a8290"
+    },
+    "streaksnapper": {
+      "name": "streaksnapper",
+      "avatar": "📉",
+      "color": "#b23a4a"
+    },
+    "interestcapped": {
+      "name": "interestcapped",
+      "avatar": "🏦",
+      "color": "#2f6f4f"
+    },
+    "deadlasthonor": {
+      "name": "deadlasthonor",
+      "avatar": "💀",
+      "color": "#7a8290"
+    },
+    "isthisbalanced": {
+      "name": "isthisbalanced",
+      "avatar": "🚩",
+      "color": "#b23a4a"
+    },
+    "screamerofthepatch": {
+      "name": "screamerofthepatch",
+      "avatar": "📢",
+      "color": "#7a8290"
+    },
+    "loudanalyst": {
+      "name": "loudanalyst",
+      "avatar": "📣",
+      "color": "#7a5cc0"
+    },
+    "skillissueaccepted": {
+      "name": "skillissueaccepted",
+      "avatar": "🙃",
+      "color": "#7a8290"
+    },
+    "countercounter": {
+      "name": "countercounter",
+      "avatar": "🔁",
+      "color": "#7a8290"
+    },
+    "patchnotesreader": {
+      "name": "patchnotesreader",
+      "avatar": "📋",
+      "color": "#6b5a45"
+    },
+    "offmeta_ok": {
+      "name": "offmeta_ok",
+      "avatar": "🎲",
+      "color": "#46607a"
+    },
+    "averagejoeplayer": {
+      "name": "averagejoeplayer",
+      "avatar": "🙂",
+      "color": "#7a8290"
+    },
+    "tierlistguy": {
+      "name": "tierlistguy",
+      "avatar": "📊",
+      "color": "#7a5cc0"
+    },
+    "onecostoneprayer": {
+      "name": "onecostoneprayer",
+      "avatar": "🙏",
+      "color": "#46607a"
+    },
+    "crabwalkfail": {
+      "name": "crabwalkfail",
+      "avatar": "🦀",
+      "color": "#7a8290"
+    },
+    "wavecheck_gg": {
+      "name": "wavecheck_gg",
+      "avatar": "🌊",
+      "color": "#2f8f9e"
+    },
+    "durastealgang": {
+      "name": "durastealgang",
+      "avatar": "🩹",
+      "color": "#7a4a63"
+    },
+    "curveseemsright": {
+      "name": "curveseemsright",
+      "avatar": "📏",
+      "color": "#2f8f9e"
+    },
+    "afstacker": {
+      "name": "afstacker",
+      "avatar": "🔮",
+      "color": "#6a4fb0"
+    },
+    "omnivampenjoyer": {
+      "name": "omnivampenjoyer",
+      "avatar": "🩸",
+      "color": "#8a3a4a"
+    },
+    "truedamagelover": {
+      "name": "truedamagelover",
+      "avatar": "⚔️",
+      "color": "#6b5a45"
+    },
+    "sustainoverdamage": {
+      "name": "sustainoverdamage",
+      "avatar": "🩹",
+      "color": "#3f8f4f"
+    },
+    "secondwindgang": {
+      "name": "secondwindgang",
+      "avatar": "🛡️",
+      "color": "#6b5a45"
+    },
+    "justwantHPplz": {
+      "name": "justwantHPplz",
+      "avatar": "💪",
+      "color": "#8a6a4a"
+    },
+    "fairlossgang": {
+      "name": "fairlossgang",
+      "avatar": "⚖️",
+      "color": "#6b5a45"
+    },
+    "hpstacker": {
+      "name": "hpstacker",
+      "avatar": "❤️",
+      "color": "#8a6a4a"
+    },
+    "lowhphighdmg": {
+      "name": "lowhphighdmg",
+      "avatar": "💢",
+      "color": "#b23a4a"
+    },
+    "clutchorbust": {
+      "name": "clutchorbust",
+      "avatar": "🎯",
+      "color": "#c9581f"
+    },
+    "freedummy": {
+      "name": "freedummy",
+      "avatar": "🎭",
+      "color": "#6b5a45"
+    }
+  },
+  "posts": [
+    {
+      "id": "sim-breadth",
+      "flair": "simbatch",
+      "author": "calc_this",
+      "minutesAgo": 620,
+      "title": "ok but wide boards just keep winning and I don't know why nobody talks about this more",
+      "body": [
+        "Been on a long stretch of games and I keep noticing the same thing: every time I end up wide, three, four, five traits all half-online at once, I just... win more. Doesn't even feel close some nights. Meanwhile the games where I panic and commit hard to one or two lines and nothing else, those are the ones where I get run over even when the trait itself feels totally fine on its own.",
+        "And it's not only a late-game thing either, I notice it building in the midgame too, not just once someone's already snowballing out of control."
+      ],
+      "ups": 187,
+      "downs": 9,
+      "comments": [
+        {
+          "author": "ProbablyTilted",
+          "ups": 41,
+          "downs": 8,
+          "body": "Slow down, big brain. You go wide because you were already winning enough fights to AFFORD going wide. The breadth isn't doing the winning, the winning bought you the breadth.",
+          "replies": [
+            {
+              "author": "calc_this",
+              "ups": 33,
+              "downs": 2,
+              "body": "Sure, and normally that argument ends it for me. Except I've watched it happen in games where I wasn't clearly ahead yet either, which is the part I can't explain away that easily.",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "BigNumberGang",
+          "ups": 24,
+          "downs": 1,
+          "body": "yeah that's just how i've always played. stack whatever's open, don't get married to one clean six-trait board.",
+          "replies": []
+        },
+        {
+          "author": "VolcanoSimp",
+          "ups": 19,
+          "downs": 6,
+          "body": "or, hear me out, commit hard to two lines and let the payoff do the work. every time i lean all the way into ruiner or volcano it just wins the game for me. don't need five traits half-lit, i need one all the way lit.",
+          "replies": []
+        },
+        {
+          "author": "backlineBae",
+          "ups": 6,
+          "downs": 0,
+          "body": "wait this actually explains so much about my last few games",
+          "replies": []
+        },
+        {
+          "author": "wideisright",
+          "ups": 8,
+          "downs": 0,
+          "body": "been seeing the same shape across a few different stretches now too, not just one lucky run. kind of hard to argue with at this point.",
+          "replies": []
+        },
+        {
+          "author": "quietanalyst",
+          "ups": 19,
+          "downs": 3,
+          "body": "been quietly doing this for a while without a name for it, glad it's not just me imagining the pattern",
+          "replies": []
+        },
+        {
+          "author": "messyboardgang",
+          "ups": 14,
+          "downs": 6,
+          "body": "my board never looks clean and apparently that's the point, i thought i was just bad at planning",
+          "replies": []
+        },
+        {
+          "author": "streamlinedboard",
+          "ups": 11,
+          "downs": 9,
+          "body": "counterpoint from someone who plays narrow on purpose: it's not that breadth is bad advice, it's that it's advice for people who don't already have a plan",
+          "replies": [
+            {
+              "author": "calc_this",
+              "ups": 13,
+              "downs": 1,
+              "body": "that's fair, if you've got a real plan the calculus changes, this is more of a default-case observation than a rule for every game",
+              "replies": []
+            },
+            {
+              "author": "streamlinedboard",
+              "ups": 9,
+              "downs": 0,
+              "body": "yeah that's basically what i wanted to hear, wasn't trying to say the whole post is wrong",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "boardpowerwatcher",
+          "ups": 9,
+          "downs": 0,
+          "body": "the fact that it holds at multiple stages and not just the obvious late-game one is what convinced me honestly",
+          "replies": []
+        },
+        {
+          "author": "slotefficiency",
+          "ups": 16,
+          "downs": 2,
+          "body": "this is why i stopped forcing a clean number of copies and just took whatever slotted in well",
+          "replies": [
+            {
+              "author": "VolcanoSimp",
+              "ups": 8,
+              "downs": 4,
+              "body": "still gonna commit deep when i can, but i get why this works for boards without a strong single direction",
+              "replies": []
+            },
+            {
+              "author": "slotefficiency",
+              "ups": 5,
+              "downs": 0,
+              "body": "totally fair, different tools for different games",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "onehexleft",
+          "ups": 7,
+          "downs": 1,
+          "body": "screenshotted this the day it went up, still holds up every time i check back on it",
+          "replies": []
+        },
+        {
+          "author": "patientgamer",
+          "ups": 10,
+          "downs": 0,
+          "body": "matches the whole 'don't force it' philosophy i've been trying to play with lately",
+          "replies": []
+        },
+        {
+          "author": "impatientgamer",
+          "ups": 4,
+          "downs": 3,
+          "body": "i physically cannot make myself play this patiently but i believe you",
+          "replies": []
+        }
+      ]
+    },
+    {
+      "id": "sim-tangela-correction",
+      "flair": "simbatch",
+      "author": "TangelaTruther",
+      "minutesAgo": 630,
+      "title": "alright i need to walk back some of my jungle take",
+      "body": [
+        "went back through my last stretch of games and had to be honest with myself. every time i actually lean on tangela and expect it to hold a fight, i lose that fight. every single time lately. can't keep pretending that's a coincidence."
+      ],
+      "ups": 176,
+      "downs": 14,
+      "comments": [
+        {
+          "author": "calc_this",
+          "ups": 38,
+          "downs": 2,
+          "body": "before the pile-on starts — is tangela actually bad, or is tangela just the mon every board that's already losing happens to be holding, because it's cheap and everyone's got a spare? hard to tell those two apart just from watching games go by.",
+          "replies": [
+            {
+              "author": "shieldstacker",
+              "ups": 22,
+              "downs": 1,
+              "body": "my cheap cave crawler units don't have that problem though, feels like i win with those even super early. if it were purely 'cheap mon on a losing board' i'd expect the same thing there and i just don't see it.",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "TangelaTruther",
+          "ups": 20,
+          "downs": 0,
+          "body": "fair, don't have a clean answer for that yet. calling this a correction, not a full flip, until i see more games.",
+          "replies": []
+        },
+        {
+          "author": "aggroatlas",
+          "ups": 8,
+          "downs": 0,
+          "body": "damn, rare to see someone actually admit this instead of doubling down",
+          "replies": []
+        },
+        {
+          "author": "verdict_pending",
+          "ups": 10,
+          "downs": 0,
+          "body": "still checking every stretch just to see if it turns around at some point. it has not turned around.",
+          "replies": []
+        },
+        {
+          "author": "itsalwaystangela",
+          "ups": 24,
+          "downs": 1,
+          "body": "the username was not a coincidence, i made this account specifically to complain about this exact unit",
+          "replies": []
+        },
+        {
+          "author": "calmreroll",
+          "ups": 16,
+          "downs": 2,
+          "body": "respect for actually posting the correction instead of quietly deleting the old take",
+          "replies": []
+        },
+        {
+          "author": "loudcarrymain",
+          "ups": 9,
+          "downs": 6,
+          "body": "still think it's a skill issue with how people are building around it but i'll admit i haven't tried super hard to prove that",
+          "replies": []
+        },
+        {
+          "author": "freshaccountgg",
+          "ups": 6,
+          "downs": 0,
+          "body": "new here, is tangela just a meme at this point or is this a genuine ongoing thing",
+          "replies": []
+        },
+        {
+          "author": "quietfrontline",
+          "ups": 12,
+          "downs": 1,
+          "body": "the correction thread format is kind of nice honestly, more forums should let people update their own takes instead of just piling new posts on top",
+          "replies": [
+            {
+              "author": "TangelaTruther",
+              "ups": 10,
+              "downs": 0,
+              "body": "appreciate that, felt weird posting it but figured better than pretending i never said the first thing",
+              "replies": []
+            },
+            {
+              "author": "quietfrontline",
+              "ups": 6,
+              "downs": 0,
+              "body": "that's exactly the energy that makes a thread worth reading",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "onecopyenjoyer",
+          "ups": 8,
+          "downs": 2,
+          "body": "running just one copy as a bench-warmer filler and not expecting anything from it has been way less disappointing than trying to build around it",
+          "replies": []
+        },
+        {
+          "author": "rockbottomgang",
+          "ups": 11,
+          "downs": 0,
+          "body": "welcome to the club, i've got a whole post about graveler in the same boat",
+          "replies": []
+        },
+        {
+          "author": "humbleeconomy",
+          "ups": 5,
+          "downs": 0,
+          "body": "this is what a healthy forum post looks like, more of this please",
+          "replies": []
+        }
+      ]
+    },
+    {
+      "id": "sim-standings",
+      "flair": "simbatch",
+      "author": "lvl9orDeath",
+      "minutesAgo": 650,
+      "title": "not to brag but I basically never finish outside the top two anymore",
+      "body": [
+        "Been on a real run lately. Can't remember the last time I finished bottom two. Meanwhile some of you are out here either popping off for first or completely face-planting, no in-between game at all. I'll take boring and steady over that rollercoaster every time."
+      ],
+      "ups": 134,
+      "downs": 22,
+      "comments": [
+        {
+          "author": "spellweaverSicko",
+          "ups": 29,
+          "downs": 1,
+          "body": "yeah that's fair, and honestly that's me. when the caster stack comes online it's usually a real 1st, and when it doesn't, i'm not scraping into 3rd, i'm just gone. there's no boring middle for a comp like mine.",
+          "replies": [
+            {
+              "author": "top4curse",
+              "ups": 8,
+              "downs": 1,
+              "body": "the 'no in-between' framing is exactly my problem too, wish i had kass's floor honestly",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "BenchWarmerBot",
+          "ups": 18,
+          "downs": 0,
+          "body": "been pretty middle of the pack myself lately, nothing to defend here 😐",
+          "replies": []
+        },
+        {
+          "author": "twostarornothing",
+          "ups": 9,
+          "downs": 1,
+          "body": "the consistency talk always ages badly somehow, screenshotting this",
+          "replies": []
+        },
+        {
+          "author": "top4curse",
+          "ups": 16,
+          "downs": 2,
+          "body": "the volatile-high-ceiling playstyle described here is basically my whole life, feast or famine every single game",
+          "replies": [
+            {
+              "author": "streaksnapper",
+              "ups": 6,
+              "downs": 3,
+              "body": "counterpoint stands though, being predictably mid isn't automatically better than being volatile, depends what you're optimizing for",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "humbleeconomy",
+          "ups": 11,
+          "downs": 0,
+          "body": "consistency over ceiling is underrated advice in general honestly, not just for this game",
+          "replies": []
+        },
+        {
+          "author": "streaksnapper",
+          "ups": 9,
+          "downs": 4,
+          "body": "counterpoint, a long losing streak from being 'consistent but low ceiling' can also just kill your run just as dead as a volatile bad game can",
+          "replies": []
+        },
+        {
+          "author": "quietanalyst",
+          "ups": 14,
+          "downs": 1,
+          "body": "the framing of 'no bad games vs no great games' is a really clean way to put this, stealing that phrase",
+          "replies": []
+        },
+        {
+          "author": "interestcapped",
+          "ups": 7,
+          "downs": 0,
+          "body": "this maps really well onto econ philosophy too, not just placement outcomes",
+          "replies": []
+        },
+        {
+          "author": "deadlasthonor",
+          "ups": 5,
+          "downs": 3,
+          "body": "as someone who's had both a bad AND a volatile stretch recently, trust me, consistent-mediocre still beats volatile-bad",
+          "replies": []
+        }
+      ]
+    },
+    {
+      "id": "armarouge-callout",
+      "flair": "simbatch",
+      "author": "isthisbalanced",
+      "minutesAgo": 4,
+      "title": "ok genuinely, is armarouge supposed to just... always win?",
+      "body": [
+        "played a stupid number of games this stretch and i don't think i've lost a single fight where armarouge was actually alive and swinging by the time armor cannon goes off. doesn't matter what else is on my board, half the time it doesn't even matter what's on theirs. genuinely can't remember the last time i saw it lose a fight it was still standing for. feels less like a strong 3-cost and more like a coin i get to flip once a game that always lands heads."
+      ],
+      "ups": 168,
+      "downs": 6,
+      "comments": [
+        {
+          "author": "VolcanoSimp",
+          "ups": 31,
+          "downs": 1,
+          "body": "can confirm, i run it as a volcano piece and it single-handedly carries lanes my actual carry should be winning. not complaining but also. yeah.",
+          "replies": []
+        },
+        {
+          "author": "calc_this",
+          "ups": 24,
+          "downs": 0,
+          "body": "the interesting part is this isn't a one-off, i've watched it happen across a bunch of separate stretches now, not just one weird run. that's usually the sign something's actually off and not just variance.",
+          "replies": []
+        },
+        {
+          "author": "screamerofthepatch",
+          "ups": 9,
+          "downs": 0,
+          "body": "THANK YOU someone finally said it",
+          "replies": []
+        },
+        {
+          "author": "loudanalyst",
+          "ups": 21,
+          "downs": 2,
+          "body": "been saying this quietly for a while, glad someone finally made it the headline instead of a footnote in another thread",
+          "replies": []
+        },
+        {
+          "author": "skillissueaccepted",
+          "ups": 8,
+          "downs": 4,
+          "body": "counterpoint, i've definitely lost with it before, just... not often. make of that what you will",
+          "replies": [
+            {
+              "author": "countercounter",
+              "ups": 9,
+              "downs": 2,
+              "body": "'not often' is doing a lot of work in that sentence though",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "patchnotesreader",
+          "ups": 14,
+          "downs": 1,
+          "body": "if this doesn't get looked at soon i'll be shocked, feels like the most obvious outlier posted here in a while",
+          "replies": []
+        },
+        {
+          "author": "offmeta_ok",
+          "ups": 6,
+          "downs": 0,
+          "body": "the fact that this thread has basically no real disagreement in the comments says a lot honestly",
+          "replies": []
+        },
+        {
+          "author": "quietanalyst",
+          "ups": 17,
+          "downs": 3,
+          "body": "went and specifically tracked how often it loses a fight it's alive for after casting and i genuinely can't remember the last time",
+          "replies": [
+            {
+              "author": "isthisbalanced",
+              "ups": 12,
+              "downs": 0,
+              "body": "this is exactly the kind of follow-up that makes me feel less crazy for posting this in the first place",
+              "replies": []
+            },
+            {
+              "author": "quietanalyst",
+              "ups": 9,
+              "downs": 0,
+              "body": "you weren't crazy, this one's pretty obviously not fine",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "averagejoeplayer",
+          "ups": 9,
+          "downs": 1,
+          "body": "as a newer player i just assumed it was supposed to be this strong, didn't realize this was a whole discourse",
+          "replies": []
+        },
+        {
+          "author": "VolcanoSimp",
+          "ups": 15,
+          "downs": 2,
+          "body": "can't believe i'm agreeing that MY OWN trait's best unit might be too strong but yeah, it's a lot",
+          "replies": []
+        },
+        {
+          "author": "tierlistguy",
+          "ups": 10,
+          "downs": 0,
+          "body": "adding this to the ever-growing list of 'things that are actually the signal, not the noise'",
+          "replies": []
+        }
+      ]
+    },
+    {
+      "id": "onecost-graveyard",
+      "flair": "simbatch",
+      "author": "onecostoneprayer",
+      "minutesAgo": 19,
+      "title": "at this point i've basically given up on 1-costs doing anything but filling space",
+      "body": [
+        "not just tangela. snorunt, morelull, ribombee, morgrem, unown, most of the cheap stuff i pick up early just kind of... sits there. i still buy them because what else are you gonna do turn 2, but i've stopped expecting any of them to actually swing a fight for me. feels like the whole cost tier is scaffolding for the real board, not real pieces."
+      ],
+      "ups": 63,
+      "downs": 17,
+      "comments": [
+        {
+          "author": "shieldstacker",
+          "ups": 21,
+          "downs": 4,
+          "body": "hard disagree for cave crawler's cheap side, those still feel like real pieces to me even early. not a blanket 1-cost problem, more like which 1-costs.",
+          "replies": [
+            {
+              "author": "rockbottomgang",
+              "ups": 6,
+              "downs": 1,
+              "body": "linking my own graveler complaint here, cave crawler being the one exception is a fair carve-out though",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "onecostoneprayer",
+          "ups": 9,
+          "downs": 0,
+          "body": "fair, i'll cop to that, wasn't trying to say all of them, just most of what i keep ending up with",
+          "replies": []
+        },
+        {
+          "author": "rockbottomgang",
+          "ups": 8,
+          "downs": 1,
+          "body": "linking my graveler post, this is basically the exact complaint but about a specific unit instead of the whole cost tier",
+          "replies": [
+            {
+              "author": "crabwalkfail",
+              "ups": 5,
+              "downs": 0,
+              "body": "same energy in my klawf thread, feels like we're all describing the same three or four units from different angles",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "crabwalkfail",
+          "ups": 6,
+          "downs": 0,
+          "body": "same, my klawf post is basically a case study for this exact thread",
+          "replies": []
+        },
+        {
+          "author": "shieldstacker",
+          "ups": 5,
+          "downs": 3,
+          "body": "still holding the line that it's not ALL of them, cave crawler's cheap units keep bucking this trend for me",
+          "replies": []
+        }
+      ]
+    },
+    {
+      "id": "beachy-spellstack",
+      "flair": "beachy",
+      "author": "wavecheck_gg",
+      "minutesAgo": 95,
+      "title": "beachy's spell-stacking thing is way better than people give it credit for",
+      "body": [
+        "the hp is fine whatever, but the part that actually wins games for me is the stacking spell buff every cast. by the third or fourth cast in a fight my beachy carry is just doing more per hit than it started with, and it snowballs the longer the fight drags on. feels like a trait built for slow grindy fights specifically."
+      ],
+      "ups": 58,
+      "downs": 6,
+      "comments": [
+        {
+          "author": "calc_this",
+          "ups": 14,
+          "downs": 0,
+          "body": "makes sense on paper, the buff is permanent for the fight and stacks per cast, so anything that casts a lot benefits more than a slow one-cast unit would.",
+          "replies": [
+            {
+              "author": "wavecheck_gg",
+              "ups": 6,
+              "downs": 0,
+              "body": "glad the permanent-stacking detail landed, that's the part i most wanted people to notice",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "durastealgang",
+          "ups": 9,
+          "downs": 1,
+          "body": "tapu fini running this is disgusting, whirlpool spam plus the stacking buff is a nightmare to sit through.",
+          "replies": [
+            {
+              "author": "curveseemsright",
+              "ups": 5,
+              "downs": 1,
+              "body": "linking my hp-curve post, this trait keeps showing up in the 'quietly well tuned' pile alongside it",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "curveseemsright",
+          "ups": 6,
+          "downs": 0,
+          "body": "linking my own post, the hp number on this trait feels tuned right alongside the spell stacking described here",
+          "replies": []
+        },
+        {
+          "author": "offmeta_ok",
+          "ups": 5,
+          "downs": 1,
+          "body": "slow grindy fights being the ideal case for this trait matches what i've seen too",
+          "replies": []
+        },
+        {
+          "author": "afstacker",
+          "ups": 4,
+          "downs": 0,
+          "body": "the stacking-per-cast design pattern shows up in a lot of the good traits, this is another example of it",
+          "replies": []
+        }
+      ]
+    },
+    {
+      "id": "roughneck-execute",
+      "flair": "roughneck",
+      "author": "omnivampenjoyer",
+      "minutesAgo": 620,
+      "title": "roughneck's execute-adjacent bonus damage under 50% hp doesn't get talked about enough",
+      "body": [
+        "the attack and omnivamp are nice on their own but the bonus damage to anything under half health is what actually closes out fights for me. it turns my roughneck from 'sustains forever' into 'sustains forever AND finishes people off,' which feels like it should be one or the other, not both."
+      ],
+      "ups": 38,
+      "downs": 4,
+      "comments": [
+        {
+          "author": "calc_this",
+          "ups": 11,
+          "downs": 0,
+          "body": "yeah stacking omnivamp with bonus execute damage is a weird combo to give one trait, usually that split gets divided between two different traits in games like this.",
+          "replies": [
+            {
+              "author": "truedamagelover",
+              "ups": 5,
+              "downs": 0,
+              "body": "agreed, feels like this trait got the leftover design space from two other traits that didn't need the whole kit",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "truedamagelover",
+          "ups": 4,
+          "downs": 0,
+          "body": "omnivamp plus execute on the same trait really is an unusual combo, good catch in the original post",
+          "replies": []
+        },
+        {
+          "author": "offmeta_ok",
+          "ups": 3,
+          "downs": 1,
+          "body": "roughneck doesn't get nearly enough threads considering how much it's doing",
+          "replies": []
+        },
+        {
+          "author": "sustainoverdamage",
+          "ups": 4,
+          "downs": 0,
+          "body": "sustain and execute on the same trait really shouldn't work as well together as it does",
+          "replies": [
+            {
+              "author": "truedamagelover",
+              "ups": 4,
+              "downs": 1,
+              "body": "agreed, feels like a leftover design space from two other traits stitched onto one, still works though",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "offmeta_ok",
+          "ups": 3,
+          "downs": 1,
+          "body": "underdiscussed trait in general, glad this got a thread",
+          "replies": []
+        }
+      ]
+    },
+    {
+      "id": "stalwart-comeback",
+      "flair": "stalwart",
+      "author": "secondwindgang",
+      "minutesAgo": 890,
+      "title": "the two-stage stalwart armor buff is sneaky good and nobody notices until it's too late",
+      "body": [
+        "first breakpoint at 60% hp, second at 30%, both permanent for the fight. by the time a stalwart unit is actually low it's already tankier than it started, which feels backwards in a good way. most units get worse as they take damage, these get better."
+      ],
+      "ups": 44,
+      "downs": 2,
+      "comments": [
+        {
+          "author": "justwantHPplz",
+          "ups": 13,
+          "downs": 0,
+          "body": "pairs so well with bruiser's flat hp too, more hp to survive to the first threshold, more defense once you're there",
+          "replies": []
+        },
+        {
+          "author": "fairlossgang",
+          "ups": 6,
+          "downs": 0,
+          "body": "linking my own post, losing to a stalwart board specifically is what inspired that whole take",
+          "replies": [
+            {
+              "author": "fairlossgang",
+              "ups": 5,
+              "downs": 0,
+              "body": "replying to my own post, this thread's the mechanical explanation for why losing to it feels fair, good pairing of posts",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "hpstacker",
+          "ups": 4,
+          "downs": 1,
+          "body": "the 'gets better as it takes damage' framing is such a clean way to describe this, stealing it",
+          "replies": [
+            {
+              "author": "secondwindgang",
+              "ups": 5,
+              "downs": 0,
+              "body": "'gets better as it takes damage' is exactly the framing i wish i'd used in my own post, stealing it back",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "secondwindgang",
+          "ups": 5,
+          "downs": 0,
+          "body": "replying to my own post, still think this is the best-designed defensive trait in the game",
+          "replies": []
+        },
+        {
+          "author": "hpstacker",
+          "ups": 4,
+          "downs": 1,
+          "body": "permanent-for-the-fight buffs like this age really well into a long grindy match specifically",
+          "replies": []
+        },
+        {
+          "author": "offmeta_ok",
+          "ups": 3,
+          "downs": 0,
+          "body": "the two-stage threshold design is clean, no notes",
+          "replies": []
+        }
+      ]
+    },
+    {
+      "id": "crashout-lowhp",
+      "flair": "crashout",
+      "author": "lowhphighdmg",
+      "minutesAgo": 260,
+      "title": "crashout doubling its damage amp under 75% team hp is a genuinely scary design",
+      "body": [
+        "so the trait gets stronger exactly when your team is losing. means the games where i'm getting run over are also the games where my crashout units suddenly hit twice as hard. either that saves me or it just delays a loss, but it's never boring."
+      ],
+      "ups": 55,
+      "downs": 6,
+      "comments": [
+        {
+          "author": "justwantHPplz",
+          "ups": 16,
+          "downs": 4,
+          "body": "this is the exact opposite of my whole philosophy and somehow it also works, hate that",
+          "replies": [
+            {
+              "author": "lowhphighdmg",
+              "ups": 5,
+              "downs": 0,
+              "body": "replying to my own post, can confirm it's still the most swingy trait i run, love it and hate it in equal measure",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "lowhphighdmg",
+          "ups": 6,
+          "downs": 0,
+          "body": "replying to my own post, can confirm it's still terrifying every single time it triggers, good or bad",
+          "replies": []
+        },
+        {
+          "author": "hpstacker",
+          "ups": 5,
+          "downs": 2,
+          "body": "feels like a trait built for people who are bad at managing their team's health, which, no shade, but that's a specific audience",
+          "replies": [
+            {
+              "author": "hpstacker",
+              "ups": 4,
+              "downs": 2,
+              "body": "'bad at managing team hp' is a little harsh, sometimes the enemy just has more damage than you do, that's not mismanagement",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "offmeta_ok",
+          "ups": 4,
+          "downs": 0,
+          "body": "high variance traits are always going to be divisive, that's sort of the point of them",
+          "replies": []
+        },
+        {
+          "author": "clutchorbust",
+          "ups": 4,
+          "downs": 1,
+          "body": "high variance traits like this are exactly why some games feel like a coinflip even when you played fine",
+          "replies": []
+        },
+        {
+          "author": "offmeta_ok",
+          "ups": 3,
+          "downs": 0,
+          "body": "the double-amp-when-losing design is genuinely one of the more interesting risk-reward traits in the game",
+          "replies": []
+        }
+      ]
+    },
+    {
+      "id": "substitutor-dummy",
+      "flair": "substitutor",
+      "author": "freedummy",
+      "minutesAgo": 730,
+      "title": "the substitute dummy left behind on death is way more useful than a 'oh well i died' consolation prize",
+      "body": [
+        "it eats a full extra rotation of attacks from whoever was targeting the original unit. i've watched enemy carries waste their entire kit on a dummy that does nothing while my actual team keeps fighting somewhere else."
+      ],
+      "ups": 34,
+      "downs": 2,
+      "comments": [
+        {
+          "author": "calc_this",
+          "ups": 10,
+          "downs": 0,
+          "body": "the higher-star substitutes having more health makes this scale weirdly well, a 3-star substitutor basically leaves behind a second body worth fighting through.",
+          "replies": [
+            {
+              "author": "calc_this",
+              "ups": 5,
+              "downs": 0,
+              "body": "the higher-star scaling point is what actually sold me on this trait too, a 1-star substitute barely does anything by comparison",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "quietfrontline",
+          "ups": 4,
+          "downs": 0,
+          "body": "an extra body to fight through is such a quietly strong death effect, underrated trait overall",
+          "replies": [
+            {
+              "author": "freedummy",
+              "ups": 4,
+              "downs": 1,
+              "body": "replying to my own post, still think this is one of the best-designed death effects in the game and it's criminally underposted about",
+              "replies": []
+            }
+          ]
+        },
+        {
+          "author": "offmeta_ok",
+          "ups": 3,
+          "downs": 1,
+          "body": "the higher-star scaling mentioned in the replies is the part that actually sold me on this",
+          "replies": []
+        },
+        {
+          "author": "freedummy",
+          "ups": 5,
+          "downs": 0,
+          "body": "replying to my own post, still think this is one of the best death effects in the game and nobody talks about it",
+          "replies": []
+        },
+        {
+          "author": "quietfrontline",
+          "ups": 4,
+          "downs": 1,
+          "body": "an extra full rotation of enemy attacks wasted is such a strong effect for something that triggers automatically",
+          "replies": []
+        }
+      ]
+    }
+  ]
+}
