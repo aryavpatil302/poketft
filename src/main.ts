@@ -2536,9 +2536,6 @@ function leaveLobby(): void {
   run = loadRun() ?? newRun(botSeats())
   history.replaceState(null, '', location.origin + location.pathname)
   hideLobbyScreen()
-  // Restores what bootNetworked() hides below — a guest backing out and then
-  // starting a solo game must get the test-mode/combat controls back.
-  document.getElementById('combat-bar')!.style.display = 'flex'
   showTitleScreen(titleScreenHandlers())
 }
 
@@ -2553,6 +2550,9 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
   // lives alongside are all solo/local-sim concepts — a networked round is
   // entirely server-driven, so none of them apply or do anything meaningful
   // once connected. leaveLobby() restores this if a guest backs out to solo.
+  // Belt-and-suspenders: the generic econActive() toggle in
+  // updateEconVisibility() now enforces this same hide/show on every boot
+  // path, so this line is redundant-by-design, not the sole mechanism.
   document.getElementById('combat-bar')!.style.display = 'none'
 
   const shareUrl = shareableLobbyUrl(location.origin, code)
@@ -4577,7 +4577,7 @@ document.getElementById('item-bench')!.addEventListener('click', () => {
 
 // Show/hide all economy vs test-tools UI based on testModeActive.
 // The shop + bench stay visible DURING combat (TFT lets you shop mid-fight);
-// only game over hides them.
+// only game over hides them. Also owns the floating combat panel toggle below.
 function updateEconVisibility(): void {
   const econ = econActive()
   const showEconPanels = econ && econPhase !== 'gameOver'
@@ -4585,6 +4585,12 @@ function updateEconVisibility(): void {
   document.getElementById('item-bench')!.style.display = showEconPanels ? 'flex' : 'none'
   document.getElementById('roster-section')!.style.display = econ ? 'none' : ''
   document.getElementById('lobby-panel')!.style.display = econ ? 'block' : 'none'
+  // The floating combat panel is a Test Mode instrument only: economy mode's
+  // round loop is fully timer-driven (planning countdown auto-starts combat;
+  // post-fight auto-reset reopens planning), so none of these controls are
+  // ever required there. Gate on econ, not showEconPanels, so it stays
+  // hidden at game over too.
+  document.getElementById('combat-bar')!.style.display = econ ? 'none' : 'flex'
   for (const id of ['test-tools-header', 'test-tools-dummies', 'test-tools-tests']) {
     const el = document.getElementById(id)
     if (el) el.style.display = econ ? 'none' : ''
