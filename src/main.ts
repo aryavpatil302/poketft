@@ -592,6 +592,12 @@ let boardOffsetY = 0
 type EconPhase = 'planning' | 'combat' | 'itemRound' | 'gameOver'
 let econPhase: EconPhase = 'planning'
 
+// Test mode is chosen on the Title Screen and never changes afterwards:
+// there is no in-game toggle, so this is written exactly once, by
+// bootTestMode(). Declared up here for the same reason econPhase is —
+// econActive() reads it and resizeCanvases() runs at module init.
+let testModeActive = false
+
 // Economy mode reserves a strip at the bottom of canvas-wrap for the bench +
 // shop bar; the board (and everything anchored to it) shifts up to make room.
 // Measured from the real DOM element (not a guessed constant) so the board
@@ -1935,7 +1941,10 @@ function loadScenario(scenario: TestScenario): void {
   combatRunning = false
   combatState   = null
   placedUnits.clear()
-  ;(document.getElementById('chk-test-mode') as HTMLInputElement).checked = true
+  // Defensive only: the Test Tools panel that reaches this function is
+  // display:none outside test mode, and there is no longer any way to be in
+  // economy mode when it runs — but setting the flag here costs nothing.
+  testModeActive = true
 
   for (const u of scenario.units) {
     const unit = makeUnit(u.id, u.team, u.tier)
@@ -2088,11 +2097,10 @@ function getPlacedUnitsArray(): Unit[] {
 function placeUnit(hex: OffsetCoord): void {
   if (!selectedUnitId) return
   if (econActive()) return   // economy mode places units via the bench, not the roster
-  const testMode = (document.getElementById('chk-test-mode') as HTMLInputElement).checked
 
   // Normal mode: player units only on rows 4–7
   // Test mode: any unit on any row; row determines team
-  if (!testMode && ![4, 5, 6, 7].includes(hex.row)) return
+  if (!testModeActive && ![4, 5, 6, 7].includes(hex.row)) return
 
   const key  = hexId(hex)
   const team = hex.row <= 3 ? 'enemy' : 'player'
@@ -2913,9 +2921,10 @@ function startNetPlayback(log: FightLog): void {
   applyLayoutMode()
 }
 
+// Economy mode is the default; test mode is a boot-time destination chosen
+// on the Title Screen (see bootTestMode()), never toggled mid-game.
 function econActive(): boolean {
-  const chk = document.getElementById('chk-test-mode') as HTMLInputElement | null
-  return chk ? !chk.checked : false
+  return !testModeActive
 }
 
 // Test mode always shows traits as a floating overlay on the canvas (no boxed
@@ -5077,11 +5086,9 @@ function startCombat(): void {
   // guard with playback of the server's log.
   if (isNetworked()) return
 
-  const testMode = (document.getElementById('chk-test-mode') as HTMLInputElement).checked
-
   // Delibird item round (economy mode only): no combat — the player picks one of
   // three offered items. Runs its own overlay sequence, then advances the round.
-  if (!testMode && econActive() && econPhase !== 'itemRound' && !run.gameOver && isItemRound(run.round)) {
+  if (!testModeActive && econActive() && econPhase !== 'itemRound' && !run.gameOver && isItemRound(run.round)) {
     startItemRound()
     return
   }
@@ -5096,7 +5103,7 @@ function startCombat(): void {
   let playerUnits = allPlaced.filter(u => u.team === 'player')
   let enemyUnits  = allPlaced.filter(u => u.team === 'enemy')
 
-  if (testMode) {
+  if (testModeActive) {
     // Test mode: use exactly what's placed — no mirroring, no auto enemies.
     // Need at least one unit on each side for the win condition to work.
     // Unlike economy mode, test mode has no RunState and no round to
@@ -5910,7 +5917,6 @@ function frame(ts: number): void {
   if (combatRunning && combatState) {
     accumulator += dt
     const step = 1 / TICK_RATE
-    const testMode = (document.getElementById('chk-test-mode') as HTMLInputElement).checked
 
     // ─── Catch-up after a gap in rendering ──────────────────────────────────
     // Only playback can do this, and only playback needs to. applyFrame is an
@@ -5999,7 +6005,7 @@ function frame(ts: number): void {
         // Test mode only — tickCombat's header comment records that.
         done = tickCombat(combatState)
         // In test mode: suppress the tick-limit timeout, but still stop on a real team wipe
-        if (testMode && combatState.phase === 'combat') done = false
+        if (testModeActive && combatState.phase === 'combat') done = false
         renderDamageMeter()
       }
       for (const [id, u] of combatState.units) posCache.set(id, { ...u.visualPos })
