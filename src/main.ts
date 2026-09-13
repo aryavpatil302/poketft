@@ -374,14 +374,12 @@ document.getElementById('app')!.innerHTML = `
           border-top-right-radius:8px;
         ">▾</button>
 
-        <!-- Row 1: test mode toggle (stays visible when collapsed) -->
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:#99bbdd;padding-right:44px;box-sizing:border-box;">
-          <input type="checkbox" id="chk-test-mode" style="cursor:pointer;">
-          Test Mode
-          <span style="color:#445;font-size:10px;">(free placement)</span>
-        </label>
+        <!-- Row 1: panel title. Holds the strip the drag handle and collapse button
+             occupy (both 26px wide at top:0) so the action rows below cannot slide
+             up underneath them. -->
+        <div style="font-size:11px;color:#66809f;padding-right:44px;box-sizing:border-box;user-select:none;">Combat</div>
 
-        <!-- Collapsible body: everything below the Test Mode row -->
+        <!-- Collapsible body: everything below the title row -->
         <div id="combat-bar-body" style="display:flex;flex-direction:column;gap:6px;">
           <!-- Row 2: action buttons (always visible) -->
           <div style="display:flex;gap:5px;">
@@ -4577,7 +4575,7 @@ document.getElementById('item-bench')!.addEventListener('click', () => {
   renderItemBench()
 })
 
-// Show/hide all economy vs test-tools UI based on the mode checkbox.
+// Show/hide all economy vs test-tools UI based on testModeActive.
 // The shop + bench stay visible DURING combat (TFT lets you shop mid-fight);
 // only game over hides them.
 function updateEconVisibility(): void {
@@ -5477,30 +5475,6 @@ function setCombatBarState(state: 'idle' | 'running' | 'paused'): void {
   }
 }
 
-document.getElementById('chk-test-mode')!.addEventListener('change', () => {
-  // Test mode is free placement with no RunState at all; entering it from a
-  // lobby would leave this tab shopping against a room it is no longer
-  // showing. The toggle is reverted rather than merely ignored, so the
-  // checkbox never disagrees with econActive().
-  if (isNetworked()) {
-    (document.getElementById('chk-test-mode') as HTMLInputElement).checked = false
-    showRejectNotice('Test mode is not available inside a lobby.')
-    return
-  }
-  if (combatRunning) resetCombat()
-  cancelHeldUnit()
-  if (econActive()) {
-    // Back to economy mode: discard test placements, restore the run board
-    if (run.gameOver) enterGameOver(run.gameOver)
-    else startPlanningPhase(false)
-  } else {
-    // Into test mode: hide econ UI, keep whatever is placed for testing
-    planningTimerStartTs = null
-    document.getElementById('gameover-box')!.style.display = 'none'
-    updateEconVisibility()
-  }
-})
-
 document.getElementById('btn-start')!.addEventListener('click', () => {
   if (combatState && !combatRunning) {
     // Resume from pause
@@ -5564,9 +5538,9 @@ document.getElementById('btn-start')!.addEventListener('click', () => {
   })
 })()
 
-// Collapse toggle for the combat/test-mode panel — hides everything below the
-// Test Mode row (start/pause/stop/reset, speed, result box) so it can be
-// shrunk out of the way without losing the Test Mode checkbox.
+// Collapse toggle for the combat panel — hides everything below the title
+// row (start/pause/stop/reset, speed, result box) so it can be shrunk out of
+// the way without losing the panel title.
 ;(() => {
   const btn = document.getElementById('btn-combat-bar-collapse') as HTMLButtonElement | null
   const body = document.getElementById('combat-bar-body') as HTMLElement | null
