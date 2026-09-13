@@ -66,7 +66,7 @@ import {
 } from './net/roomClock'
 import { parseLobbyCode, partyHost, newLobbyCode, shareableLobbyUrl } from './net/lobbyUrl'
 import { escapeHtml } from './ui/escapeHtml'
-import { showTitleScreen, hideTitleScreen } from './ui/titleScreen'
+import { showTitleScreen, hideTitleScreen, type TitleScreenHandlers } from './ui/titleScreen'
 import { enterFullscreen } from './ui/fullscreen'
 import { showLobbyScreen, updateLobbyScreen, setLobbyMessage, hideLobbyScreen } from './ui/lobbyScreen'
 import { pickGuestName } from './net/guestNames'
@@ -2539,7 +2539,7 @@ function leaveLobby(): void {
   // Restores what bootNetworked() hides below — a guest backing out and then
   // starting a solo game must get the test-mode/combat controls back.
   document.getElementById('combat-bar')!.style.display = 'flex'
-  showTitleScreen({ onSolo: () => { void enterFullscreen(); hideTitleScreen(); bootSolo() }, onMultiplayer })
+  showTitleScreen(titleScreenHandlers())
 }
 
 // `opts.isHost` is a UI HINT ONLY — it decides which control the Lobby Screen
@@ -6201,6 +6201,32 @@ function bootSolo(): void {
   }
 }
 
+// Test mode is a Title Screen destination, not a mode a live game can flip
+// into, so the flag is set once here and never again. No RunState is touched:
+// test mode has never had an economy run behind it, which is why this is
+// bootSolo()'s else-branch and nothing more. updateEconVisibility() calls
+// applyLayoutMode() and resizeCanvases() itself, so one call raises the
+// whole dev view.
+//
+// No enterFullscreen() here, unlike Solo: this is the dev view (both
+// sidebars up, devtools expected) and it is the button the Selenium suite
+// drives, where a fullscreen request is only a source of flake.
+function bootTestMode(): void {
+  testModeActive = true
+  updateEconVisibility()
+}
+
+// Both the boot router and leaveLobby() raise the same screen; building the
+// handlers once is what keeps a newly added button from reaching only one of
+// them.
+function titleScreenHandlers(): TitleScreenHandlers {
+  return {
+    onSolo:     () => { void enterFullscreen(); hideTitleScreen(); bootSolo() },
+    onMultiplayer,
+    onTestMode: () => { hideTitleScreen(); bootTestMode() },
+  }
+}
+
 // Creates a room and becomes its host. 04-UI-SPEC.md Flow step 4.
 //
 // Once set, the URL's lobby code is the SOLE source of truth for which room
@@ -6236,7 +6262,7 @@ if (bootLobbyCode !== null) {
   // makes a HOST'S OWN REFRESH land back on a Start button.
   bootNetworked(bootLobbyCode, { isHost: false })
 } else {
-  showTitleScreen({ onSolo: () => { void enterFullscreen(); hideTitleScreen(); bootSolo() }, onMultiplayer })
+  showTitleScreen(titleScreenHandlers())
 }
 
 // Starts unconditionally in both branches, so the canvas is already warm
