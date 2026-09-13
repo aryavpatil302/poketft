@@ -72,6 +72,7 @@ import { showLobbyScreen, updateLobbyScreen, setLobbyMessage, hideLobbyScreen } 
 import { pickGuestName } from './net/guestNames'
 import { TRAIT_TOOLTIPS } from './data/traitTooltips'
 import { REPO_TESTS } from './repoTests'
+import { readSavedTests, writeSavedTests, type TestScenario, type TestUnit } from './testScenarioStore'
 import type { CombatState, Unit, ItemDefinition } from './core/types'
 import type { OffsetCoord } from './core/hexGrid'
 
@@ -1897,23 +1898,11 @@ function renderRoster() {
 renderRoster()
 
 // ─── Quick test scenarios ─────────────────────────────────────────────────────
+// TestUnit/TestScenario now live in ./testScenarioStore, kept in scope here via
+// the import above (still referenced below by loadScenario's parameter type
+// and snapshotCurrentBoard's local array).
 
-// Each unit stores its own team so snapshots and built-in tests share one format.
-interface TestUnit { id: string; tier: 1|2|3; col: number; row: number; team: 'player'|'enemy' }
-interface TestScenario { label: string; units: TestUnit[] }
-
-
-// ─── Snapshot persistence (localStorage) ──────────────────────────────────────
-
-const SNAPSHOT_KEY = 'pokeTFT_saved_tests'
-
-function loadSnapshots(): TestScenario[] {
-  try { return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? '[]') } catch { return [] }
-}
-
-function saveSnapshots(snaps: TestScenario[]): void {
-  localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snaps))
-}
+// ─── Snapshot persistence (cookie) ─────────────────────────────────────────────
 
 function snapshotCurrentBoard(label: string): void {
   if (placedUnits.size === 0) return
@@ -1922,16 +1911,21 @@ function snapshotCurrentBoard(label: string): void {
     units.push({ id: u.definitionId, tier: u.tier, col: u.hexPos.col, row: u.hexPos.row, team: u.team })
   }
   const scenario: TestScenario = { label, units }
-  const snaps = loadSnapshots()
+  const snaps = readSavedTests()
   snaps.push(scenario)
-  saveSnapshots(snaps)
+  const result = writeSavedTests(snaps)
+  if (!result.ok) {
+    showRejectNotice(`Save rejected: ${result.bytes} bytes exceeds the ${result.budget}-byte cookie budget. Delete an existing saved test to free up space.`)
+    return
+  }
   renderTestButtons()
 }
 
 function deleteSnapshot(idx: number): void {
-  const snaps = loadSnapshots()
+  const snaps = readSavedTests()
   snaps.splice(idx, 1)
-  saveSnapshots(snaps)
+  // A delete only ever shrinks the payload, so it cannot fail the byte budget.
+  writeSavedTests(snaps)
   renderTestButtons()
 }
 
@@ -1980,8 +1974,8 @@ function renderTestButtons(): void {
     })
   })
 
-  // ── Local tests (localStorage, saveable/deleteable) ───────────────────────
-  const snapshots    = loadSnapshots()
+  // ── Local tests (cookie-backed, saveable/deleteable) ───────────────────────
+  const snapshots    = readSavedTests()
   // Reverse so most-recently saved appears first; keep original index for delete
   const reversedSnapshots = snapshots.map((s, i) => ({ s, i })).reverse()
   const filteredLocal = query
@@ -5801,7 +5795,7 @@ function updateUnitInfoPanel(): void {
 
 document.getElementById('btn-snapshot')!.addEventListener('click', () => {
   const input = document.getElementById('snapshot-name') as HTMLInputElement
-  const label = input.value.trim() || `Board ${loadSnapshots().length + 1}`
+  const label = input.value.trim() || `Board ${readSavedTests().length + 1}`
   snapshotCurrentBoard(label)
   input.value = ''
 })
@@ -5813,7 +5807,7 @@ document.getElementById('btn-push-all-tests')!.addEventListener('click', async (
   const btn = document.getElementById('btn-push-all-tests') as HTMLButtonElement
   btn.textContent = '⏳ Pushing…'
   btn.disabled    = true
-  const snaps     = loadSnapshots()
+  const snaps     = readSavedTests()
   for (const snap of snaps) {
     await fetch('/api/save-test', {
       method: 'POST',
