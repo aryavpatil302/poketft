@@ -34,14 +34,15 @@ function advanceLeaps(unit: Unit, state: CombatState, maxTicks = 3000): void {
 }
 
 describe('Talonflame - Brave Bird (shiny)', () => {
-  it('(a) shiny — a lethal hit heals the caster for 75% of the damage dealt', () => {
+  it('(a) shiny — a lethal hit heals the caster for 75% of the target\'s remaining HP, not the raw damage', () => {
     const caster = makeUnit('talonflame', 'player', 1)
     caster.isShiny = true
     caster.hexPos = { col: 3, row: 5 }
 
+    const enemyHp = 1
     const weakEnemy = makeUnit('dummy', 'enemy', 1)
-    weakEnemy.maxHp = 1
-    weakEnemy.currentHp = 1
+    weakEnemy.maxHp = enemyHp
+    weakEnemy.currentHp = enemyHp
     weakEnemy.defense = 0
     weakEnemy._computedStats = null
     weakEnemy.hexPos = { col: 3, row: 2 }
@@ -56,8 +57,10 @@ describe('Talonflame - Brave Bird (shiny)', () => {
     cast(caster, state)
     advanceLeaps(caster, state)
 
+    // Sanity: this is genuinely an overkill case (raw damage exceeds the HP available).
     const dealt = braveBirdBase(caster, 1)
-    expect(caster.currentHp - hpBefore).toBe(Math.round(dealt * 0.75))
+    expect(dealt).toBeGreaterThan(enemyHp)
+    expect(caster.currentHp - hpBefore).toBe(Math.round(enemyHp * 0.75))
   })
 
   it('(b) shiny — a non-lethal hit does NOT heal the caster', () => {
@@ -108,5 +111,38 @@ describe('Talonflame - Brave Bird (shiny)', () => {
 
     expect(weakEnemy.state).toBe('dead')
     expect(caster.currentHp).toBe(hpBefore)
+  })
+
+  // (d) pins the capped contract with numbers where the two formulas genuinely diverge:
+  // if the clamp were removed, the heal would jump from 90 (75% of the 120 HP remaining)
+  // to 184 (75% of the raw 245 damage) — the exact-heal assertion below is load-bearing.
+  it('(d) shiny — overkill on a target with meaningful HP still heals only 75% of that HP, not the raw hit', () => {
+    const caster = makeUnit('talonflame', 'player', 1)
+    caster.isShiny = true
+    caster.hexPos = { col: 3, row: 5 }
+
+    const enemyHp = 120
+    const enemy = makeUnit('dummy', 'enemy', 1)
+    enemy.maxHp = enemyHp
+    enemy.currentHp = enemyHp
+    enemy.defense = 0
+    enemy._computedStats = null
+    enemy.hexPos = { col: 3, row: 2 }
+
+    const state = createCombatState([caster], [enemy])
+    caster.critChance = 0
+    caster._computedStats = null
+    // Headroom for the heal to land in full.
+    caster.currentHp = Math.round(caster.maxHp / 2)
+    const hpBefore = caster.currentHp
+
+    cast(caster, state)
+    advanceLeaps(caster, state)
+
+    const dealt = braveBirdBase(caster, 1)
+    expect(enemy.state).toBe('dead')
+    expect(dealt).toBeGreaterThan(enemyHp)   // genuine overkill
+    expect(caster.currentHp - hpBefore).toBe(Math.round(enemyHp * 0.75))
+    expect(Math.round(enemyHp * 0.75)).toBeLessThan(Math.round(dealt * 0.75))
   })
 })
