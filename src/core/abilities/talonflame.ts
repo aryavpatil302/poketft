@@ -62,19 +62,23 @@ function diveAt(
   startLeap(unit, enemyHex, state, haste, (u: Unit, s: CombatState) => {
     const tgt = s.units.get(target.id)
     if (tgt && tgt.state !== 'dead') {
+      const hpBefore = tgt.currentHp
       const result = applyDamage(u, tgt, {
         baseAmount: finalDmg,
         damageType: 'physical',
         canCrit: true,
         abilityId: 'talonflame_brave_bird',
       }, s)
-      // Shiny Talonflame: a lethal Brave Bird heals for 75% of the damage dealt.
+      // Shiny Talonflame: a lethal Brave Bird heals for 75% of the HP the target
+      // actually had left, not the raw hit — overkill damage must not inflate the
+      // heal. Comparing finalDamage (post-shield HP damage) against hpBefore
+      // compares like with like even when the target had a shield.
       // Re-fetch the live unit rather than reusing `tgt` — the guard above
       // narrows `tgt.state` to exclude 'dead', but applyDamage can still kill
       // it, so `tgt.state` itself is stale for this check.
       if (unit.isShiny && s.units.get(target.id)?.state === 'dead') {
         // Lethal-kill lifesteal is shiny-only — credit it to the shiny rollup.
-        applyHeal(u, Math.round(result.finalDamage * 0.75), u.id, s, 'shiny:' + unit.definitionId)
+        applyHeal(u, Math.round(Math.min(result.finalDamage, hpBefore) * 0.75), u.id, s, 'shiny:' + unit.definitionId)
       }
     }
 
