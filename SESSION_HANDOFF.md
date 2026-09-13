@@ -14,9 +14,9 @@ The repo also has four other reference docs, each authoritative for its own area
 A **Pokémon-TFT-style auto-battler** built solo with TypeScript + Vite + Canvas (no game engine, no React — hand-rolled render loop and DOM). Two modes:
 
 - **Normal / economy mode** (default): the real TFT meta-game — shop, gold, XP, bench, star-ups, 5 persistent AI bot opponents sharing one unit pool with the human player, round-robin PvP-style bot matches, round after round until someone's eliminated.
-- **Test mode** (checkbox in the bottom-right dev panel): free unit placement on both sides, Start/Pause/Stop/Reset + 0.5×/1×/2×/4× speed controls, for testing abilities/traits/combat in isolation without the economy layer. This is almost certainly what you want when verifying an ability or animation change visually.
+- **Test mode** (its own Title Screen button): free unit placement on both sides, Start/Pause/Stop/Reset + 0.5×/1×/2×/4× speed controls, for testing abilities/traits/combat in isolation without the economy layer. This is almost certainly what you want when verifying an ability or animation change visually.
 
-Run `npm run dev` and open the printed localhost URL (Vite default port 5173, no custom port configured in `vite.config.ts`). Key DOM elements for Playwright: `#chk-test-mode` (checkbox), `#btn-start`, `#btn-pause`, `#btn-stop`, `#btn-reset`, `#speed-buttons` (child buttons have `data-spd` attributes: 0.5/1/2/4).
+Run `npm run dev` and open the printed localhost URL (Vite default port 5173, no custom port configured in `vite.config.ts`). Key DOM elements for Playwright: `#btn-title-testmode` (Title Screen button — click to enter test mode), `#btn-start`, `#btn-pause`, `#btn-stop`, `#btn-reset`, `#speed-buttons` (child buttons have `data-spd` attributes: 0.5/1/2/4).
 
 ## Architecture map
 
@@ -153,5 +153,5 @@ Chronological summary of everything done in the conversation that produced this 
 ## Suggested first steps with Playwright
 
 1. Confirm the `playwright` MCP tools are actually present (they require the new session to have picked up the `~/.claude.json` change).
-2. `npm run dev`, navigate to the printed URL, check the **Test Mode** checkbox (`#chk-test-mode`) to get free placement.
+2. `npm run dev`, navigate to the printed URL, click the **Test Mode** button on the Title Screen (`#btn-title-testmode`) to get free placement.
 3. A good smoke test given this session's work: place an Excadrill (adjacent to 2+ enemies) and a couple of enemies, hit Start, and visually confirm (a) the tunnel shrink/brown-tint dash, (b) the landing hop+rumble, (c) the empowered attacks orbiting his 3 attacks around adjacent hexes without hitting anything 2 hexes away, and (d) no two units ever overlapping a hex during any of this.

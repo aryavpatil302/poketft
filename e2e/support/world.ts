@@ -94,13 +94,22 @@ class PokeTFTWorldImpl extends World implements PokeTFTWorld {
     await this.driver.sleep(100)
   }
 
-  // ─── Enable test mode ─────────────────────────────────────────────────────
+  // ─── Enable test mode (Title Screen button) ──────────────────────────────
 
+  // Test mode is a Title Screen destination now, not an in-game checkbox, so
+  // the only way in is the button on the overlay the app boots into. Waiting
+  // for #title-screen to stop being displayed matters: fadeScreenOut() only
+  // sets display:none after the fade, and a click landing mid-fade would be
+  // swallowed by the overlay.
   async enableTestMode(): Promise<void> {
-    const chk = await this.driver.findElement(By.id('chk-test-mode'))
-    const checked = await chk.isSelected()
-    if (!checked) await chk.click()
-    await this.driver.sleep(100)
+    const btn = await this.driver.wait(until.elementLocated(By.id('btn-title-testmode')), 10_000)
+    await this.driver.wait(until.elementIsVisible(btn), 10_000)
+    await btn.click()
+    await this.driver.wait(async () => {
+      const found = await this.driver.findElements(By.id('title-screen'))
+      return found.length === 0 || !(await found[0].isDisplayed())
+    }, 10_000)
+    await this.driver.sleep(200)
   }
 
   // ─── Start combat ─────────────────────────────────────────────────────────
