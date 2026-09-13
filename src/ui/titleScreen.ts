@@ -14,6 +14,7 @@ import {
 export interface TitleScreenHandlers {
   onSolo: () => void
   onMultiplayer: () => void
+  onTestMode: () => void
 }
 
 // ─── Overlay element ──────────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ function ensureRoot(): HTMLDivElement {
       <button id="btn-title-solo" type="button" style="${screenButtonCss()}">Start Solo Game</button>
       <button id="btn-title-multiplayer" type="button" style="${screenButtonCss()}">Start Multiplayer Game</button>
       <button id="btn-title-tutorial" type="button" style="${screenButtonCss()}">Tutorial</button>
-      <button id="btn-title-cheatsheet" type="button" style="${screenButtonCss()}">Cheat Sheet</button>
+      <button id="btn-title-testmode" type="button" style="${screenButtonCss()}">Test Mode</button>
     </div>
   `
   document.body.appendChild(el)
@@ -70,19 +71,19 @@ export function showTitleScreen(handlers: TitleScreenHandlers): void {
   const solo = button(root, 'btn-title-solo')
   const multiplayer = button(root, 'btn-title-multiplayer')
   const tutorial = button(root, 'btn-title-tutorial')
-  const cheatsheet = button(root, 'btn-title-cheatsheet')
+  const testmode = button(root, 'btn-title-testmode')
 
   // onclick (not addEventListener) so a re-show replaces the previous handler
   // instead of stacking a second one that would fire the callback twice.
   if (solo !== null) solo.onclick = () => handlers.onSolo()
   if (multiplayer !== null) multiplayer.onclick = () => handlers.onMultiplayer()
+  if (testmode !== null) testmode.onclick = () => handlers.onTestMode()
 
-  // Tutorial and Cheat Sheet render and are clickable, and do nothing at all.
-  // 04-UI-SPEC.md §Explicitly Out of Scope puts their CONTENT out of this
-  // phase; the buttons exist now so the 2x2 layout is the real layout rather
-  // than something a later phase has to re-lay-out around.
+  // Tutorial renders and is clickable, and does nothing at all. 04-UI-SPEC.md
+  // §Explicitly Out of Scope puts its CONTENT out of this phase; the button
+  // exists now so the 2x2 layout is the real layout rather than something a
+  // later phase has to re-lay-out around.
   if (tutorial !== null) tutorial.onclick = () => { /* no-op: see comment above */ }
-  if (cheatsheet !== null) cheatsheet.onclick = () => { /* no-op: see comment above */ }
 
   fadeScreenIn(root)
 }
