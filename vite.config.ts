@@ -19,6 +19,35 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'party/**/*.test.ts'],
   },
 
+  // Dev-only parity shim for the Title Screen's "Dev Blog" button. In
+  // production Netlify serves the real static blog files under this same
+  // origin (see the root netlify.toml), so the button's relative path
+  // resolves natively there and this block is never involved.
+  //
+  // Vite's own dev server has no idea the blog even exists — it's a
+  // separate Astro project with its own dev server. Without this proxy the
+  // button's same-origin `window.open('/blog', ...)` (deliberately written
+  // to mirror the production topology) just falls through to Vite's SPA
+  // fallback and reopens the game instead of the blog.
+  //
+  // Forward matching requests from this dev server (port 5173 by default)
+  // to the blog's Astro dev server (port 4321 by default), path untouched.
+  // No rewrite is needed: blog/astro.config.mjs already sets `base:
+  // '/blog/'`, so Astro serves its own pages under that same prefix — only
+  // the origin needs forwarding.
+  //
+  // Requires the blog's dev server running alongside this one
+  // (`cd blog && npm run dev`, next to the root `npm run dev`). If it isn't
+  // running the proxy just fails to connect — harmless, dev-only.
+  server: {
+    proxy: {
+      '/blog': {
+        target: 'http://localhost:4321',
+        changeOrigin: true,
+      },
+    },
+  },
+
   plugins: [
     // Trust boundary (T-05-02 / T-05-03): every VITE_-prefixed variable is
     // inlined verbatim into a world-readable bundle, and the room host this one
