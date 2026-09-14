@@ -14,6 +14,7 @@ import {
 export interface TitleScreenHandlers {
   onSolo: () => void
   onMultiplayer: () => void
+  onHelp: () => void
   onTestMode: () => void
 }
 
@@ -42,7 +43,7 @@ function ensureRoot(): HTMLDivElement {
     ">
       <button id="btn-title-solo" type="button" style="${screenButtonCss()}">Start Solo Game</button>
       <button id="btn-title-multiplayer" type="button" style="${screenButtonCss()}">Start Multiplayer Game</button>
-      <button id="btn-title-tutorial" type="button" style="${screenButtonCss()}">Tutorial</button>
+      <button id="btn-title-help" type="button" style="${screenButtonCss()}">Rules and Controls</button>
       <button id="btn-title-testmode" type="button" style="${screenButtonCss()}">Test Mode</button>
     </div>
   `
@@ -70,7 +71,7 @@ export function showTitleScreen(handlers: TitleScreenHandlers): void {
 
   const solo = button(root, 'btn-title-solo')
   const multiplayer = button(root, 'btn-title-multiplayer')
-  const tutorial = button(root, 'btn-title-tutorial')
+  const help = button(root, 'btn-title-help')
   const testmode = button(root, 'btn-title-testmode')
 
   // onclick (not addEventListener) so a re-show replaces the previous handler
@@ -79,11 +80,10 @@ export function showTitleScreen(handlers: TitleScreenHandlers): void {
   if (multiplayer !== null) multiplayer.onclick = () => handlers.onMultiplayer()
   if (testmode !== null) testmode.onclick = () => handlers.onTestMode()
 
-  // Tutorial renders and is clickable, and does nothing at all. 04-UI-SPEC.md
-  // §Explicitly Out of Scope puts its CONTENT out of this phase; the button
-  // exists now so the 2x2 layout is the real layout rather than something a
-  // later phase has to re-lay-out around.
-  if (tutorial !== null) tutorial.onclick = () => { /* no-op: see comment above */ }
+  // Opens the help modal OVER this screen — the Title Screen is deliberately
+  // never hidden here, because the modal is reference material, not a
+  // destination like Solo/Multiplayer/Test Mode.
+  if (help !== null) help.onclick = () => handlers.onHelp()
 
   fadeScreenIn(root)
 }

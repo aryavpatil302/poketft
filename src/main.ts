@@ -67,6 +67,7 @@ import {
 import { parseLobbyCode, partyHost, newLobbyCode, shareableLobbyUrl } from './net/lobbyUrl'
 import { escapeHtml } from './ui/escapeHtml'
 import { showTitleScreen, hideTitleScreen, type TitleScreenHandlers } from './ui/titleScreen'
+import { showHelpModal } from './ui/helpModal'
 import { enterFullscreen } from './ui/fullscreen'
 import { showLobbyScreen, updateLobbyScreen, setLobbyMessage, hideLobbyScreen } from './ui/lobbyScreen'
 import { pickGuestName } from './net/guestNames'
@@ -6229,6 +6230,7 @@ function titleScreenHandlers(): TitleScreenHandlers {
   return {
     onSolo:     () => { void enterFullscreen(); hideTitleScreen(); bootSolo() },
     onMultiplayer,
+    onHelp:     () => { showHelpModal() },
     onTestMode: () => { hideTitleScreen(); bootTestMode() },
   }
 }
