@@ -2,7 +2,7 @@
 // when the URL carries no `?lobby=` code.
 //
 // DOM only. No game logic, no networking, no imports that reach either: this
-// module renders four buttons and calls back. src/main.ts owns what those
+// module renders five buttons and calls back. src/main.ts owns what those
 // callbacks mean, which is what keeps the solo boot path and the lobby boot
 // path both readable in one place instead of leaking into the view.
 
@@ -16,6 +16,7 @@ export interface TitleScreenHandlers {
   onMultiplayer: () => void
   onHelp: () => void
   onTestMode: () => void
+  onBlog: () => void
 }
 
 // ─── Overlay element ──────────────────────────────────────────────────────────
@@ -35,16 +36,23 @@ function ensureRoot(): HTMLDivElement {
     ${screenHeaderHtml('title-screen')}
 
     <div style="
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      grid-template-rows: repeat(2, auto);
+      display: flex;
+      flex-direction: column;
       gap: 18px 22px;
       width: min(680px, 84vw);
     ">
-      <button id="btn-title-solo" type="button" style="${screenButtonCss()}">Start Solo Game</button>
-      <button id="btn-title-multiplayer" type="button" style="${screenButtonCss()}">Start Multiplayer Game</button>
-      <button id="btn-title-help" type="button" style="${screenButtonCss()}">Rules and Controls</button>
-      <button id="btn-title-testmode" type="button" style="${screenButtonCss()}">Test Mode</button>
+      <div style="
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: repeat(2, auto);
+        gap: 18px 22px;
+      ">
+        <button id="btn-title-solo" type="button" style="${screenButtonCss()}">Start Solo Game</button>
+        <button id="btn-title-multiplayer" type="button" style="${screenButtonCss()}">Start Multiplayer Game</button>
+        <button id="btn-title-help" type="button" style="${screenButtonCss()}">Rules and Controls</button>
+        <button id="btn-title-testmode" type="button" style="${screenButtonCss()}">Test Mode</button>
+      </div>
+      <button id="btn-title-blog" type="button" style="${screenButtonCss()}">Dev Blog</button>
     </div>
   `
   document.body.appendChild(el)
@@ -73,6 +81,7 @@ export function showTitleScreen(handlers: TitleScreenHandlers): void {
   const multiplayer = button(root, 'btn-title-multiplayer')
   const help = button(root, 'btn-title-help')
   const testmode = button(root, 'btn-title-testmode')
+  const blog = button(root, 'btn-title-blog')
 
   // onclick (not addEventListener) so a re-show replaces the previous handler
   // instead of stacking a second one that would fire the callback twice.
@@ -84,6 +93,10 @@ export function showTitleScreen(handlers: TitleScreenHandlers): void {
   // never hidden here, because the modal is reference material, not a
   // destination like Solo/Multiplayer/Test Mode.
   if (help !== null) help.onclick = () => handlers.onHelp()
+
+  // Opens the blog in a new tab, same reasoning as Help above — the Title
+  // Screen stays up so switching back to this tab lands on a live screen.
+  if (blog !== null) blog.onclick = () => handlers.onBlog()
 
   fadeScreenIn(root)
 }
