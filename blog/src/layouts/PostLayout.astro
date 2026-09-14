@@ -30,7 +30,7 @@ const formattedDate = date.toLocaleDateString('en-US', {
 })
 ---
 
-<BaseLayout title={`${title} — PokéTFT`} description={description} image={image}>
+<BaseLayout title={`${title} — PokeFight`} description={description} image={image}>
   <div class="page">
     <article>
       <header class="post-header">
@@ -63,7 +63,7 @@ const formattedDate = date.toLocaleDateString('en-US', {
           {prevPost && (
             <>
               <span class="post-nav-label">← Previous</span>
-              <a href={`/blog/${prevPost.slug}`} class="post-nav-title">
+              <a href={`${import.meta.env.BASE_URL}blog/${prevPost.slug}`} class="post-nav-title">
                 {prevPost.title}
               </a>
             </>
@@ -73,7 +73,7 @@ const formattedDate = date.toLocaleDateString('en-US', {
           {nextPost && (
             <>
               <span class="post-nav-label">Next →</span>
-              <a href={`/blog/${nextPost.slug}`} class="post-nav-title">
+              <a href={`${import.meta.env.BASE_URL}blog/${nextPost.slug}`} class="post-nav-title">
                 {nextPost.title}
               </a>
             </>

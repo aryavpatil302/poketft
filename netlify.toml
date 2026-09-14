@@ -34,7 +34,17 @@
   # this same command, so the verified path and the real deploy path cannot
   # diverge. Once the type debt is cleared, restoring the npm script here is
   # the correct move.
-  command = "npx vite build"
+  #
+  # blog/ is a second, independent Astro project with its own lockfile
+  # (blog/package-lock.json) — built separately with `npm ci` (not `install`,
+  # so the locked tree installs exactly) and copied into dist/blog/ after the
+  # game build, so one Netlify site/deploy serves both apps off one domain:
+  # the game at `/` and the devlog at `/blog`. The blog's `base: '/blog/'`
+  # (blog/astro.config.mjs) plus the BASE_URL-based rebasing of every
+  # hardcoded link in its templates is what makes the copied output resolve
+  # correctly from a subpath instead of emitting root-relative links that
+  # would collide with the game's own `/`.
+  command = "npx vite build && npm --prefix blog ci && npm --prefix blog run build && rm -rf dist/blog && cp -r blog/dist dist/blog"
   publish = "dist"
 
 [build.environment]
@@ -58,4 +68,4 @@
   # which is the exact failure this literal exists to prevent. Replace it only
   # with the real host printed by `npx partykit deploy` — bare host, no
   # scheme, no trailing slash.
-  VITE_PARTY_HOST = "REPLACE_ME_AFTER_PARTYKIT_DEPLOY"
+  VITE_PARTY_HOST = "room.pokefight.org"

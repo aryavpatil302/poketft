@@ -16,7 +16,7 @@ function formatDate(date: Date): string {
 }
 ---
 
-<BaseLayout title="PokéTFT — A Pokemon Auto-Battler Devlog">
+<BaseLayout title="PokeFight — A Pokemon Auto-Battler Devlog">
   <div class="page page--wide">
 
     <!-- Intro -->
@@ -27,7 +27,7 @@ function formatDate(date: Date): string {
         </h1>
         <div class="intro-body">
           <p>
-            PokéTFT is an original auto-battler set in the Pokemon world —
+            PokeFight is an original auto-battler set in the Pokemon world —
             every unit, trait, and mechanic designed from the ground up.
           </p>
           <p>
@@ -45,8 +45,8 @@ function formatDate(date: Date): string {
           If the file is missing this column is hidden.
         -->
         <img
-          src="/images/game-screenshot.png"
-          alt="PokéTFT gameplay"
+          src={`${import.meta.env.BASE_URL}images/game-screenshot.png`}
+          alt="PokeFight gameplay"
           class="intro-screenshot"
           onerror="this.parentElement.style.display='none'"
         />
@@ -63,15 +63,12 @@ function formatDate(date: Date): string {
               <time class="post-date" datetime={post.data.date.toISOString()}>
                 {formatDate(post.data.date)}
               </time>
-              {post.data.tags.slice(0, 1).map((tag) => (
-                <span class="tag">{tag}</span>
-              ))}
             </div>
-            <a href={`/blog/${post.slug}`} class="post-title-link">
+            <a href={`${import.meta.env.BASE_URL}blog/${post.slug}`} class="post-title-link">
               <h2 class="post-list-title">{post.data.title}</h2>
             </a>
             <p class="post-excerpt">{post.data.description}</p>
-            <a href={`/blog/${post.slug}`} class="read-more">Read</a>
+            <a href={`${import.meta.env.BASE_URL}blog/${post.slug}`} class="read-more">Read</a>
           </li>
         ))}
       </ul>

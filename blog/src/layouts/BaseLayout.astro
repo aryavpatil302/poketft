@@ -16,6 +16,15 @@ const {
 const canonicalURL = Astro.site
   ? new URL(Astro.url.pathname, Astro.site).href
   : Astro.url.href
+
+// Astro.url.pathname includes `base`, so comparing it directly against '/'
+// or '/about' would never match once base is set to '/blog/'. Normalize both
+// sides by stripping trailing slashes before comparing.
+const basePath = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const path = Astro.url.pathname.replace(/\/+$/, '')
+const isHome = path === basePath
+const isBlog = path.startsWith(`${basePath}/blog`)
+const isAbout = path === `${basePath}/about`
 ---
 
 <!doctype html>
@@ -37,29 +46,29 @@ const canonicalURL = Astro.site
     {image && <meta property="og:image" content={image} />}
 
     <!-- Favicon placeholder — replace public/favicon.svg with your own -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
   </head>
 
   <body>
     <header class="site-header">
-      <a href="/" class="site-logo-link" aria-label="PokéTFT — home">
+      <a href={import.meta.env.BASE_URL} class="site-logo-link" aria-label="PokeFight — home">
         <!--
           Save your logo PNG as: public/logo.png
           If the file is missing the text fallback renders instead.
         -->
         <img
-          src="/logo.png"
-          alt="PokéTFT"
+          src={`${import.meta.env.BASE_URL}logo.png`}
+          alt="PokeFight"
           class="site-logo"
           onerror="this.style.display='none'; document.getElementById('logo-fallback').style.display='block'"
         />
-        <span id="logo-fallback" class="site-logo-text">PokéTFT</span>
+        <span id="logo-fallback" class="site-logo-text">PokeFight</span>
       </a>
 
       <nav class="site-nav" aria-label="Main navigation">
-        <a href="/" aria-current={Astro.url.pathname === '/' ? 'page' : undefined}>Home</a>
-        <a href="/blog" aria-current={Astro.url.pathname.startsWith('/blog') ? 'page' : undefined}>Blog</a>
-        <a href="/about" aria-current={Astro.url.pathname === '/about' ? 'page' : undefined}>About</a>
+        <a href={import.meta.env.BASE_URL} aria-current={isHome ? 'page' : undefined}>Home</a>
+        <a href={`${import.meta.env.BASE_URL}blog`} aria-current={isBlog ? 'page' : undefined}>Blog</a>
+        <a href={`${import.meta.env.BASE_URL}about`} aria-current={isAbout ? 'page' : undefined}>About</a>
       </nav>
     </header>
 
@@ -69,7 +78,7 @@ const canonicalURL = Astro.site
 
     <footer class="site-footer">
       <p>
-        © {new Date().getFullYear()} PokéTFT ·
+        © {new Date().getFullYear()} PokeFight ·
         <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
       </p>
     </footer>
