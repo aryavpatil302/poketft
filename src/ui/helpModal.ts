@@ -17,8 +17,7 @@ import { escapeHtml } from './escapeHtml'
 import {
   PLAYER_COUNT, STARTING_HP, STARTING_GOLD, STARTING_LEVEL, MAX_LEVEL,
   MAX_INTEREST, WIN_BONUS, SHOP_SLOTS, BENCH_SLOTS, REROLL_COST,
-  XP_BUY_COST, XP_BUY_AMOUNT, XP_PER_ROUND, POOL_COPIES,
-  BASE_INCOME_BY_ROUND, BASE_INCOME_CAP, SHINY_PRICE_MULT, SHINY_TIER,
+  XP_BUY_COST, XP_BUY_AMOUNT, XP_PER_ROUND, SHINY_PRICE_MULT, SHINY_TIER,
 } from '../econ/constants'
 import { CREEP_ROUND_COUNT, CREEP_ROUNDS, isItemRound } from '../econ/creeps'
 
@@ -42,10 +41,6 @@ export interface HelpTab {
 // hand-typing "3, 9, 15, 21" so this stays correct if the cadence changes.
 const FIRST_ITEM_ROUNDS = [3, 9, 15, 21].filter(isItemRound)
 
-// Pool copy counts, cost 1 through 5, in cost order — read straight out of
-// POOL_COPIES rather than re-typing the table.
-const POOL_COPIES_BY_COST = [1, 2, 3, 4, 5].map(cost => `${POOL_COPIES[cost]} of each ${cost}-cost`).join(', ')
-
 const CREEP_ROUND_NAMES = Object.values(CREEP_ROUNDS).map(r => r.name).join(' then ')
 
 const RULES_TAB: HelpTab = {
@@ -53,61 +48,70 @@ const RULES_TAB: HelpTab = {
   label: 'Rules',
   sections: [
     {
+      heading: "What's an Autobattler?",
+      body: [
+        'Ah, hello there! This game is what folks call an autobattler, a different kind of Pokemon battle.',
+        'Once a round starts, your Pokemon fight entirely on their own. No commands, no button mashing, just watching your plan play out.',
+        'Your real work happens beforehand: scouting Pokemon, setting your formation, and deciding how to spend your gold.',
+      ],
+    },
+    {
       heading: 'The Basics',
       body: [
-        `${PLAYER_COUNT} seats in every lobby — you plus 5 AI bots.`,
-        `Everyone draws from one shared unit pool (${POOL_COPIES_BY_COST}), so a contested unit can genuinely run out.`,
-        `You start at ${STARTING_HP} health, ${STARTING_GOLD} gold, level ${STARTING_LEVEL}.`,
-        'Last player standing wins.',
+        `${PLAYER_COUNT} trainers share every lobby, you and 5 AI opponents.`,
+        `You begin with ${STARTING_HP} health, ${STARTING_GOLD} gold, and start at level ${STARTING_LEVEL}.`,
+        "Every trainer draws from the same shared pool of Pokemon. What you want might already be someone else's pick.",
+        'Whoever is the last trainer standing wins the day.',
       ],
     },
     {
-      heading: 'The Round Loop',
+      heading: 'Rounds and Battles',
       body: [
-        'Each round is a planning phase (shop, place, rearrange) on a countdown, then an auto-resolved fight.',
-        `Rounds 1-${CREEP_ROUND_COUNT} are PvE creep rounds (${CREEP_ROUND_NAMES}) before any player-vs-player combat.`,
-        `Rounds ${FIRST_ITEM_ROUNDS.join(', ')} are item rounds — no combat, pick one of three offered items instead.`,
-        'After the creep rounds you are paired against a bot opponent each round.',
+        'Each round opens with a short planning phase for shopping and placing your team, then the battle plays out by itself.',
+        `Your first ${CREEP_ROUND_COUNT} rounds pit you against wild Pokemon (${CREEP_ROUND_NAMES}) so you can find your footing before facing other trainers.`,
+        "After that, you're matched against a different opponent's board each round.",
+        `Rounds ${FIRST_ITEM_ROUNDS.join(', ')} pause the fighting entirely, letting you pick a free item instead.`,
       ],
     },
     {
-      heading: 'Gold and Income',
+      heading: 'Gold and Leveling',
       body: [
-        `Base income ramps ${BASE_INCOME_BY_ROUND.join(' → ')} gold over the first rounds, capped at ${BASE_INCOME_CAP} after that.`,
-        `Interest pays 1 gold per 10 banked, up to ${MAX_INTEREST} gold.`,
-        `Winning a round pays ${WIN_BONUS} bonus gold, and win/loss streaks pay extra on top.`,
+        `Winning a round pays out ${WIN_BONUS} bonus gold, and holding a win or loss streak pays extra on top.`,
+        `Banked gold earns interest too, up to ${MAX_INTEREST} gold a round.`,
+        `Spend gold on experience to level up: ${XP_BUY_COST} gold buys ${XP_BUY_AMOUNT} XP, and you gain ${XP_PER_ROUND} more for free each round, up to level ${MAX_LEVEL}.`,
+        'The higher your level, the more Pokemon you can field, and the better your chances of seeing rarer ones in the shop.',
       ],
     },
     {
-      heading: 'Levelling',
+      heading: 'Shop and Team Building',
       body: [
-        `You gain ${XP_PER_ROUND} free XP every round; buying XP costs ${XP_BUY_COST} gold for ${XP_BUY_AMOUNT} XP.`,
-        `Levels cap at ${MAX_LEVEL}.`,
-        'Your level is your board slot cap, and it also shifts the shop odds toward higher-cost units.',
-      ],
-    },
-    {
-      heading: 'Shop, Bench and Star-ups',
-      body: [
-        `The shop offers ${SHOP_SLOTS} cards, refreshed each round; rerolling costs ${REROLL_COST} gold.`,
-        `The bench holds ${BENCH_SLOTS} units.`,
-        'Three copies of a unit combine into a 2-star; three 2-stars combine into a 3-star.',
-        `A rare shiny variant costs ${SHINY_PRICE_MULT}x, arrives as a ${SHINY_TIER}-star, and carries a chosen trait.`,
+        `${SHOP_SLOTS} Pokemon appear in your shop each round. Don't like what you see? Reroll for ${REROLL_COST} gold.`,
+        `Your bench holds up to ${BENCH_SLOTS} Pokemon waiting for their turn on the field.`,
+        'Collect three of the same Pokemon and they evolve into a stronger 2 star. Three 2 stars make a 3 star.',
       ],
     },
     {
       heading: 'Traits',
       body: [
-        'Fielding units that share a trait activates that trait at its breakpoints.',
-        'The badges beside the board show which traits are live and at what tier.',
+        'Every Pokemon carries one or more traits, tying it to others of its kind.',
+        'Field enough Pokemon sharing a trait and that trait switches on, granting your whole team a bonus. Field even more and it grows stronger still.',
+        "Watch the badges beside your board. They'll show you exactly which traits are active and how close you are to the next tier.",
       ],
     },
     {
-      heading: 'Combat and Damage',
+      heading: 'Shiny Pokemon',
       body: [
-        'Combat is fully automatic once the fight starts: units path across the hex board, auto-attack, build mana, and cast at full mana.',
-        'Losing a round costs health scaled by the current stage plus the star level of every enemy unit still alive.',
-        'Reaching 0 health eliminates you.',
+        'Every so often a shiny Pokemon turns up in your shop, a rare and sparkling variant.',
+        `Shinies cost ${SHINY_PRICE_MULT} times as much, but they arrive already at ${SHINY_TIER} stars and hit a little harder across the board.`,
+        'Each shiny also brings a trait of its own choosing, and a special trick in battle all its own.',
+      ],
+    },
+    {
+      heading: 'Combat',
+      body: [
+        'Once the fight begins, your Pokemon take it from here. They cross the field, trade blows, and unleash their move the moment their energy is full.',
+        "Lose a fight and you take damage based on the stage and how many of the rival's Pokemon are left standing.",
+        "Run out of health, and you're out of the running.",
       ],
     },
   ],
@@ -120,50 +124,50 @@ const CONTROLS_TAB: HelpTab = {
     {
       heading: 'Shop & Gold',
       body: [
-        'Click a shop card to buy that unit onto your bench.',
-        `Reroll ↻ (d) rerolls the shop for ${REROLL_COST} gold.`,
+        'Click a shop card to buy that Pokemon onto your bench.',
+        `Reroll (d) rerolls the shop for ${REROLL_COST} gold.`,
         `Buy XP (f) buys ${XP_BUY_AMOUNT} XP for ${XP_BUY_COST} gold.`,
-        'The 🔒 button locks the shop so it survives into the next round.',
+        'The 🔒 button keeps your shop the same into the next round.',
       ],
     },
     {
       heading: 'Moving Units',
       body: [
-        'Click a unit on the bench or the board to pick it up — it rides the cursor.',
-        'Click a board hex or a bench slot to put it down.',
-        'This is click-carry, not drag-and-drop.',
-        'Your board cap is your level.',
+        'Click a Pokemon on your bench or board to pick it up. It rides your cursor until you set it down.',
+        'Click a hex on the board or an open bench slot to put it down.',
+        'This is click and carry, not drag and drop.',
+        'Your board space is capped by your level.',
       ],
     },
     {
       heading: 'Selling',
       body: [
-        'While carrying a unit, the shop bar becomes a sell target — click it to sell.',
-        'Or hover a unit on the bench or board and press e to sell it.',
+        "While you're carrying a Pokemon, the shop bar turns into a sell target. Click it to sell.",
+        'Or hover a Pokemon on your bench or board and press e to sell it.',
       ],
     },
     {
       heading: 'Items',
       body: [
-        'The Items panel sits bottom-left; click an item to pick it up, then click a unit to equip it.',
-        'Hover a unit holding an item and press r to pull the item back off — it returns to the Items bench, not to your cursor.',
-        'The ▲▼ pager moves between item pages.',
+        'The Items panel sits at the bottom left. Click an item to pick it up, then click a Pokemon to equip it.',
+        'Hover a Pokemon holding an item and press r to pull it back off. It returns to the Items bench, not your cursor.',
+        'Use the ▲▼ arrows to page through more items.',
       ],
     },
     {
       heading: 'Inspecting',
       body: [
-        'Hovering a unit shows its card.',
-        'A unit info panel appears during combat when a unit is selected.',
+        'Hover any Pokemon to see its card.',
+        'During battle, selecting a Pokemon opens its info panel.',
       ],
     },
     {
       heading: 'Test Mode',
       body: [
-        'Pick a unit and a star level in the left sidebar, then click a hex to place it.',
-        'The top rows are the enemy team; the bottom rows are yours. Right-click removes a unit.',
-        'The floating Combat panel runs the fight: start, pause, stop, reset, and speed buttons.',
-        '← Back to Menu in the sidebar returns to the Title Screen.',
+        'Pick a Pokemon and a star level from the sidebar, then click a hex to place it.',
+        'The top rows belong to the enemy team, the bottom rows are yours. Right click removes a Pokemon.',
+        'The floating Combat panel runs the fight: start, pause, stop, reset, and speed controls.',
+        '← Back to Menu in the sidebar returns you to the Title Screen.',
       ],
     },
   ],
