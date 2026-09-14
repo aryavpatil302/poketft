@@ -6266,7 +6266,7 @@ function titleScreenHandlers(): TitleScreenHandlers {
     onMultiplayer,
     onHelp:     () => { showHelpModal() },
     onTestMode: () => { hideTitleScreen(); bootTestMode() },
-    onBlog:     () => { window.open('/blog', '_blank', 'noopener') },
+    onBlog:     () => { window.open('/blog/', '_blank', 'noopener') },
   }
 }
 
