@@ -107,6 +107,15 @@ document.getElementById('app')!.innerHTML = `
       padding: 10px;
       box-sizing: border-box;
     ">
+      <!-- Back to Title Screen. Needs no visibility logic of its own: applyLayoutMode()
+           already shows #left-panel only when testMode is true, so this button is
+           test-mode-only by construction, same as every other element in this panel. -->
+      <button id="btn-test-back" type="button" style="
+        display: block; width: 100%; margin-bottom: 10px;
+        background: #1a2340; border: 1px solid #334; border-radius: 6px;
+        color: #88aaff; font-size: 11px; padding: 6px 8px; cursor: pointer;
+      ">← Back to Menu</button>
+
       <!-- Enemy trait badges (test mode: when enemy units are placed pre-combat) -->
       <div id="enemy-traits-section" style="display:none;">
         <div style="font-size:9px;color:#cc6666;letter-spacing:.04em;margin-bottom:3px;opacity:0.8;">ENEMY</div>
@@ -5571,6 +5580,11 @@ document.getElementById('btn-stop')!.addEventListener('click', () => {
   resetCombat()
 })
 
+// Sits hundreds of lines above leaveTestMode()'s declaration only because
+// function declarations hoist — consistent with how the rest of this file
+// wires its static control listeners.
+document.getElementById('btn-test-back')!.addEventListener('click', leaveTestMode)
+
 document.getElementById('btn-reset')!.addEventListener('click', () => {
   // A seat cannot unilaterally restart a shared room's run — the server owns
   // it, and every other seat is mid-game in it. Refused visibly rather than
@@ -6221,6 +6235,26 @@ function bootSolo(): void {
 function bootTestMode(): void {
   testModeActive = true
   updateEconVisibility()
+}
+
+// Mirror image of bootTestMode(): tears test state down and re-raises the
+// Title Screen in-place, no page reload.
+//
+// Order is load-bearing — do not swap it. resetCombat() ends with
+// `if (econActive() && !isNetworked()) { ...startPlanningPhase(false) }`.
+// Calling it here WHILE testModeActive is still true keeps econActive()
+// false, so the reset does exactly what is wanted (stop any running test
+// combat, clear placedUnits, drop the result/unit-info boxes) without also
+// kicking a solo economy run into its planning phase behind the title
+// screen. Flipping the flag first would start a run the player never asked
+// for. updateEconVisibility() then rebuilds the econ view and calls
+// applyLayoutMode() + resizeCanvases() itself, so one call restores the
+// whole play layout underneath the Title Screen that goes up over it.
+function leaveTestMode(): void {
+  resetCombat()
+  testModeActive = false
+  updateEconVisibility()
+  showTitleScreen(titleScreenHandlers())
 }
 
 // Both the boot router and leaveLobby() raise the same screen; building the
