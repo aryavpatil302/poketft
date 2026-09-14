@@ -41,6 +41,7 @@ function applyShinyEruptionBurn(caster: Unit, target: Unit): void {
 
 export const TyphlosionAbility: AbilityHandler = {
   abilityId: 'typhlosion_eruption',
+  // Fireballs launch at tick 15 — during the stretch phase of the squash_launch animation
   castTimeTicks: 15,
 
   onCast(unit: Unit, state: CombatState, tier: number): void {

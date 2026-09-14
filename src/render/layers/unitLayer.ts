@@ -1378,6 +1378,26 @@ export class UnitLayer {
             nudgeY += apexY * ease
             spriteRotate += 10 * Math.PI / 180 * ease
           }
+        } else if (anim.type === 'squash_launch') {
+          // Phase 1 (0-10): squash wide and flat
+          // Phase 2 (10-20): snap tall and thin to emphasize launch
+          // Phase 3 (20-28): ease back to normal
+          const elapsed = anim.total - anim.remaining
+          const SQUASH_END  = 10
+          const STRETCH_END = 20
+          if (elapsed < SQUASH_END) {
+            const t = elapsed / SQUASH_END
+            nudgeScaleX = 1 + t * 0.35
+            nudgeScaleY = 1 - t * 0.30
+          } else if (elapsed < STRETCH_END) {
+            const t = (elapsed - SQUASH_END) / (STRETCH_END - SQUASH_END)
+            nudgeScaleX = 1.35 - t * 0.65
+            nudgeScaleY = 0.70 + t * 0.75
+          } else {
+            const t = (elapsed - STRETCH_END) / (anim.total - STRETCH_END)
+            nudgeScaleX = 0.70 + t * 0.30
+            nudgeScaleY = 1.45 - t * 0.45
+          }
         }
       }
       // Noivern pre-cast buildup shake — intensifies in the last half of the cast timer
