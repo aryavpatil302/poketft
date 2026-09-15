@@ -16,6 +16,7 @@ export interface TitleScreenHandlers {
   onMultiplayer: () => void
   onHelp: () => void
   onTestMode: () => void
+  onOverview: () => void
   onBlog: () => void
 }
 
@@ -52,7 +53,14 @@ function ensureRoot(): HTMLDivElement {
         <button id="btn-title-help" type="button" style="${screenButtonCss()}">Rules and Controls</button>
         <button id="btn-title-testmode" type="button" style="${screenButtonCss()}">Test Mode</button>
       </div>
-      <button id="btn-title-blog" type="button" style="${screenButtonCss()}">Dev Blog</button>
+      <div style="
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px 22px;
+      ">
+        <button id="btn-title-overview" type="button" style="${screenButtonCss()}">Trait and Unit Overview</button>
+        <button id="btn-title-blog" type="button" style="${screenButtonCss()}">Dev Blog</button>
+      </div>
     </div>
   `
   document.body.appendChild(el)
@@ -81,6 +89,7 @@ export function showTitleScreen(handlers: TitleScreenHandlers): void {
   const multiplayer = button(root, 'btn-title-multiplayer')
   const help = button(root, 'btn-title-help')
   const testmode = button(root, 'btn-title-testmode')
+  const overview = button(root, 'btn-title-overview')
   const blog = button(root, 'btn-title-blog')
 
   // onclick (not addEventListener) so a re-show replaces the previous handler
@@ -94,8 +103,10 @@ export function showTitleScreen(handlers: TitleScreenHandlers): void {
   // destination like Solo/Multiplayer/Test Mode.
   if (help !== null) help.onclick = () => handlers.onHelp()
 
-  // Opens the blog in a new tab, same reasoning as Help above — the Title
-  // Screen stays up so switching back to this tab lands on a live screen.
+  // Opens the overview PDF and blog in a new tab, same reasoning as Help
+  // above — the Title Screen stays up so switching back to this tab lands
+  // on a live screen.
+  if (overview !== null) overview.onclick = () => handlers.onOverview()
   if (blog !== null) blog.onclick = () => handlers.onBlog()
 
   fadeScreenIn(root)
