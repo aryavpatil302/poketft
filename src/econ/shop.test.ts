@@ -181,6 +181,38 @@ describe('shop', () => {
     expect(e.bench.every(b => b?.definitionId !== 'kingler')).toBe(true)
   })
 
+  it('buying a third copy defers the combine when it would consume a fielded copy and board consumption is disallowed', () => {
+    const run = newRun(BOT_SEATS)
+    const e = run.players[0]
+    e.gold = 10
+    e.bench[0] = { definitionId: 'kingler', tier: 1 }
+    e.board.push({ definitionId: 'kingler', tier: 1, hexPos: { col: 2, row: 6 } })
+    e.shop[2] = 'kingler'
+    const res = buyUnit(run, e, 2, false)
+    expect(res).toEqual({ ok: true, combined: null })
+    // Board untouched — the fielded copy was never consumed.
+    expect(e.board).toEqual([{ definitionId: 'kingler', tier: 1, hexPos: { col: 2, row: 6 } }])
+    // The new copy landed on the bench, uncombined, alongside the original.
+    const benchKinglers = e.bench.filter(b => b?.definitionId === 'kingler')
+    expect(benchKinglers).toHaveLength(2)
+    expect(benchKinglers.every(b => b?.tier === 1)).toBe(true)
+  })
+
+  it('a bench-only third copy still combines immediately even when board consumption is disallowed', () => {
+    const run = newRun(BOT_SEATS)
+    const e = run.players[0]
+    e.gold = 10
+    e.bench[0] = { definitionId: 'kingler', tier: 1 }
+    e.bench[1] = { definitionId: 'kingler', tier: 1 }
+    e.shop[2] = 'kingler'
+    const res = buyUnit(run, e, 2, false)
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.combined?.upgrades[0]).toMatchObject({ definitionId: 'kingler', from: 1, to: 2 })
+    const kinglers = e.bench.filter(b => b?.definitionId === 'kingler')
+    expect(kinglers).toHaveLength(1)
+    expect(kinglers[0]!.tier).toBe(2)
+  })
+
   it('selling returns copies to the pool: 2★ returns 3', () => {
     const run = newRun(BOT_SEATS)
     const e = run.players[0]
@@ -631,6 +663,31 @@ describe('shop', () => {
       const tangelas = e.bench.filter(b => b?.definitionId === 'tangela')
       expect(tangelas).toHaveLength(2)
       expect(tangelas.every(b => b?.tier === 1)).toBe(true)
+      expect(e.gold).toBe(goldBefore)
+      expect(run.pool['tangela']).toBe(poolBefore)
+    })
+
+    it('(c2) full bench rejects a non-shiny phantom-merge buy when board consumption is disallowed', () => {
+      const run = newRun(BOT_SEATS)
+      const e = run.players[0]
+      e.gold = 100
+      e.bench = [
+        { definitionId: 'tangela', tier: 1 }, { definitionId: 'tangela', tier: 1 },
+        ...Array(7).fill({ definitionId: 'zubat', tier: 1 }),
+      ]
+      e.shop[0] = 'tangela'
+      const goldBefore = e.gold
+      const poolBefore = run.pool['tangela']
+
+      // Confirm the ONLY thing that changed is the new mode — this exact buy
+      // would otherwise succeed via the phantom-merge path (see (c) above).
+      expect(wouldCombine(e, 'tangela', true)).toBe(true)
+
+      const res = buyUnit(run, e, 0, false)
+
+      expect(res).toEqual({ ok: false, reason: 'bench-full' })
+      const tangelas = e.bench.filter(b => b?.definitionId === 'tangela')
+      expect(tangelas).toHaveLength(2)
       expect(e.gold).toBe(goldBefore)
       expect(run.pool['tangela']).toBe(poolBefore)
     })

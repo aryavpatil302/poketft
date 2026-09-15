@@ -3,7 +3,7 @@
 // (nine 1★ copies → 3★). Combining never increases occupancy (3 slots → 1),
 // so it is always bench-safe.
 
-import type { PlayerEcon } from './runState'
+import type { PlayerEcon, RunState } from './runState'
 
 export interface Upgrade {
   definitionId: string
@@ -24,10 +24,28 @@ function key(definitionId: string, tier: number): string {
 // Bench copies are consumed first; if any board copy is consumed, the upgraded
 // unit takes over the first consumed board copy's hex (keeps player placement),
 // otherwise it lands in the first freed bench slot.
-function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
-  const counts = new Map<string, number>()
-  for (const b of econ.bench) if (b && b.tier < 3) counts.set(key(b.definitionId, b.tier), (counts.get(key(b.definitionId, b.tier)) ?? 0) + 1)
-  for (const u of econ.board) if (u.tier < 3) counts.set(key(u.definitionId, u.tier), (counts.get(key(u.definitionId, u.tier)) ?? 0) + 1)
+//
+// `allowBoardConsumption` (default true): when false, a triple is only
+// eligible if bench copies ALONE already satisfy it — a unit currently
+// fielded (part of an already-recorded, still-playing-back fight) is never
+// consumed. Used to defer a combine that would need a board copy until the
+// next planning phase (see resolvePendingCombines below), while a
+// bench-only triple still combines immediately regardless of mode.
+function mergeOnce(econ: PlayerEcon, preferId?: string, allowBoardConsumption = true): Upgrade | null {
+  const benchCounts = new Map<string, number>()
+  const totalCounts = new Map<string, number>()
+  for (const b of econ.bench) {
+    if (!b || b.tier >= 3) continue
+    const k = key(b.definitionId, b.tier)
+    benchCounts.set(k, (benchCounts.get(k) ?? 0) + 1)
+    totalCounts.set(k, (totalCounts.get(k) ?? 0) + 1)
+  }
+  for (const u of econ.board) {
+    if (u.tier >= 3) continue
+    const k = key(u.definitionId, u.tier)
+    totalCounts.set(k, (totalCounts.get(k) ?? 0) + 1)
+  }
+  const counts = allowBoardConsumption ? totalCounts : benchCounts
 
   let target: { definitionId: string; tier: 1 | 2 } | null = null
   for (const [k, n] of counts) {
@@ -117,22 +135,38 @@ function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
 }
 
 // Merge until stable. `hint` biases the first pass toward a just-bought unit
-// so its upgrade resolves before unrelated pending triples.
-export function tryCombine(econ: PlayerEcon, hint?: string): CombineResult | null {
+// so its upgrade resolves before unrelated pending triples. See mergeOnce
+// for `allowBoardConsumption`.
+export function tryCombine(econ: PlayerEcon, hint?: string, allowBoardConsumption = true): CombineResult | null {
   const upgrades: Upgrade[] = []
-  let up = mergeOnce(econ, hint)
+  let up = mergeOnce(econ, hint, allowBoardConsumption)
   while (up) {
     upgrades.push(up)
-    up = mergeOnce(econ, up.definitionId)   // chase chains for the same species first
+    up = mergeOnce(econ, up.definitionId, allowBoardConsumption)   // chase chains for the same species first
   }
   return upgrades.length > 0 ? { upgrades } : null
 }
 
 // Would buying one more copy of defId complete a merge right now?
-// (Used to allow buys with a full bench, TFT-style.)
-export function wouldCombine(econ: PlayerEcon, definitionId: string): boolean {
-  let n = 1   // the copy about to be bought
-  for (const b of econ.bench) if (b && b.definitionId === definitionId && b.tier === 1) n++
-  for (const u of econ.board) if (u.definitionId === definitionId && u.tier === 1) n++
-  return n >= 3
+// (Used to allow buys with a full bench, TFT-style.) See mergeOnce for
+// `allowBoardConsumption` — when false, a fielded copy doesn't count toward
+// the triple.
+export function wouldCombine(econ: PlayerEcon, definitionId: string, allowBoardConsumption = true): boolean {
+  let bench = 1   // the copy about to be bought
+  let total = 1
+  for (const b of econ.bench) if (b && b.definitionId === definitionId && b.tier === 1) { bench++; total++ }
+  for (const u of econ.board) if (u.definitionId === definitionId && u.tier === 1) total++
+  return allowBoardConsumption ? total >= 3 : bench >= 3
+}
+
+// Sweeps every seat for any triple that was left pending because it could
+// only be completed by consuming a fielded (board) copy while
+// allowBoardConsumption was false — see buyUnit's call site in shop.ts.
+// Called exactly once per round transition, at the same synchronized
+// moment the next planning phase opens (party/lobby.ts's
+// openPlanningWindow, or restorePlayerBoard's solo path), so a deferred
+// star-up lands the instant the board it was waiting on is no longer part
+// of an active replay. Idempotent — a seat with nothing pending is a no-op.
+export function resolvePendingCombines(state: RunState): void {
+  for (const econ of state.players) tryCombine(econ, undefined, true)
 }

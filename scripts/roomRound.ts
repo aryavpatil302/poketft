@@ -140,6 +140,17 @@ async function main(): Promise<void> {
     // therefore its round-2 income) fully deterministic, no combat RNG
     // involved, so the predicted gold below is a genuine computation, not a
     // guess.
+    //
+    // Since the "wait for everyone's combat, then let shop actions work
+    // throughout" plan: the room now advances economy (banks pending
+    // income, rolls the next shop) IMMEDIATELY and synchronously inside
+    // onDeadline, before it even broadcasts `resolve` — not later, at the
+    // next beginPlanning. Two consequences this scenario now asserts
+    // directly instead of the old race: (a) the `resolve` message's own
+    // snapshot already carries banked income, and (b) an action sent
+    // immediately after — squarely inside the room's 'resolving' phase —
+    // is deterministically ACCEPTED, never a wrong-phase race, because
+    // buy/sell/reroll/buyXp/lock all work throughout combat now.
     const msUntilDeadline = firstPhaseA.deadline - Date.now()
     const sendAt = Math.max(0, msUntilDeadline - 400)
     await new Promise(resolve => setTimeout(resolve, sendAt))
@@ -163,29 +174,6 @@ async function main(): Promise<void> {
     const [ra1, rb1] = await resolveBothRound1
     assert(ra1.round === 1 && rb1.round === 1, 'round 1 resolves for both clients')
     assert(ra1.kind === 'creep', 'round 1 is a creep round')
-    assert(ra1.snapshot.players[0].gold === g1, "settlement itself doesn't touch gold (human income is deferred to pendingIncome)")
-
-    // Immediately race a second reroll against the room's own transition
-    // into round 2's planning phase. A plain "wait for the next snapshot or
-    // rejected" predicate is NOT reliable here: the round transition itself
-    // broadcasts its own unrelated 'snapshot' (round 2's freshly rolled
-    // shop) regardless of what happens to this message, and that broadcast
-    // can arrive before this specific message's own response. Instead,
-    // listen for an explicit 'rejected' addressed to this action within a
-    // bounded window — unambiguous, since 'rejected' is only ever a direct
-    // reply to the message that triggered it — and otherwise conclude
-    // accepted from the persistent snapshot tracker's final state, which by
-    // then reflects our mutation applied on top of (i.e. strictly after)
-    // round 2's own natural transition broadcast.
-    let sawRejected: any = null
-    const rejectListener = (event: MessageEvent) => {
-      const m = safeParse(event.data)
-      if (m && m.t === 'rejected') sawRejected = m
-    }
-    a.addEventListener('message', rejectListener)
-    a.send(JSON.stringify({ t: 'action', action: { t: 'reroll' } }))
-    await new Promise(resolve => setTimeout(resolve, 700))
-    a.removeEventListener('message', rejectListener)
 
     // Predicted round-2 income for seat 0, computed independently from the
     // same formula settleRound/startPlanning use — deterministic here
@@ -193,23 +181,24 @@ async function main(): Promise<void> {
     const base = BASE_INCOME_BY_ROUND[0] ?? BASE_INCOME_CAP
     const interest = Math.min(MAX_INTEREST, Math.floor(g1 / 10))
     const predictedIncome = base + interest + streakBonus(1) /* first loss, streak magnitude 1 */ + 0 /* no win bonus */
+    assert(
+      ra1.snapshot.players[0].gold === g1 + predictedIncome,
+      `the resolve message's own snapshot already carries banked income (expected ${g1 + predictedIncome}, got ${ra1.snapshot.players[0].gold})`,
+    )
 
-    if (sawRejected) {
-      assert(sawRejected.reason === 'wrong-phase', 'the second reroll landed during resolution and was rejected with wrong-phase')
-      const expected = g1 + predictedIncome
-      assert(
-        snapA.players[0].gold === expected,
-        `rejected branch: gold reflects income only, no second reroll deduction (expected ${expected}, got ${snapA.players[0].gold})`,
-      )
-      console.log('BRANCH: second action landed during resolution (rejected, wrong-phase)')
-    } else {
-      const expected = g1 + predictedIncome - REROLL_COST
-      assert(
-        snapA.players[0].gold === expected,
-        `accepted branch: gold reflects income AND the second reroll's cost, never a half-applied value (expected ${expected}, got ${snapA.players[0].gold})`,
-      )
-      console.log('BRANCH: second action landed after the next planning phase opened (accepted)')
-    }
+    // Sent immediately, squarely inside 'resolving' — deterministically
+    // accepted now, no more race against the room's own transition.
+    const secondRerollRes = await (async () => {
+      const wait = nextMessage<any>(a, m => m.t === 'snapshot' || m.t === 'rejected')
+      a.send(JSON.stringify({ t: 'action', action: { t: 'reroll' } }))
+      return wait
+    })()
+    assert(secondRerollRes.t === 'snapshot', "a reroll sent immediately after resolve — during 'resolving' — is accepted, not rejected wrong-phase")
+    const expected = g1 + predictedIncome - REROLL_COST
+    assert(
+      secondRerollRes.snapshot.players[0].gold === expected,
+      `gold reflects income AND the second reroll's cost (expected ${expected}, got ${secondRerollRes.snapshot.players[0].gold})`,
+    )
     console.log('PASS: deadline boundary')
 
     // ─── Scenarios 3-5: drive rounds, force a 0-vs-1 pairing ──────────────

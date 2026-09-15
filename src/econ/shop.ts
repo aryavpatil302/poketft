@@ -202,7 +202,19 @@ export type BuyResult =
   | { ok: true; combined: CombineResult | null }
   | { ok: false; reason: 'empty-slot' | 'no-gold' | 'bench-full' | 'pool-empty' }
 
-export function buyUnit(state: RunState, econ: PlayerEcon, slot: number): BuyResult {
+// `allowBoardConsumption` (default true, see combine.ts's mergeOnce): when
+// false, a combine that would need to consume a currently-fielded (board)
+// copy is deferred instead of happening now — see applyAction's caller for
+// when this is passed false. The one narrow exception: the bench-full
+// "phantom copy" path below cannot be made restriction-safe (a real,
+// coexisting board copy could get consumed instead of the phantom, since
+// board-copy consumption goes in placement order and the phantom is always
+// appended last) — so when the bench is completely full and
+// allowBoardConsumption is false, the buy is simply rejected 'bench-full',
+// same as running out of bench space always does. This only affects that
+// rare full-bench-plus-instant-triple case; a normal bench-only combine
+// still completes immediately either way.
+export function buyUnit(state: RunState, econ: PlayerEcon, slot: number, allowBoardConsumption = true): BuyResult {
   const defId = econ.shop[slot]
   if (!defId) return { ok: false, reason: 'empty-slot' }
   const def = UNIT_MAP.get(defId)
@@ -231,6 +243,10 @@ export function buyUnit(state: RunState, econ: PlayerEcon, slot: number): BuyRes
     // and hand back an ordinary 2★ from an unrelated tier-1 merge, silently
     // destroying the shiny. This guard MUST run before wouldCombine.
     if (shiny) return { ok: false, reason: 'bench-full' }
+    // See this function's header: the phantom-copy path just below cannot
+    // be made restriction-safe, so a full bench simply can't buy-into-combine
+    // while board consumption is disallowed.
+    if (!allowBoardConsumption) return { ok: false, reason: 'bench-full' }
     if (!wouldCombine(econ, defId)) return { ok: false, reason: 'bench-full' }
   }
 
@@ -246,7 +262,7 @@ export function buyUnit(state: RunState, econ: PlayerEcon, slot: number): BuyRes
       ...(shiny && { isShiny: true }),
       ...(chosenTrait && { chosenTrait }),
     }
-    return { ok: true, combined: tryCombine(econ, defId) }
+    return { ok: true, combined: tryCombine(econ, defId, allowBoardConsumption) }
   }
 
   // Bench full but the buy completes a triple: merge the two existing copies

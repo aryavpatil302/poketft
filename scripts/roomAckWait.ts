@@ -103,6 +103,69 @@ async function main(): Promise<void> {
       a.close()
       console.log('PASS: disconnect mid-wait does not stall the room')
     }
+
+    // ─── Scenario 3: shop actions work during 'resolving', and a reroll ──
+    // made there survives into the next planning phase (isn't silently
+    // re-rolled out from under it — the hazard this plan's shop-roll-timing
+    // fix specifically closes; see party/lobby.ts's advanceEconomy).
+    {
+      const roomId = `ackwait-actions-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+      const { a, b } = await connectAndStart(host, roomId)
+
+      const resolveBoth = Promise.all([
+        nextMessage<any>(a, m => m.t === 'resolve'),
+        nextMessage<any>(b, m => m.t === 'resolve'),
+      ])
+      const [resolveA] = await resolveBoth
+      // resolveRound's returned .round is the round that just resolved
+      // (captured BEFORE resolveRound's internal increment) — this is what
+      // pendingAckRound is set from, and what a real client's
+      // currentCombatRound tracks (src/main.ts's handleNetResolve). A
+      // snapshot's own .round is already post-increment — using that here
+      // instead would silently mismatch every ack below.
+      const ackRound = resolveA.round
+
+      // Sent immediately, well before either seat acks playback-done — i.e.
+      // squarely inside the 'resolving' window this plan newly unblocks.
+      const snapshotAfterReroll = nextMessage<any>(a, m => m.t === 'snapshot')
+      const rejectedAfterReroll = nextMessage<any>(a, m => m.t === 'rejected', 2000).catch(() => null)
+      a.send(JSON.stringify({ t: 'action', action: { t: 'reroll' } }))
+
+      const rejected = await rejectedAfterReroll
+      assert(rejected === null, "a reroll sent during 'resolving' is NOT rejected wrong-phase")
+      const snapAfterReroll = await snapshotAfterReroll
+      const shopAfterReroll = JSON.stringify(snapAfterReroll.snapshot.players[0].shop)
+
+      // Now let the round actually advance (both ack, wait for planning).
+      // The snapshot listener is registered ALONGSIDE the phase listener,
+      // before either message can arrive — openPlanningWindow sends its
+      // snapshot broadcast immediately after the phase broadcast, often
+      // within the same tick, so attaching it only after awaiting the phase
+      // message risks missing it (the same race scripts/roomRound.ts's own
+      // scenarios are careful to avoid).
+      const nextPhaseBoth = Promise.all([
+        nextMessage<any>(a, m => m.t === 'phase' && m.phase === 'planning', 5000),
+        nextMessage<any>(b, m => m.t === 'phase' && m.phase === 'planning', 5000),
+      ])
+      const planningSnapshotWait = nextMessage<any>(a, m => m.t === 'snapshot', 5000)
+      a.send(JSON.stringify({ t: 'playback-done', round: ackRound }))
+      b.send(JSON.stringify({ t: 'playback-done', round: ackRound }))
+      await nextPhaseBoth
+
+      // The snapshot broadcast alongside beginPlanning's phase-open carries
+      // the SAME shop the reroll produced — proving openPlanningWindow no
+      // longer re-rolls over it.
+      const planningSnapshot = await planningSnapshotWait
+      const shopAtPlanning = JSON.stringify(planningSnapshot.snapshot.players[0].shop)
+      assert(
+        shopAtPlanning === shopAfterReroll,
+        "the reroll made during 'resolving' survives into the next planning phase unchanged",
+      )
+
+      a.close()
+      b.close()
+      console.log("PASS: shop actions during 'resolving' work, and a reroll there isn't silently discarded")
+    }
   }, { PLANNING_MS: String(PLANNING_MS_TEST) })   // SKIP_PLAYBACK_DELAY intentionally NOT set
 }
 

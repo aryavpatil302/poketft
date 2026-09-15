@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { emptyEcon } from './runState'
-import { tryCombine, wouldCombine } from './combine'
+import { emptyEcon, type RunState } from './runState'
+import { tryCombine, wouldCombine, resolvePendingCombines } from './combine'
 
 function econWith(bench: Array<{ id: string; tier: 1|2|3 } | null>, board: Array<{ id: string; tier: 1|2|3; col: number; row: number }> = []) {
   const e = emptyEcon('t', null)
@@ -146,5 +146,56 @@ describe('combine', () => {
     expect(upgraded).toEqual(
       expect.objectContaining({ definitionId: 'tangela', tier: 3, isShiny: true, chosenTrait: 'jungle' }),
     )
+  })
+
+  // ─── allowBoardConsumption: deferring a combine that needs a fielded copy ──
+
+  it('a bench-only triple still combines immediately when board consumption is disallowed', () => {
+    const e = econWith([{ id: 'tangela', tier: 1 }, { id: 'tangela', tier: 1 }, { id: 'tangela', tier: 1 }])
+    const res = tryCombine(e, undefined, false)
+    expect(res?.upgrades).toEqual([{ definitionId: 'tangela', from: 1, to: 2, placedOnBoard: false }])
+  })
+
+  it('a triple needing a fielded copy does NOT combine while board consumption is disallowed', () => {
+    const e = econWith(
+      [{ id: 'zubat', tier: 1 }, { id: 'zubat', tier: 1 }],
+      [{ id: 'zubat', tier: 1, col: 3, row: 5 }],
+    )
+    expect(tryCombine(e, undefined, false)).toBeNull()
+    expect(e.bench.filter(b => b?.definitionId === 'zubat')).toHaveLength(2)
+    expect(e.board).toEqual([{ definitionId: 'zubat', tier: 1, hexPos: { col: 3, row: 5 } }])
+  })
+
+  it('a deferred combine resolves once allowBoardConsumption is true again', () => {
+    const e = econWith(
+      [{ id: 'zubat', tier: 1 }, { id: 'zubat', tier: 1 }],
+      [{ id: 'zubat', tier: 1, col: 3, row: 5 }],
+    )
+    expect(tryCombine(e, undefined, false)).toBeNull()   // deferred, mid-combat
+    const res = tryCombine(e, undefined, true)           // planning phase opens
+    expect(res?.upgrades[0].placedOnBoard).toBe(true)
+    expect(e.board).toEqual([{ definitionId: 'zubat', tier: 2, hexPos: { col: 3, row: 5 } }])
+  })
+
+  it('wouldCombine only counts bench copies when board consumption is disallowed', () => {
+    const e = econWith(
+      [{ id: 'morgrem', tier: 1 }],
+      [{ id: 'morgrem', tier: 1, col: 2, row: 6 }],
+    )
+    expect(wouldCombine(e, 'morgrem', true)).toBe(true)    // bench + board = 3
+    expect(wouldCombine(e, 'morgrem', false)).toBe(false)  // bench alone = 2
+  })
+
+  it('resolvePendingCombines sweeps every seat, resolving anything deferred', () => {
+    const e0 = econWith(
+      [{ id: 'zubat', tier: 1 }, { id: 'zubat', tier: 1 }],
+      [{ id: 'zubat', tier: 1, col: 3, row: 5 }],
+    )
+    const e1 = econWith([{ id: 'kingler', tier: 1 }])   // nothing pending
+    tryCombine(e0, undefined, false)   // deferred during "combat"
+    const state = { players: [e0, e1] } as RunState
+    resolvePendingCombines(state)
+    expect(e0.board).toEqual([{ definitionId: 'zubat', tier: 2, hexPos: { col: 3, row: 5 } }])
+    expect(e1.bench.filter(Boolean)).toHaveLength(1)   // untouched, no-op
   })
 })

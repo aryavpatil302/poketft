@@ -100,6 +100,14 @@ export function applyAction(
   seat: number,
   action: GameAction,
   rng: Rng = Math.random,
+  // Threaded straight to buyUnit/combine.ts's mergeOnce (see its header):
+  // false defers a combine that would consume a currently-fielded (board)
+  // copy, instead of consuming it immediately. Callers pass false while a
+  // round's combat is still playing back (party/lobby.ts during
+  // 'resolving'; src/main.ts's solo dispatchAction during econPhase ===
+  // 'combat'), true otherwise — the default preserves every existing
+  // caller (tests included) exactly as before.
+  allowBoardConsumption = true,
 ): ActionResult {
   if (seat < 0 || seat >= state.players.length) return { ok: false, reason: 'bad-seat' }
   const econ = state.players[seat]
@@ -107,7 +115,7 @@ export function applyAction(
 
   switch (action.t) {
     case 'buy': {
-      const result = buyUnit(state, econ, action.slot)
+      const result = buyUnit(state, econ, action.slot, allowBoardConsumption)
       return result.ok ? { ok: true } : { ok: false, reason: result.reason }
     }
 

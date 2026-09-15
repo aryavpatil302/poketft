@@ -28,6 +28,7 @@ import { loadRun, saveRun as persistRunToStorage, clearRun, newRun, type RunStat
 import { rollShop, pickChosenTrait, hasShinyOwned } from './econ/shop'
 import { tierComposition, detectTierChanges, type TierChange, type TierChangeKind } from './econ/tierChanges'
 import { xpToNext, boardCap } from './econ/xp'
+import { resolvePendingCombines } from './econ/combine'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
 import { checkGameOver } from './econ/botMatches'
 import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices, autoPickItemChoice } from './econ/creeps'
@@ -2387,7 +2388,12 @@ function dispatchAction(action: GameAction): boolean {
   const planningBoardLive = econPhase === 'planning'
 
   const before = localTierComposition()
-  const result = applyAction(run, localSeatIndex, action)
+  // A board-fielded copy is never consumed to complete a triple while this
+  // round's combat is still playing back (mirrors party/lobby.ts's
+  // networked gate) — see src/econ/shop.ts's buyUnit / combine.ts's
+  // mergeOnce. restorePlayerBoard's solo path sweeps up anything deferred
+  // (resolvePendingCombines) the instant the next planning phase opens.
+  const result = applyAction(run, localSeatIndex, action, Math.random, econPhase !== 'combat')
   if (!result.ok) {
     reportActionRejected(result.reason)
     return false
@@ -2963,6 +2969,7 @@ function startNetPlayback(log: FightLog): void {
       isShiny: u.isShiny,
       chosenTrait: u.chosenTrait,
     }))
+  combatStartBoardCap = boardCap(humanEcon())
 
   // The win-prediction calibration loop is a SOLO learner fed by battles this
   // browser's own economy produced; a room's fight is not its data, and
@@ -4110,7 +4117,13 @@ function renderEconBar(): void {
   const xpTicks = need ? Math.max(1, Math.round(need / 4)) : 1
   const xpTickPct = 100 / xpTicks
   const boardCount = playerBoardUnitCount()
-  const capped = boardCount >= boardCap(h)
+  // Frozen at whatever it was when this combat began while econPhase is
+  // still 'combat', so a mid-combat level-up's extra slot doesn't appear
+  // until the next planning phase actually opens — see combatStartBoardCap.
+  const capValue = econPhase === 'combat' && combatStartBoardCap !== null
+    ? combatStartBoardCap
+    : boardCap(h)
+  const capped = boardCount >= capValue
   const streakIcon = h.streak >= 3 ? '🔥' : h.streak <= -3 ? '❄️' : ''
 
   // Shop odds strip for the current level, dot colored per cost tier
@@ -4171,7 +4184,7 @@ function renderEconBar(): void {
           <span style="font-size:15px;font-weight:bold;color:#f0c95c;">${goldIconHTML(16, 'gold-hud-icon')} ${h.gold}</span>
           ${streakIcon ? `<span style="font-size:12px;color:#ff9955;">${streakIcon} ${Math.abs(h.streak)}</span>` : ''}
           <span style="font-size:11px;color:#cc6666;">♥ ${h.hp}</span>
-          <span style="font-size:10px;color:${capped ? '#ff6666' : '#667'};">Board ${boardCount}/${boardCap(h)}</span>
+          <span style="font-size:10px;color:${capped ? '#ff6666' : '#667'};">Board ${boardCount}/${capValue}</span>
           ${shinyOddsHtml}
         </div>
       </div>
@@ -5147,6 +5160,14 @@ interface UnitSnapshot {
   chosenTrait?: string
 }
 let preCombatSnapshot: UnitSnapshot[] = []
+// The board cap (boardCap(humanEcon())) as of the moment THIS combat began —
+// captured alongside preCombatSnapshot, at the same two call sites. Leveling
+// mid-combat banks immediately, but the displayed cap (renderEconBar) stays
+// frozen at this value until econPhase leaves 'combat', so the extra slot
+// only appears usable once the next planning phase actually opens. null
+// outside a combat window (test mode never sets it, since it has no
+// RunState/leveling concept at all).
+let combatStartBoardCap: number | null = null
 let autoResetTimer: ReturnType<typeof setTimeout> | null = null
 let victoryCelebrationTs = 0   // performance.now() when combat ended; 0 = not celebrating
 let earthquakeFlashTs    = 0   // performance.now() of last earthquake VFX; 0 = none
@@ -5317,6 +5338,7 @@ function startCombat(): void {
       isShiny: u.isShiny,
       chosenTrait: u.chosenTrait,
     }))
+    combatStartBoardCap = boardCap(humanEcon())
     if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
 
     // Win prediction + calibration setup, now after resolveRound, keyed on
@@ -5442,7 +5464,15 @@ function restorePlayerBoard(): void {
   // would roll this seat's shop against a RunState the server never agreed to.
   if (econActive()) {
     if (run.gameOver) enterGameOver(run.gameOver)
-    else startPlanningPhase(true)
+    else {
+      // Sweep up any combine that was deferred during the combat this seat
+      // just watched — see dispatchAction's allowBoardConsumption argument
+      // and combine.ts's own header. Mirrors party/lobby.ts's
+      // openPlanningWindow doing the same at the synchronized networked
+      // transition.
+      resolvePendingCombines(run)
+      startPlanningPhase(true)
+    }
   }
 }
 

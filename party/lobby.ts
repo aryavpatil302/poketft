@@ -8,6 +8,7 @@
 
 import type * as Party from 'partykit/server'
 import { applyAction, startPlanning, resolveRound, type RoundResult } from '../src/game/round'
+import { resolvePendingCombines } from '../src/econ/combine'
 import type { RunState } from '../src/econ/runState'
 import {
   newRoomRun, newSeatTable, assignSeat, freeSeat, seatOf, lobbyView,
@@ -149,10 +150,34 @@ export default class Lobby implements Party.Server {
     ))
   }
 
-  // Opens a new planning phase: bank pending income + roll shops
-  // (startPlanning), flip the phase, set an absolute deadline, reset every
-  // connection's action budget together, and schedule the timer that fires
-  // resolution when the deadline arrives.
+  // Advances the economy to the next round's starting state — banks pending
+  // income and rolls each seat's shop respecting shopLocked (startPlanning),
+  // plus resets every connection's action budget together. Split out from
+  // the old beginPlanning() so onDeadline() can run this IMMEDIATELY,
+  // synchronously, right after resolveRound() returns (before this
+  // function's own first await) — see onDeadline's comment on why that
+  // ordering is what makes it safe for onMessage to accept actions the
+  // instant phase flips to 'resolving': there is never a tick where phase
+  // is 'resolving' but the shop hasn't been rolled yet. Also what makes
+  // reroll/lock/buy/buyXp all safe to allow during that window — the shop
+  // they'd act on is this round's real one, rolled exactly once, not a
+  // stale leftover that startPlanning would otherwise silently replace out
+  // from under a reroll later.
+  private advanceEconomy(): void {
+    startPlanning(this.run)
+    this.resetActionBudget()
+  }
+
+  // Opens the visible planning window: flip the phase, set an absolute
+  // deadline, schedule the timer that fires resolution when it arrives, and
+  // broadcast. Does NOT roll the shop or reset the action budget itself
+  // (advanceEconomy already did, earlier — see its own header) except when
+  // called via beginPlanning() below for a room with no preceding combat.
+  // Also runs resolvePendingCombines() first: any purchase during the
+  // combat/wait window that was deferred because completing its triple
+  // would have consumed a currently-fielded copy (src/econ/shop.ts's
+  // allowBoardConsumption) resolves right here, at the same synchronized
+  // instant every connected seat's board/bench becomes live again.
   //
   // Uses setTimeout rather than a Durable Object alarm: connections keep the
   // room alive for the whole planning window, hibernation is not enabled
@@ -161,8 +186,8 @@ export default class Lobby implements Party.Server {
   // setAlarm(this.deadline) with onAlarm() calling onDeadline()) is the
   // hardening path if a room ever needs to resolve with nobody connected —
   // which this milestone explicitly does not do (see onClose below).
-  private async beginPlanning(): Promise<void> {
-    startPlanning(this.run)
+  private async openPlanningWindow(): Promise<void> {
+    resolvePendingCombines(this.run)
     this.phase = 'planning'
     // Set BEFORE the persist() below so the flag and the run it belongs to
     // are written in the same call — a room cannot come back from storage
@@ -174,12 +199,21 @@ export default class Lobby implements Party.Server {
     // process.env.
     const planningMs = planningMsFor(this.room.env)
     this.deadline = Date.now() + planningMs
-    this.resetActionBudget()
     this.timer = setTimeout(() => void this.onDeadline(), planningMs)
 
     await this.persist()
     this.broadcastPhase()
     this.room.broadcast(JSON.stringify({ t: 'snapshot', snapshot: this.run } satisfies ServerMessage))
+  }
+
+  // Composition of both steps above, for the two callers with no preceding
+  // combat to have already advanced economy for: onConnect's resume-the-loop
+  // case, and the host's 'start' message (src/net/protocol.ts's
+  // ClientMessage). onDeadline calls the two pieces separately instead (see
+  // its own comment).
+  private async beginPlanning(): Promise<void> {
+    this.advanceEconomy()
+    await this.openPlanningWindow()
   }
 
   private clearTimer(): void {
@@ -268,6 +302,15 @@ export default class Lobby implements Party.Server {
     // Do NOT increment this.run.round here — resolveRound already does it
     // internally; doing it twice would skip every other round, including
     // the creep/item rounds keyed on specific round numbers.
+
+    // Advance economy for the round that just started (bank income, roll
+    // shop) IMMEDIATELY, synchronously, in the same tick resolveRound() ran
+    // in — before any await below. Skipped when the game just ended (no
+    // shop to roll for a seat that's about to see 'over'). This is what
+    // lets onMessage safely accept buy/sell/reroll/buyXp/lock the instant
+    // phase becomes 'resolving': see advanceEconomy's own header for why.
+    if (result.survivors.length > 1) this.advanceEconomy()
+
     await this.persist()
     await this.broadcastResolve(result)
 
@@ -278,17 +321,19 @@ export default class Lobby implements Party.Server {
     }
 
     // Wait for combat playback to actually finish before opening the next
-    // shop window. Without this, beginPlanning() below would start round
-    // N+1's 30s countdown the instant this round's fight logs are encoded
-    // (near-instant, computationally) — completely unsynchronized with how
-    // long clients spend animating the fight they just received. A player
-    // could then return from watching combat to find their shop time
+    // shop window. Without this, openPlanningWindow() below would start
+    // round N+1's 30s countdown the instant this round's fight logs are
+    // encoded (near-instant, computationally) — completely unsynchronized
+    // with how long clients spend animating the fight they just received. A
+    // player could then return from watching combat to find their shop time
     // already half gone, or in an extreme case find the round had already
     // resolved again before they ever saw it. See waitForPlaybackAcks for
-    // how "actually finish" is decided.
+    // how "actually finish" is decided. Economy actions (and this seat's
+    // shop) are already live throughout this wait, per advanceEconomy above
+    // — only the visible planning screen itself waits for everyone.
     await this.waitForPlaybackAcks(result)
 
-    await this.beginPlanning()
+    await this.openPlanningWindow()
   }
 
   // Waits until every currently-connected seat that actually has a recorded
@@ -476,16 +521,26 @@ export default class Lobby implements Party.Server {
       return
     }
 
-    // An action is applied if and only if its handler runs while the phase
-    // is still 'planning'. Deliberately dropped, never queued: applying a
-    // buy after settlement would spend post-settlement gold against a
-    // pre-settlement shop that no longer exists.
-    if (this.phase !== 'planning') {
+    // An action is applied if and only if the phase is 'planning' OR
+    // 'resolving' — i.e. buy/sell/reroll/buyXp/lock work throughout the
+    // combat/celebration window too, not only during the dedicated planning
+    // screen. Safe specifically because advanceEconomy() (see onDeadline)
+    // runs synchronously, before any await, the instant phase becomes
+    // 'resolving' — there is no tick where 'resolving' means "shop not
+    // rolled yet." Rejected everywhere else ('lobby'/'idle'/'over'):
+    // applying a buy there would act on a RunState with no live round at
+    // all. Deliberately dropped, never queued.
+    if (this.phase !== 'planning' && this.phase !== 'resolving') {
       sender.send(JSON.stringify({ t: 'rejected', reason: 'wrong-phase' } satisfies ServerMessage))
       return
     }
 
-    const result = applyAction(this.run, seat, msg.action)
+    // A board-fielded copy is never consumed to complete a triple while
+    // combat for this round is still playing back (this.phase ===
+    // 'resolving') — see src/econ/shop.ts's buyUnit and combine.ts's
+    // mergeOnce. resolvePendingCombines (openPlanningWindow) sweeps up
+    // anything deferred the instant the next planning phase opens.
+    const result = applyAction(this.run, seat, msg.action, Math.random, this.phase !== 'resolving')
     if (!result.ok) {
       sender.send(JSON.stringify({ t: 'rejected', reason: result.reason } satisfies ServerMessage))
       return
