@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  establishedTraits, boardTraitSignature, traitDepths,
+  establishedTraits, boardTraitSignature, traitDepths, traitCostWeight,
+  catalogEntryLevelNeeded, nearMissCatalogEntries,
 } from './compositionSignature'
 import { UNIT_MAP } from '../data/units'
 import { getThresholds } from '../enemy/boardPower'
@@ -64,5 +65,75 @@ describe('splash-trait exclusion', () => {
     expect([...splash].sort()).toEqual([
       'earth_spirit', 'mind_spirit', 'rogue', 'shock_spirit', 'soul_bonded', 'wave_spirit', 'zen',
     ])
+  })
+})
+
+describe('traitCostWeight', () => {
+  // jungle carriers span the full cost range: tangela(1)/ribombee(1) ...
+  // tapu_bulu(5) — good spread for testing the cost interpolation.
+  it('weights a trait built entirely from cheap units near 1.0', () => {
+    const board = [{ definitionId: 'tangela' }, { definitionId: 'ribombee' }]
+    expect(traitCostWeight('jungle', board)).toBeCloseTo(1.0)
+  })
+
+  it('weights a trait built entirely from 5-cost units at the discount floor', () => {
+    const board = [{ definitionId: 'tapu_bulu' }]
+    expect(traitCostWeight('jungle', board)).toBeCloseTo(0.35)
+  })
+
+  it('interpolates for a mixed-cost trait', () => {
+    // tangela(1) + tapu_bulu(5) → avg cost 3 → halfway between 1.0 and 0.35
+    const board = [{ definitionId: 'tangela' }, { definitionId: 'tapu_bulu' }]
+    expect(traitCostWeight('jungle', board)).toBeCloseTo(0.675)
+  })
+
+  it('defaults to full weight when the trait has no members on the board', () => {
+    const board = [{ definitionId: 'tangela' }]
+    expect(traitCostWeight('beachy', board)).toBe(1.0)
+  })
+
+  it('does not double-count duplicate copies of the same species', () => {
+    const single = traitCostWeight('jungle', [{ definitionId: 'tapu_bulu' }])
+    const doubled = traitCostWeight('jungle', [{ definitionId: 'tapu_bulu' }, { definitionId: 'tapu_bulu' }])
+    expect(doubled).toBeCloseTo(single)
+  })
+})
+
+describe('catalogEntryLevelNeeded', () => {
+  it('a cost-1 core needs level 1', () => {
+    expect(catalogEntryLevelNeeded({ coreUnitIds: ['tangela'] })).toBe(1)
+  })
+
+  it('a cost-5 core needs level 9', () => {
+    expect(catalogEntryLevelNeeded({ coreUnitIds: ['latios'] })).toBe(9)
+  })
+
+  it('takes the max across multiple core units', () => {
+    expect(catalogEntryLevelNeeded({ coreUnitIds: ['tangela', 'latios'] })).toBe(9)
+  })
+})
+
+describe('nearMissCatalogEntries', () => {
+  it('never counts a single-core entry as a near miss (no partial progress is possible)', () => {
+    // An empty board trivially "misses 1" of every single-core entry — that's
+    // not genuine progress, so it must never surface as a tempo opportunity.
+    const results = nearMissCatalogEntries(new Set(), 1)
+    expect(results.some(r => r.entry.id === 'carry|latios')).toBe(false)
+  })
+
+  it('excludes a fully-owned entry (nothing missing)', () => {
+    const results = nearMissCatalogEntries(new Set(['latios']), 1)
+    expect(results.some(r => r.entry.id === 'carry|latios')).toBe(false)
+  })
+
+  it('excludes a two-core entry missing both units when maxMissing is 1', () => {
+    const results = nearMissCatalogEntries(new Set(), 1)
+    expect(results.some(r => r.entry.id === 'carry|latios|var|charizard')).toBe(false)
+  })
+
+  it('includes a two-core entry missing exactly one unit', () => {
+    const results = nearMissCatalogEntries(new Set(['latios']), 1)
+    const hit = results.find(r => r.entry.id === 'carry|latios|var|charizard')
+    expect(hit?.missing).toEqual(['charizard'])
   })
 })

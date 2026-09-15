@@ -59,7 +59,7 @@ import {
 import { stageOf } from './constants'
 import {
   establishedTraits, traitPairKey, boardTraitSignature, unitContextKey,
-  traitDepths, traitDepthKey, breadthKey,
+  traitDepths, traitDepthKey, breadthKey, traitCostWeight,
 } from './compositionSignature'
 import {
   LEARNED_TRAIT_PAIR_BONUS, LEARNED_UNIT_CONTEXT_BONUS,
@@ -115,14 +115,18 @@ function bufferCompositionOutcomes(
   const board = econ.board
   const traits = establishedTraits(board)
 
-  // Board-level signals: full weight, credit only.
+  // Board-level signals. Trait-pair/depth are weighted by traitCostWeight —
+  // a trait activated by expensive units is weaker evidence of real synergy
+  // than the same trait activated by cheap ones (see compositionSignature.ts).
+  // Breadth stays unweighted (it's a count, not trait-specific).
   for (let i = 0; i < traits.length; i++) {
     for (let j = i + 1; j < traits.length; j++) {
-      buf.pair.add(traitPairKey(stage, traits[i], traits[j]), credit)
+      const weight = Math.min(traitCostWeight(traits[i], board), traitCostWeight(traits[j], board))
+      buf.pair.add(traitPairKey(stage, traits[i], traits[j]), credit, weight)
     }
   }
   for (const { trait, depth } of traitDepths(board)) {
-    buf.depth.add(traitDepthKey(stage, trait, depth), credit)
+    buf.depth.add(traitDepthKey(stage, trait, depth), credit, traitCostWeight(trait, board))
   }
   buf.breadth.add(breadthKey(stage, traits.length), credit)
 

@@ -2741,7 +2741,7 @@ Self-play training found fielding both Substitutor and Wave Spirit together corr
 
 ### Discovered: Mystic + Shock Spirit (stage 5)
 
-Self-play training found fielding both Mystic and Shock Spirit together correlated with winning 68% of fights at stage 5 (88 real samples). No fixed core — any real carriers of both traits qualify. Mystic (breakpoints 2/4) carriers: Tapu Fini, Latios, Spiritomb, Abomasnow, Oranguru. Shock Spirit (breakpoints 1) carriers: Tapu Koko.
+Self-play training found fielding both Mystic and Shock Spirit together correlated with winning 68% of fights at stage 5 (79 real samples). No fixed core — any real carriers of both traits qualify. Mystic (breakpoints 2/4) carriers: Tapu Fini, Latios, Spiritomb, Abomasnow, Celebi. Shock Spirit (breakpoints 1) carriers: Tapu Koko.
 
 ### Discovered: Ascender + Promoter (stage 5)
 
@@ -2757,7 +2757,7 @@ Self-play training found fielding both Mystic and Sky Striker together correlate
 
 ### Discovered: Mind Spirit + Soul Bonded (stage 5)
 
-Self-play training found fielding both Mind Spirit and Soul Bonded together correlated with winning 67% of fights at stage 5 (55 real samples). No fixed core — any real carriers of both traits qualify. Mind Spirit (breakpoints 1) carriers: Tapu Lele. Soul Bonded (breakpoints 1/2) carriers: Latios, Latias.
+Self-play training found fielding both Mind Spirit and Soul Bonded together correlated with winning 67% of fights at stage 5 (50 real samples). No fixed core — any real carriers of both traits qualify. Mind Spirit (breakpoints 1) carriers: Tapu Lele. Soul Bonded (breakpoints 1/2) carriers: Latios, Latias.
 
 ### Discovered: Beachy + Substitutor (stage 2)
 
@@ -2769,7 +2769,7 @@ Self-play training found fielding both Quickclaw and Substitutor together correl
 
 ### Discovered: Shock Spirit + Soul Bonded (stage 5)
 
-Self-play training found fielding both Shock Spirit and Soul Bonded together correlated with winning 66% of fights at stage 5 (51 real samples). No fixed core — any real carriers of both traits qualify. Shock Spirit (breakpoints 1) carriers: Tapu Koko. Soul Bonded (breakpoints 1/2) carriers: Latios, Latias.
+Self-play training found fielding both Shock Spirit and Soul Bonded together correlated with winning 66% of fights at stage 5 (46 real samples). No fixed core — any real carriers of both traits qualify. Shock Spirit (breakpoints 1) carriers: Tapu Koko. Soul Bonded (breakpoints 1/2) carriers: Latios, Latias.
 
 ### Discovered: Quickclaw + Temporal Woods (stage 5)
 
@@ -2781,15 +2781,15 @@ Self-play training found fielding both Bruiser and Sky Striker together correlat
 
 ### Discovered: Bruiser + Mind Spirit (stage 5)
 
-Self-play training found fielding both Bruiser and Mind Spirit together correlated with winning 66% of fights at stage 5 (70 real samples). No fixed core — any real carriers of both traits qualify. Bruiser (breakpoints 2/4/6) carriers: Salamence, Tropius, Palossand, Hisuian Avalugg, Venusaur. Mind Spirit (breakpoints 1) carriers: Tapu Lele.
+Self-play training found fielding both Bruiser and Mind Spirit together correlated with winning 66% of fights at stage 5 (63 real samples). No fixed core — any real carriers of both traits qualify. Bruiser (breakpoints 2/4/6) carriers: Salamence, Tropius, Palossand, Hisuian Avalugg, Venusaur. Mind Spirit (breakpoints 1) carriers: Tapu Lele.
 
 ### Discovered: Froststone + Shock Spirit (stage 5)
 
-Self-play training found fielding both Froststone and Shock Spirit together correlated with winning 65% of fights at stage 5 (103 real samples). No fixed core — any real carriers of both traits qualify. Froststone (breakpoints 2/4/6) carriers: Abomasnow, Mamoswine, Hisuian Avalugg, Froslass, Weavile. Shock Spirit (breakpoints 1) carriers: Tapu Koko.
+Self-play training found fielding both Froststone and Shock Spirit together correlated with winning 65% of fights at stage 5 (93 real samples). No fixed core — any real carriers of both traits qualify. Froststone (breakpoints 2/4/6) carriers: Abomasnow, Mamoswine, Hisuian Avalugg, Froslass, Weavile. Shock Spirit (breakpoints 1) carriers: Tapu Koko.
 
 ### Discovered: Bruiser + Shock Spirit (stage 5)
 
-Self-play training found fielding both Bruiser and Shock Spirit together correlated with winning 65% of fights at stage 5 (55 real samples). No fixed core — any real carriers of both traits qualify. Bruiser (breakpoints 2/4/6) carriers: Salamence, Tropius, Palossand, Hisuian Avalugg, Venusaur. Shock Spirit (breakpoints 1) carriers: Tapu Koko.
+Self-play training found fielding both Bruiser and Shock Spirit together correlated with winning 65% of fights at stage 5 (50 real samples). No fixed core — any real carriers of both traits qualify. Bruiser (breakpoints 2/4/6) carriers: Salamence, Tropius, Palossand, Hisuian Avalugg, Venusaur. Shock Spirit (breakpoints 1) carriers: Tapu Koko.
 
 ### Discovered: Earth Spirit + Soul Bonded (stage 5)
 
@@ -2797,11 +2797,11 @@ Self-play training found fielding both Earth Spirit and Soul Bonded together cor
 
 ### Discovered: Mystic + Rogue (stage 5)
 
-Self-play training found fielding both Mystic and Rogue together correlated with winning 65% of fights at stage 5 (99 real samples). No fixed core — any real carriers of both traits qualify. Mystic (breakpoints 2/4) carriers: Tapu Fini, Latios, Spiritomb, Abomasnow, Oranguru. Rogue (breakpoints 1) carriers: Salamence.
+Self-play training found fielding both Mystic and Rogue together correlated with winning 65% of fights at stage 5 (89 real samples). No fixed core — any real carriers of both traits qualify. Mystic (breakpoints 2/4) carriers: Tapu Fini, Latios, Spiritomb, Abomasnow, Celebi. Rogue (breakpoints 1) carriers: Salamence.
 
 ### Discovered: Keen Eye + Shock Spirit (stage 5)
 
-Self-play training found fielding both Keen Eye and Shock Spirit together correlated with winning 65% of fights at stage 5 (93 real samples). No fixed core — any real carriers of both traits qualify. Keen Eye (breakpoints 2/4/6) carriers: Tapu Lele, Noivern, Fezandipiti, Celebi, Claydol. Shock Spirit (breakpoints 1) carriers: Tapu Koko.
+Self-play training found fielding both Keen Eye and Shock Spirit together correlated with winning 65% of fights at stage 5 (84 real samples). No fixed core — any real carriers of both traits qualify. Keen Eye (breakpoints 2/4/6) carriers: Tapu Lele, Noivern, Fezandipiti, Claydol, Sableye. Shock Spirit (breakpoints 1) carriers: Tapu Koko.
 
 ### Discovered: Sky Striker + Substitutor (stage 5)
 
@@ -2813,11 +2813,11 @@ Self-play training found fielding both Beachy and Substitutor together correlate
 
 ### Discovered: Mind Spirit + Stalwart (stage 5)
 
-Self-play training found fielding both Mind Spirit and Stalwart together correlated with winning 64% of fights at stage 5 (96 real samples). No fixed core — any real carriers of both traits qualify. Mind Spirit (breakpoints 1) carriers: Tapu Lele. Stalwart (breakpoints 2/4/6) carriers: Latias, Wheezing, Mamoswine, Bellibolt, Torkoal.
+Self-play training found fielding both Mind Spirit and Stalwart together correlated with winning 64% of fights at stage 5 (86 real samples). No fixed core — any real carriers of both traits qualify. Mind Spirit (breakpoints 1) carriers: Tapu Lele. Stalwart (breakpoints 2/4/6) carriers: Latias, Wheezing, Mamoswine, Bellibolt, Torkoal.
 
 ### Discovered: Shock Spirit + Temporal Woods (stage 5)
 
-Self-play training found fielding both Shock Spirit and Temporal Woods together correlated with winning 64% of fights at stage 5 (81 real samples). No fixed core — any real carriers of both traits qualify. Shock Spirit (breakpoints 1) carriers: Tapu Koko. Temporal Woods (breakpoints 2/4/6) carriers: Tapu Lele, Fezandipiti, Celebi, Oranguru, Morgrem.
+Self-play training found fielding both Shock Spirit and Temporal Woods together correlated with winning 64% of fights at stage 5 (73 real samples). No fixed core — any real carriers of both traits qualify. Shock Spirit (breakpoints 1) carriers: Tapu Koko. Temporal Woods (breakpoints 2/4/6) carriers: Tapu Lele, Fezandipiti, Celebi, Oranguru, Morgrem.
 
 ### Discovered: Quickclaw + Substitutor (stage 4)
 
@@ -2825,11 +2825,11 @@ Self-play training found fielding both Quickclaw and Substitutor together correl
 
 ### Discovered: Shock Spirit + Substitutor (stage 5)
 
-Self-play training found fielding both Shock Spirit and Substitutor together correlated with winning 64% of fights at stage 5 (216 real samples). No fixed core — any real carriers of both traits qualify. Shock Spirit (breakpoints 1) carriers: Tapu Koko. Substitutor (breakpoints 1/3/5) carriers: Tropius, Mamoswine, Ferrothorn, Xatu, Morgrem.
+Self-play training found fielding both Shock Spirit and Substitutor together correlated with winning 64% of fights at stage 5 (194 real samples). No fixed core — any real carriers of both traits qualify. Shock Spirit (breakpoints 1) carriers: Tapu Koko. Substitutor (breakpoints 1/3/5) carriers: Tropius, Mamoswine, Ferrothorn, Xatu, Morgrem.
 
 ### Discovered: Keen Eye + Soul Bonded (stage 5)
 
-Self-play training found fielding both Keen Eye and Soul Bonded together correlated with winning 64% of fights at stage 5 (187 real samples). No fixed core — any real carriers of both traits qualify. Keen Eye (breakpoints 2/4/6) carriers: Tapu Lele, Noivern, Fezandipiti, Celebi, Claydol. Soul Bonded (breakpoints 1/2) carriers: Latios, Latias.
+Self-play training found fielding both Keen Eye and Soul Bonded together correlated with winning 64% of fights at stage 5 (168 real samples). No fixed core — any real carriers of both traits qualify. Keen Eye (breakpoints 2/4/6) carriers: Tapu Lele, Noivern, Fezandipiti, Claydol, Sableye. Soul Bonded (breakpoints 1/2) carriers: Latios, Latias.
 
 ### Discovered: Ascender + Temporal Woods (stage 5)
 
@@ -2853,11 +2853,11 @@ Self-play training found fielding both Mystic and River together correlated with
 
 ### Discovered: Shock Spirit + Stalwart (stage 5)
 
-Self-play training found fielding both Shock Spirit and Stalwart together correlated with winning 63% of fights at stage 5 (87 real samples). No fixed core — any real carriers of both traits qualify. Shock Spirit (breakpoints 1) carriers: Tapu Koko. Stalwart (breakpoints 2/4/6) carriers: Latias, Wheezing, Mamoswine, Bellibolt, Torkoal.
+Self-play training found fielding both Shock Spirit and Stalwart together correlated with winning 63% of fights at stage 5 (78 real samples). No fixed core — any real carriers of both traits qualify. Shock Spirit (breakpoints 1) carriers: Tapu Koko. Stalwart (breakpoints 2/4/6) carriers: Latias, Wheezing, Mamoswine, Bellibolt, Torkoal.
 
 ### Discovered: Keen Eye + Rogue (stage 5)
 
-Self-play training found fielding both Keen Eye and Rogue together correlated with winning 62% of fights at stage 5 (101 real samples). No fixed core — any real carriers of both traits qualify. Keen Eye (breakpoints 2/4/6) carriers: Tapu Lele, Noivern, Fezandipiti, Celebi, Claydol. Rogue (breakpoints 1) carriers: Salamence.
+Self-play training found fielding both Keen Eye and Rogue together correlated with winning 62% of fights at stage 5 (91 real samples). No fixed core — any real carriers of both traits qualify. Keen Eye (breakpoints 2/4/6) carriers: Tapu Lele, Noivern, Fezandipiti, Claydol, Sableye. Rogue (breakpoints 1) carriers: Salamence.
 
 ### Discovered: Corkscrew + Temporal Woods (stage 5)
 

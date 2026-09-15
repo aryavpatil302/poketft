@@ -23,6 +23,7 @@
 import { UNIT_MAP } from '../data/units'
 import { getThresholds } from '../enemy/boardPower'
 import { CATALOG_INDEX } from './catalogIndex'
+import { LEVEL_FOR_COST } from './constants'
 
 interface BoardUnit { definitionId: string }
 
@@ -73,6 +74,36 @@ function traitSpeciesCounts(board: BoardUnit[]): Map<string, number> {
     }
   }
   return new Map([...perTrait.entries()].map(([t, species]) => [t, species.size]))
+}
+
+// How trustworthy is this trait's ACTIVATION as comp-shape evidence, vs. just
+// a byproduct of the board happening to run expensive units? calcBoardProfile
+// (boardPower.ts) already weights a trait's raw power contribution by its
+// members' cost (unitPowerScore = 2^(cost-1) * 3^(tier-1)), so a trait hit by
+// 5-costs already looks stronger in the power baseline the credit model
+// scores against — but the credit signal itself doesn't discount for it, so
+// "this trait activated because the board is stacked with expensive units"
+// reads as identical-quality evidence to a genuinely cheap, replicable trait.
+// Linear from avg cost 1 (weight 1.0) to avg cost 5 (weight 0.35 — discounted
+// hard, never zeroed: a real expensive-unit synergy should still be
+// learnable, just need more samples to prove it than a cheap one would).
+const CHEAP_TRAIT_WEIGHT = 1.0
+const EXPENSIVE_TRAIT_WEIGHT = 0.35
+export function traitCostWeight(trait: string, board: BoardUnit[]): number {
+  const seen = new Set<string>()
+  let costSum = 0
+  let n = 0
+  for (const u of board) {
+    const def = UNIT_MAP.get(u.definitionId)
+    if (!def || !def.types.includes(trait) || seen.has(u.definitionId)) continue
+    seen.add(u.definitionId)
+    costSum += def.cost
+    n++
+  }
+  if (n === 0) return CHEAP_TRAIT_WEIGHT
+  const avgCost = costSum / n
+  const t = Math.max(0, Math.min(1, (avgCost - 1) / 4))
+  return CHEAP_TRAIT_WEIGHT + t * (EXPENSIVE_TRAIT_WEIGHT - CHEAP_TRAIT_WEIGHT)
 }
 
 // How many of a trait's own breakpoints a given species-count has crossed
@@ -150,6 +181,37 @@ export function catalogKey(stage: number, catalogEntryId: string): string {
 // Every catalog entry whose full core-unit set is owned right now.
 export function matchedCatalogEntries(ownedDefIds: Set<string>): string[] {
   return CATALOG_INDEX.filter(e => e.coreUnitIds.every(id => ownedDefIds.has(id))).map(e => e.id)
+}
+
+// What level does this entry's most expensive core unit realistically need to
+// show up in the shop? (see LEVEL_FOR_COST — derived from SHOP_ODDS).
+export function catalogEntryLevelNeeded(entry: { coreUnitIds: string[] }): number {
+  let maxLevel = 1
+  for (const id of entry.coreUnitIds) {
+    const def = UNIT_MAP.get(id)
+    if (!def) continue
+    maxLevel = Math.max(maxLevel, LEVEL_FOR_COST[def.cost] ?? 1)
+  }
+  return maxLevel
+}
+
+// Catalog entries missing at most `maxMissing` core units, where at least one
+// core unit IS already owned — genuine partial progress, not just "haven't
+// bought anything yet." Without that requirement, an empty board trivially
+// "misses 1" of every single-core entry in the catalog (nothing owned means
+// nothing to subtract), so nearly every expensive carry would look like a
+// tempo opportunity from round 1. Used to spot "one piece away from a real
+// comp" opportunities live, rather than only reacting once fully assembled.
+export function nearMissCatalogEntries(
+  ownedDefIds: Set<string>,
+  maxMissing = 1,
+): Array<{ entry: typeof CATALOG_INDEX[number]; missing: string[] }> {
+  const out: Array<{ entry: typeof CATALOG_INDEX[number]; missing: string[] }> = []
+  for (const entry of CATALOG_INDEX) {
+    const missing = entry.coreUnitIds.filter(id => !ownedDefIds.has(id))
+    if (missing.length > 0 && missing.length <= maxMissing && missing.length < entry.coreUnitIds.length) out.push({ entry, missing })
+  }
+  return out
 }
 
 // Reverse index (unit → the catalog entries that list it as a core unit),
