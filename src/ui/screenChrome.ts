@@ -30,11 +30,9 @@ export const SCREEN_FADE_MS = 300
 // in the browser — swapping this one constant switches both screens.
 const BACKGROUND_URL = '/visuals/backgrounds/pixel_beach.png'
 
-// The spec's asset. It is NOT in the repo at the time of writing — every
-// path under public/visuals/gui icons/ is accounted for and none is a logo —
-// so wireLogoFallback() below swaps in a CSS wordmark when the request 404s.
-// Keeping the src pointing at the spec'd path means dropping the file in
-// later is the whole fix, with no code change.
+// The spec's asset: the Title/Lobby screen logo art shipped under
+// public/visuals/gui icons/. wireLogoFallback() below swaps in a CSS
+// wordmark if the request to this path ever 404s.
 const LOGO_SRC = '/visuals/gui icons/Logo.png'
 
 const WORDMARK_TEXT = 'PokeTFT'
@@ -193,11 +191,13 @@ export function screenHeaderHtml(idPrefix: string): string {
   `
 }
 
-// The logo asset is not in the repo yet (see LOGO_SRC). Rather than leave a
-// broken-image glyph on the first screen a player ever sees, swap to the CSS
-// wordmark — the same treatment src/main.ts already gives every other
-// optional image (`onerror="this.style.display='none'"`), but landing on a
-// legible title instead of a gap.
+// Defensive fallback: the logo asset ships in the repo today, but a
+// broken-image glyph on the first screen a player ever sees is worse than a
+// legible title, so this guards the cases where the request could still
+// fail (a bad path, an accidental deletion, a broken deploy). Same
+// treatment src/main.ts already gives every other optional image
+// (`onerror="this.style.display='none'"`), but landing on a legible title
+// instead of a gap.
 export function wireLogoFallback(root: HTMLElement, idPrefix: string): void {
   const logo = root.querySelector<HTMLImageElement>(`#${idPrefix}-logo`)
   const wordmark = root.querySelector<HTMLElement>(`#${idPrefix}-wordmark`)
