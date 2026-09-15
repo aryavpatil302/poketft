@@ -30,6 +30,7 @@ export function acquireTarget(unit: Unit, state: CombatState): string | null {
   const enemies: Unit[] = []
   for (const other of state.units.values()) {
     if (other.team === unit.team || other.state === 'dead' || other.definitionId === 'ruiner_stone') continue
+    if (other.statusEffects.some(fx => fx.suppressTargeting)) continue
     enemies.push(other)
   }
   if (enemies.length === 0) return null
@@ -95,7 +96,7 @@ export function tickTargeting(unit: Unit, state: CombatState): void {
   const hasTarget = unit.targetId !== null
   if (hasTarget) {
     const current = state.units.get(unit.targetId!)
-    if (current && current.state !== 'dead') {
+    if (current && current.state !== 'dead' && !current.statusEffects.some(fx => fx.suppressTargeting)) {
       const isEngaged = unit.state === 'attacking'
                      || unit.state === 'casting'
                      || unit.manaLockTimer > 0

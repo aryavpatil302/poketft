@@ -8,7 +8,7 @@ import { registerShinyEffect } from '../shinyEffects'
 // src/enemy/generator.ts:155 ("row 3 = front, row 0 = back" for the enemy
 // half), mirrored for the player half: player front = rows 4-5, enemy
 // front = rows 2-3.
-const BONUS_HP = 100
+const BONUS_HP = 50
 
 function isInFrontTwoRows(row: number, team: Team): boolean {
   return team === 'player' ? row <= 5 : row >= 2
@@ -16,7 +16,7 @@ function isInFrontTwoRows(row: number, team: Team): boolean {
 
 registerShinyEffect('venusaur', {
   id: 'shiny_venusaur',
-  description: 'Grants allies in the front 2 rows +100 max Health.',
+  description: 'Grants allies in the front 2 rows +50 max Health.',
 
   onCombatStart(self: Unit, state: CombatState): void {
     for (const ally of state.units.values()) {

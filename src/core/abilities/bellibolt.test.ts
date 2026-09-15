@@ -127,4 +127,44 @@ describe('Bellibolt - Electrophoresis', () => {
     const vfxEv = state.events.find(e => e.type === 'vfx' && e.effectId === 'bellibolt_discharge')
     expect(vfxEv).toBeDefined()
   })
+
+  it('heals for 300 on cast at tier 1, even with no charges stacked', () => {
+    caster.currentHp = caster.maxHp - 1000
+    const hpBefore = caster.currentHp
+    cast(caster, state)
+    expect(caster.currentHp).toBe(hpBefore + 300)
+  })
+
+  it('heals for 400 on cast at tier 2', () => {
+    const t2 = makeUnit('bellibolt', 'player', 2)
+    t2.hexPos = { col: 3, row: 5 }
+    const e = makeUnit('dummy', 'enemy', 1)
+    e.hexPos = { col: 3, row: 4 }
+    const s = createCombatState([t2], [e])
+    t2.currentHp = t2.maxHp - 1000
+    const hpBefore = t2.currentHp
+    cast(t2, s)
+    expect(t2.currentHp).toBe(hpBefore + 400)
+  })
+
+  it('heals for 600 on cast at tier 3', () => {
+    const t3 = makeUnit('bellibolt', 'player', 3)
+    t3.hexPos = { col: 3, row: 5 }
+    const e = makeUnit('dummy', 'enemy', 1)
+    e.hexPos = { col: 3, row: 4 }
+    const s = createCombatState([t3], [e])
+    t3.currentHp = t3.maxHp - 1000
+    const hpBefore = t3.currentHp
+    cast(t3, s)
+    expect(t3.currentHp).toBe(hpBefore + 600)
+  })
+
+  it('heal is not capped by charges — discharges damage independently of the heal', () => {
+    caster.currentHp = caster.maxHp - 1000
+    const hpBefore = caster.currentHp
+    addCharges(caster, 5)
+    cast(caster, state)
+    expect(caster.currentHp).toBe(hpBefore + 300)
+    expect(state.events.some(e => e.type === 'damage')).toBe(true)
+  })
 })

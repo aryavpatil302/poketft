@@ -820,6 +820,7 @@ export const MORGREM: UnitDefinition = {
   },
   spritePath: '/visuals/sprites/temporal_woods/Morgrem-sprite.webp',
   shinySpritePath: '/visuals/shiny_sprites/temporal_woods/shiny_morgrem.png',
+  spriteScale:0.8,
 }
 
 export const MORELULL: UnitDefinition = {
@@ -1298,7 +1299,7 @@ export const SNORUNT: UnitDefinition = {
   },
   spritePath: '/visuals/sprites/froststone/Snorunt-sprite.webp',
   shinySpritePath: '/visuals/shiny_sprites/froststone/shiny_snorunt.png',
-  spriteScale:0.8,
+  spriteScale:1.1,
 }
 
 export const FROSLASS: UnitDefinition = {
@@ -1320,7 +1321,7 @@ export const FROSLASS: UnitDefinition = {
   },
   spritePath: '/visuals/sprites/froststone/Froslass-sprite.webp',
   shinySpritePath: '/visuals/shiny_sprites/froststone/shiny_froslass.png',
-  spriteScale:0.85,
+  spriteScale:1.05,
 }
 
 export const WEAVILE: UnitDefinition = {

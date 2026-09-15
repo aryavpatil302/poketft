@@ -1,10 +1,12 @@
 import type { AbilityHandler } from '../systems/ability'
 import type { CombatState, Unit } from '../types'
 import { applyDamage } from '../systems/damage'
+import { applyHeal } from '../systems/heal'
 import { hexesInRange, hexId } from '../hexGrid'
 import { computeStats } from '../unitFactory'
 
 const SCALING_PCTS = [0.50, 0.90, 1.20] as const
+const HEAL_AMOUNTS = [300, 400, 600] as const
 
 export const BelliboltAbility: AbilityHandler = {
   abilityId: 'bellibolt_electrophoresis',
@@ -16,6 +18,8 @@ export const BelliboltAbility: AbilityHandler = {
     const charges = chargeFx?.magnitude ?? 0
     const stats = computeStats(unit)
     const dmg = Math.round((stats.defense + stats.spDefense) * SCALING_PCTS[tier - 1])
+
+    applyHeal(unit, HEAL_AMOUNTS[tier - 1], unit.id, state)
 
     // Discharge — remove all charges
     if (chargeFx) {

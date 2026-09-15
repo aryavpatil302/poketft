@@ -3,6 +3,8 @@ import { makeUnit } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
 import { tickStatusEffects } from '../systems/statusEffect'
+import { tickAttack, startAttacking } from '../systems/attack'
+import { initTraitEffects } from '../systems/traitEffects'
 import { computeStats } from '../unitFactory'
 import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
@@ -139,5 +141,64 @@ describe('Mamoswine - Thick Fat', () => {
     const fxList = caster.statusEffects.filter(fx => fx.stackId === 'thick_fat')
     expect(fxList).toHaveLength(1)
     expect(fxList[0].durationTicks).toBe(BUFF_DURATION)
+  })
+})
+
+describe('Mamoswine - Froststone mark interaction while empowered', () => {
+  // Froststone activates at 2+ species — Mamoswine alone isn't enough.
+  let caster: Unit
+  let ally: Unit
+  let enemy: Unit
+  let state: CombatState
+
+  beforeEach(() => {
+    caster = makeUnit('mamoswine', 'player', 1)
+    caster.hexPos = { col: 3, row: 5 }
+    ally = makeUnit('weavile', 'player', 1)
+    ally.hexPos = { col: 4, row: 5 }
+    enemy = makeUnit('dummy', 'enemy', 1)
+    enemy.hexPos = { col: 3, row: 4 }
+    state = createCombatState([caster, ally], [enemy])
+    initTraitEffects(state)
+    computeStats(caster)
+  })
+
+  function driveAutos(count: number): number[] {
+    caster.targetId = enemy.id
+    startAttacking(caster)
+    const stacksAfterEachAuto: number[] = []
+    let seen = 0
+    let lastCount = caster.attackCount
+    for (let t = 0; t < 2000 && seen < count; t++) {
+      state.tick++
+      tickStatusEffects(state.units, state)
+      tickAttack(caster, state)
+      if (caster.attackCount > lastCount) {
+        seen++
+        lastCount = caster.attackCount
+        stacksAfterEachAuto.push(enemy.statusEffects.find(fx => fx.stackId === 'froststone_mark')?.magnitude ?? 0)
+      }
+    }
+    return stacksAfterEachAuto
+  }
+
+  it('empowered autos build marks one at a time (no double-counting from the bonus damage instance)', () => {
+    cast(caster, state)
+    const stacks = driveAutos(4)
+    expect(stacks).toEqual([1, 2, 3, 4])
+  })
+
+  it('an empowered auto consumes an already-5-stacked mark', () => {
+    cast(caster, state)
+    enemy.statusEffects.push({ id: 'froststone_mark', sourceUnitId: ally.id, durationTicks: -1, magnitude: 5, stackId: 'froststone_mark' })
+    const [afterFirstAuto] = driveAutos(1)
+    expect(afterFirstAuto).toBe(0)
+  })
+
+  it('a non-empowered auto cannot consume an already-5-stacked mark', () => {
+    // No cast() — caster never gained the thick_fat_auto modifier.
+    enemy.statusEffects.push({ id: 'froststone_mark', sourceUnitId: ally.id, durationTicks: -1, magnitude: 5, stackId: 'froststone_mark' })
+    const [afterFirstAuto] = driveAutos(1)
+    expect(afterFirstAuto).toBe(5)
   })
 })

@@ -3,6 +3,9 @@ import { makeUnit } from '../unitFactory'
 import { computeStats } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
+import { tickLeapPixel } from '../systems/movement'
+import { acquireTarget } from '../systems/targeting'
+import { hexDistance } from '../hexGrid'
 import type { Unit, CombatState } from '../types'
 
 import '../systems/ability'
@@ -155,5 +158,59 @@ describe('Aerodactyl - Ancient Power', () => {
     expect(fx).toBeDefined()
     expect(fx?.suppressManaGain).toBe(true)
     expect(fx?.durationTicks).toBe(-1)
+  })
+
+  describe('dash + drop aggro', () => {
+    beforeEach(() => {
+      // Adjacent placement so the dash's 1-hex "behind" destination stays on-board.
+      caster.hexPos = { col: 3, row: 3 }
+      enemy.hexPos  = { col: 3, row: 4 }
+      state = createCombatState([caster], [enemy])
+      caster.targetId = enemy.id
+    })
+
+    it('enters leaping state and applies suppressTargeting on cast', () => {
+      cast(caster, state)
+      expect(caster.state).toBe('leaping')
+      const fx = caster.statusEffects.find(e => e.stackId === 'aerodactyl_dash_evade')
+      expect(fx).toBeDefined()
+      expect(fx?.suppressTargeting).toBe(true)
+    })
+
+    it('cannot be acquired as a target by an enemy while dashing', () => {
+      cast(caster, state)
+      const attacker = makeUnit('dummy', 'enemy', 1)
+      attacker.hexPos = { col: 3, row: 6 }
+      state.units.set(attacker.id, attacker)
+      expect(acquireTarget(attacker, state)).toBeNull()
+    })
+
+    function driveLeapToCompletion(): void {
+      for (let i = 0; i < 200 && tickLeapPixel(caster, state) === false; i++) { /* keep ticking */ }
+    }
+
+    it('lands 1 hex further from the target than his original position', () => {
+      const startDist = hexDistance(caster.hexPos, enemy.hexPos)
+      cast(caster, state)
+      driveLeapToCompletion()
+      expect(hexDistance(caster.hexPos, enemy.hexPos)).toBe(startDist + 1)
+    })
+
+    it('clears suppressTargeting and becomes targetable again on landing', () => {
+      cast(caster, state)
+      driveLeapToCompletion()
+      expect(caster.statusEffects.some(e => e.stackId === 'aerodactyl_dash_evade')).toBe(false)
+
+      const attacker = makeUnit('dummy', 'enemy', 1)
+      attacker.hexPos = { col: 3, row: 6 }
+      state.units.set(attacker.id, attacker)
+      expect(acquireTarget(attacker, state)).toBe(caster.id)
+    })
+
+    it('clears targetId on landing so he re-acquires from the new hex', () => {
+      cast(caster, state)
+      driveLeapToCompletion()
+      expect(caster.targetId).toBeNull()
+    })
   })
 })
