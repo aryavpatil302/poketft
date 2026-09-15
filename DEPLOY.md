@@ -126,9 +126,20 @@ it rather than letting you publish a site whose every connection attempt points 
 
 #### Route A — local CLI build (RECOMMENDED; the only route whose build step is verified)
 
+`./deploy/deploy-frontend.sh` runs every step below in one command, defaulting
+`VITE_PARTY_HOST` to `room.pokefight.org` (the value already committed in
+`netlify.toml`). The individual commands remain documented below for transparency
+and for overriding the room host: `VITE_PARTY_HOST=some-other-host
+./deploy/deploy-frontend.sh`. `npx netlify-cli login` is still a one-time
+prerequisite on a new machine before either path works.
+
 ```sh
 npx netlify-cli login
 VITE_PARTY_HOST=poketft.<your-username>.partykit.dev npx vite build
+npm --prefix blog ci
+npm --prefix blog run build
+rm -rf dist/blog
+cp -r blog/dist dist/blog
 npx netlify-cli deploy --prod --dir=dist
 ```
 
