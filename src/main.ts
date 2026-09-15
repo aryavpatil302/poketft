@@ -1,7 +1,7 @@
 import { BoardLayer } from './render/layers/boardLayer'
 import { activeTerrainPulseColor, activeTerrainLabel } from './core/systems/terrain'
 import { getShinyEffect } from './core/systems/shinyEffects'
-import { UnitLayer } from './render/layers/unitLayer'
+import { UnitLayer, type EnemyIntro } from './render/layers/unitLayer'
 import { EffectLayer } from './render/layers/effectLayer'
 import { calcBoardProfile, getThresholds } from './enemy/boardPower'
 import { boardFeat, appendBattle, loadBattleLog, type BoardFeat } from './enemy/battleLog'
@@ -2876,7 +2876,10 @@ function startNetPlayback(log: FightLog): void {
 
   playbackLog = oriented
   playbackIndex = 0
-  combatState = createPlaybackState(oriented)
+  // Networked wants the performance.now() catch-up seed (see the comment on
+  // introSeedLastTsFromNow's use below) — beginCombatPlayback arms the same
+  // pre-combat intro solo does; the seeding choice is applied at intro-end.
+  combatState = beginCombatPlayback(oriented, true)
 
   // Rebuild placedUnits from this seat's committed board, the same way the
   // solo path does — the snapshot that came with the resolve has already
@@ -2914,20 +2917,25 @@ function startNetPlayback(log: FightLog): void {
   if (autoResetTimer !== null) { clearTimeout(autoResetTimer); autoResetTimer = null }
   inOvertime = false
   document.getElementById('overtime-box')!.style.display = 'none'
-  combatRunning = true
-  accumulator = 0
-  // Anchored to NOW rather than to frame()'s lastTs === 0 sentinel, which
-  // means "start counting from the next rendered frame". That sentinel is
-  // right for solo combat (nothing else is waiting on it) but wrong here: a
-  // fight arrives over the socket, and socket messages are delivered to a
-  // BACKGROUNDED tab while requestAnimationFrame is not. A player who was on
-  // another tab when the round resolved would otherwise begin the fight at
-  // frame 0 whenever they happened to look back — however many seconds late —
-  // while the other player watched it on time. Seeding lastTs with the moment
-  // playback should have begun makes the first rendered frame measure that
-  // whole delay (rAF timestamps share performance.now's time origin), so the
-  // catch-up in frame() puts this tab where the room already is.
-  lastTs = performance.now()
+  // combatRunning/accumulator/lastTs are no longer set here directly —
+  // beginCombatPlayback above armed the pre-combat intro instead, and
+  // frame()'s intro gate flips them at intro-end using introSeedLastTsFromNow.
+  //
+  // introSeedLastTsFromNow=true (passed above) reproduces this call site's
+  // prior behaviour: lastTs is anchored to NOW rather than to frame()'s
+  // lastTs === 0 sentinel, which means "start counting from the next rendered
+  // frame". That sentinel is right for solo combat (nothing else is waiting
+  // on it) but wrong here: a fight arrives over the socket, and socket
+  // messages are delivered to a BACKGROUNDED tab while requestAnimationFrame
+  // is not. A player who was on another tab when the round resolved would
+  // otherwise begin the fight at frame 0 whenever they happened to look back
+  // — however many seconds late — while the other player watched it on time.
+  // Seeding lastTs with the moment playback should have begun makes the first
+  // rendered frame measure that whole delay (rAF timestamps share
+  // performance.now's time origin), so the catch-up in frame() puts this tab
+  // where the room already is. The intro is a local-only pause with nothing
+  // external to catch up to, so it only delays WHEN that seeding happens, not
+  // what it means.
 
   boardLayer.setCombatActive(true)
   setCombatBarState('running')
@@ -5057,6 +5065,16 @@ let speedMult = 1
 let inOvertime = false
 let accumulator = 0
 let lastTs = 0
+// Pre-combat enemy intro (Poke Ball wiggle → pop): a ~900ms client-side pause
+// inserted between "the fight log is ready" and "tick-by-tick playback
+// starts". 900ms = wiggle (~600ms) + pop (~300ms), tunable.
+const COMBAT_INTRO_MS = 900
+let introActive = false
+let introStartTs = 0
+// Records which lastTs seeding the ACTIVE playback wants at intro-end — that
+// choice belongs to the call site (solo's 0 sentinel vs networked's
+// performance.now() catch-up seed), not to the intro itself.
+let introSeedLastTsFromNow = false
 let inspectedUnitId: string | null = null
 // The recorded log an economy fight is replaying, and the next frame index
 // to apply. Non-null iff the game is currently playing back a resolveRound
@@ -5094,6 +5112,30 @@ let planningTimerStartTs: number | null = null   // null = no countdown running
 const ITEM_ROUND_TIME_LIMIT_MS = PLANNING_TIME_LIMIT_MS
 let itemRoundTimerStartTs: number | null = null   // null = not running
 let itemRoundChoices: string[] = []               // the three ids currently on the tray
+
+// Arms the pre-combat enemy intro and returns the playback CombatState that
+// both startCombat's economy branch and startNetPlayback hand off to. Applying
+// frame 0 here is safe because applyFrame is an absolute reconcile (see
+// src/game/playback.ts) — the real tick loop re-applies the SAME frame 0
+// identically as its first consumed tick, so nothing is skipped or double-
+// applied. `playbackIndex` is deliberately left at 0 for that reason. This
+// deliberately does NOT call effectLayer.processEvents, so frame 0's events
+// still fire exactly once, later, from the normal loop — only the unit
+// positions/sprites are made visible early, to give preloadSprites something
+// to warm against before the intro's wiggle window ends.
+function beginCombatPlayback(log: FightLog, seedLastTsFromNow: boolean): CombatState {
+  const state = createPlaybackState(log)
+  if (log.frames.length > 0) {
+    applyFrame(state, log.frames[0])
+    unitLayer.preloadSprites(state.units)
+  }
+  introActive = true
+  introStartTs = performance.now()
+  introSeedLastTsFromNow = seedLastTsFromNow
+  combatRunning = false
+  accumulator = 0
+  return state
+}
 
 function startCombat(): void {
   // In a lobby the server resolves the round and streams back the fight it
@@ -5191,7 +5233,9 @@ function startCombat(): void {
     // and is handled by startNetPlayback's mirrorFightLogForSeat call.
     playbackLog = res.logs[mine.logIndex]
     playbackIndex = 0
-    combatState = createPlaybackState(playbackLog)
+    // Solo wants the `0` sentinel (frame()'s "start counting from the next
+    // rendered frame") — there is no background-tab catch-up concern here.
+    combatState = beginCombatPlayback(playbackLog, false)
 
     // Rebuild placedUnits from this seat's committed board — resolveRound
     // may have moved the round forward and reset planning-phase state, so
@@ -5254,9 +5298,15 @@ function startCombat(): void {
     saveRun(run)
   }
 
-  combatRunning = true
-  accumulator = 0
-  lastTs = 0
+  // The economy branch above now arms a pre-combat intro (beginCombatPlayback)
+  // instead of starting playback immediately; frame()'s intro gate flips these
+  // three at intro-end. Test mode has no intro, so it still starts instantly
+  // here, exactly as before this plan.
+  if (!introActive) {
+    combatRunning = true
+    accumulator = 0
+    lastTs = 0
+  }
 
   // Expose test helpers on window for E2E automation
   ;(window as any).__pokeTFT = {
@@ -5910,6 +5960,17 @@ function frame(ts: number): void {
   const dt = dtSeconds * speedMult * (inOvertime ? 2 : 1)
   lastTs = ts
 
+  // Pre-combat enemy intro gate. Must sit below `lastTs = ts` above so the `0`
+  // sentinel it can write below survives to the next frame instead of being
+  // immediately overwritten by this one.
+  const introElapsed = introActive ? ts - introStartTs : 0
+  if (introActive && introElapsed >= COMBAT_INTRO_MS) {
+    introActive = false
+    combatRunning = true
+    accumulator = 0
+    lastTs = introSeedLastTsFromNow ? performance.now() : 0
+  }
+
   let done = false
   if (combatRunning && combatState) {
     accumulator += dt
@@ -6141,8 +6202,10 @@ function frame(ts: number): void {
   }
   boardLayer.draw()
 
+  const enemyIntro: EnemyIntro | null = introActive ? { elapsedMs: introElapsed, durationMs: COMBAT_INTRO_MS } : null
+
   if (combatState) {
-    unitLayer.draw(combatState.units, combatRunning, victoryCelebrationTs, effectLayer.getHealFlashUnits(), effectLayer.getCastAnimations(), combatState.tick)
+    unitLayer.draw(combatState.units, combatRunning, victoryCelebrationTs, effectLayer.getHealFlashUnits(), effectLayer.getCastAnimations(), combatState.tick, enemyIntro)
     unitLayer.drawItems(combatState.units)
     effectLayer.draw(combatState)
     unitLayer.drawAllHealthBars(combatState.units)

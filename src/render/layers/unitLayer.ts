@@ -6,6 +6,15 @@ import { ITEM_MAP } from '../../data/items'
 import { windupTicks, attackCooldownTicks } from '../../core/systems/attack'
 import { loadAnimatedGif } from '../animatedGif'
 
+// Pre-combat enemy intro: a ~900ms window (owned/timed by main.ts) during which
+// enemy units render as a wiggling Poke Ball instead of their real sprite. Passed
+// into draw()/drawItems()/drawAllHealthBars() so all three overlay passes agree
+// on which units are still "balled up".
+export interface EnemyIntro {
+  elapsedMs: number
+  durationMs: number
+}
+
 // Lazy image cache for equipped-item icons drawn beside units.
 const itemIconCache = new Map<string, HTMLImageElement>()
 function itemIcon(path: string): HTMLImageElement {
@@ -134,6 +143,10 @@ megaRayquazaShinyImg.src = '/visuals/shiny_sprites/sky_strikers/shiny_mega_rayqu
 // Darmanitan Zen form sprite — swapped in while 'zen_form' is active.
 const darmanitanZenImg = new Image()
 darmanitanZenImg.src = '/visuals/sprites/misc/darmanitan_zen_sprite.png'
+
+// Pre-combat enemy intro ball — wiggles then pops open into the real sprite.
+const pokeBallImg = new Image()
+pokeBallImg.src = '/visuals/trainer_and_balls/Poke_Ball_Sprite.webp'
 
 // Flair Blitz fire — drawn behind Darmanitan (rotated 90°) during the blitz dash.
 const flairBlitzImg = new Image()
@@ -348,13 +361,27 @@ export class UnitLayer {
   addCliffFall(f: { x: number; y: number; direction: -1|1; col: number; isLeft: boolean }) {
     this.cliffFalls.push({ ...f, startTs: performance.now() })
   }
+  // Fire-and-forget cache warm for the pre-combat intro window: getSprite is
+  // already the function that populates spriteCache and kicks off loading, so
+  // calling it here (and discarding the result) IS the preload — no new
+  // loading machinery. Deduped per definitionId+shiny so a full frame-0 board
+  // triggers at most one request per distinct sprite.
+  preloadSprites(units: Map<string, Unit>): void {
+    const seen = new Set<string>()
+    for (const unit of units.values()) {
+      const key = `${unit.definitionId}|${unit.isShiny === true}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      getSprite(unit.definitionId, unit.isShiny === true)
+    }
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d')!
   }
 
-  draw(units: Map<string, Unit>, _activeCombat: boolean, victoryCelebrationTs = 0, healFlashUnits?: Map<string, number>, castAnims?: import('./effectLayer').CastAnimation[], tick = 0): void {
+  draw(units: Map<string, Unit>, _activeCombat: boolean, victoryCelebrationTs = 0, healFlashUnits?: Map<string, number>, castAnims?: import('./effectLayer').CastAnimation[], tick = 0, enemyIntro: EnemyIntro | null = null): void {
     const ctx = this.ctx
     // Reset any leftover transform from the previous frame, clear the full
     // (headroom-padded) canvas, then shift all drawing down by the headroom so
@@ -525,6 +552,15 @@ export class UnitLayer {
           ctx.drawImage(img, unit.visualPos.x - W / 2 + rx, unit.visualPos.y - H * 0.60 + ry, W, H)
           ctx.restore()
         }
+        continue
+      }
+
+      // Pre-combat enemy intro: draw a wiggling/popping Poke Ball instead of the
+      // real sprite for the intro window's duration. Only ENEMY, non-dummy units
+      // are balled — player units and synthetic entities (handled above) always
+      // fall through to the normal draw path unmodified.
+      if (enemyIntro !== null && unit.team === 'enemy' && !unit.isDummy && enemyIntro.elapsedMs < enemyIntro.durationMs) {
+        this.drawIntroBall(ctx, unit, enemyIntro)
         continue
       }
 
@@ -1966,6 +2002,21 @@ export class UnitLayer {
         ctx.drawImage(enragedImg, ex, ey, size, size)
       }
     }
+    ctx.restore()
+  }
+
+  // Pre-combat enemy intro ball. Task 1: static placeholder only (proves the
+  // window/preload/call-site wiring); Task 2 replaces the body with the
+  // wiggle/pop two-phase animation.
+  private drawIntroBall(ctx: CanvasRenderingContext2D, unit: Unit, _intro: EnemyIntro): void {
+    if (!pokeBallImg.complete || pokeBallImg.naturalWidth === 0) return
+    const size = SPRITE_HALF * 1.4
+    ctx.save()
+    ctx.translate(unit.visualPos.x, unit.visualPos.y)
+    // Counter-scale out the caller's ctx.scale(1, BOARD_PERSP_Y) — same idiom
+    // as drawItems — so the ball renders as a circle, not vertically squashed.
+    ctx.scale(1, 1 / BOARD_PERSP_Y)
+    ctx.drawImage(pokeBallImg, -size / 2, -size / 2, size, size)
     ctx.restore()
   }
 
