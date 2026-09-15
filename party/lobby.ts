@@ -26,12 +26,14 @@ import { encodeFightLog, type FightChunk } from '../src/net/fightWire'
 import { TICK_RATE } from '../src/core/constants'
 
 const MAX_MESSAGE_LENGTH = 4096
-// Combat playback advances exactly one recorded frame per 1/TICK_RATE real
-// seconds (src/main.ts's frame loop) — a fight with a few thousand frames can
-// take tens of seconds to actually watch. Padding on top of the computed
-// playback duration for network/render latency before the next round's shop
-// timer starts.
-const PLAYBACK_BUFFER_MS = 2000
+// Fallback-only safety margin for waitForPlaybackAcks: every connected seat
+// with a real fight to watch is expected to explicitly ack ("playback-done")
+// once its own client finishes, so the room advances the instant everyone
+// genuinely has — not on a guess. This buffer, added on top of the minimum
+// possible playback duration (frames / TICK_RATE), only matters for a
+// disconnected/crashed/permanently-backgrounded client that never acks, so
+// it can afford to be generous rather than tight.
+const ACK_TIMEOUT_BUFFER_MS = 8000
 
 // Hashes the room id into a seed, mixed with the round number, for
 // resolveRound's seat-pairing rng. FNV-1a-style string fold — cheap, no
@@ -72,6 +74,16 @@ export default class Lobby implements Party.Server {
   // the first connection opens the loop).
   deadline: number | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
+
+  // Ack-tracking for waitForPlaybackAcks: the set of seats still owed for
+  // the round named by pendingAckRound, the resolve fn of the Promise that
+  // call is awaiting, and the fallback timer backstopping it. All null
+  // outside an active wait (i.e. outside 'resolving', between resolveRound
+  // returning and beginPlanning() being called).
+  private pendingAcks: Set<number> | null = null
+  private pendingAckRound: number | null = null
+  private ackWaitResolve: (() => void) | null = null
+  private ackTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 
   // Per-connection-id action budget for this planning phase. Reset on
   // connect (a fresh connection should not inherit a stale counter from a
@@ -272,19 +284,59 @@ export default class Lobby implements Party.Server {
     // long clients spend animating the fight they just received. A player
     // could then return from watching combat to find their shop time
     // already half gone, or in an extreme case find the round had already
-    // resolved again before they ever saw it. This assumes default (1×)
-    // playback speed; a player who manually slows combat down via the
-    // in-game speed selector can still run past this buffer — closing that
-    // fully would need clients to explicitly signal "done watching" rather
-    // than the server estimating a duration, which is more machinery than
-    // this fix needs.
-    const longestFrameCount = Math.max(0, ...result.logs.map(log => log.frames.length))
-    if (longestFrameCount > 0 && !skipPlaybackDelay(this.room.env)) {
-      const playbackMs = (longestFrameCount / TICK_RATE) * 1000
-      await new Promise(resolve => setTimeout(resolve, playbackMs + PLAYBACK_BUFFER_MS))
-    }
+    // resolved again before they ever saw it. See waitForPlaybackAcks for
+    // how "actually finish" is decided.
+    await this.waitForPlaybackAcks(result)
 
     await this.beginPlanning()
+  }
+
+  // Waits until every currently-connected seat that actually has a recorded
+  // fight this round (result.seats[].logIndex !== null) has told us it's
+  // done watching (onMessage's 'playback-done' case), or a generous fallback
+  // timeout elapses — whichever comes first. Seats with nothing to watch
+  // (a bye, an abstractly-resolved bot-vs-bot pairing, an item round) and
+  // seats with no live connection (bot-controlled, or a human who dropped)
+  // are never waited on.
+  private async waitForPlaybackAcks(result: RoundResult): Promise<void> {
+    if (skipPlaybackDelay(this.room.env)) return   // unchanged: test harnesses
+
+    const required = new Set<number>()
+    for (const conn of this.room.getConnections()) {
+      const seat = seatOf(this.table, conn.id)
+      if (seat === null) continue
+      const seatResult = result.seats.find(s => s.seat === seat)
+      if (seatResult?.logIndex != null) required.add(seat)
+    }
+    if (required.size === 0) return   // nobody connected has anything to watch
+
+    this.pendingAckRound = result.round
+    this.pendingAcks = required
+
+    // Fallback only — should rarely fire. Protects against a disconnected,
+    // crashed, or permanently-backgrounded client stalling the whole room.
+    // Generous on purpose: this is no longer the primary timing mechanism,
+    // just a backstop for it.
+    const longestFrameCount = Math.max(0, ...result.logs.map(log => log.frames.length))
+    const timeoutMs = (longestFrameCount / TICK_RATE) * 1000 + ACK_TIMEOUT_BUFFER_MS
+
+    await new Promise<void>(resolve => {
+      this.ackWaitResolve = resolve
+      this.ackTimeoutTimer = setTimeout(() => this.resolveAckWait(), timeoutMs)
+    })
+  }
+
+  // Clears whatever's pending and resolves the wait, exactly once. Called
+  // from the fallback timeout, from onMessage once the required set empties,
+  // and from onClose if a required seat disconnects mid-wait. Safe to call
+  // when nothing is pending (e.g. a stale event after an earlier resolve).
+  private resolveAckWait(): void {
+    if (this.ackTimeoutTimer !== null) { clearTimeout(this.ackTimeoutTimer); this.ackTimeoutTimer = null }
+    const resolve = this.ackWaitResolve
+    this.ackWaitResolve = null
+    this.pendingAcks = null
+    this.pendingAckRound = null
+    resolve?.()
   }
 
   async onConnect(conn: Party.Connection, ctx: Party.ConnectionContext): Promise<void> {
@@ -341,6 +393,14 @@ export default class Lobby implements Party.Server {
     this.actionBudget.delete(conn.id)
     const seat = freeSeat(this.run, this.table, conn.id)
     if (seat === null) return
+
+    // A seat we were still waiting on for this round's playback ack just
+    // left — stop waiting on it rather than stalling everyone else's next
+    // round for the full fallback timeout.
+    if (this.pendingAcks?.has(seat)) {
+      this.pendingAcks.delete(seat)
+      if (this.pendingAcks.size === 0) this.resolveAckWait()
+    }
 
     await this.persist()
     this.room.broadcast(JSON.stringify({ t: 'lobby', lobby: lobbyView(this.run, this.table) } satisfies ServerMessage))
@@ -400,6 +460,19 @@ export default class Lobby implements Party.Server {
         return
       }
       await this.beginPlanning()
+      return
+    }
+
+    if (msg.t === 'playback-done') {
+      // Also handled before the planning-phase guard: this always arrives
+      // while phase === 'resolving' (see waitForPlaybackAcks), never
+      // 'planning'. Silently ignored if it doesn't match the round we're
+      // actually waiting on — a late/stale ack from a round the room has
+      // already moved past, or one that arrived with no wait in progress.
+      if (this.pendingAcks !== null && this.pendingAckRound === msg.round) {
+        this.pendingAcks.delete(seat)
+        if (this.pendingAcks.size === 0) this.resolveAckWait()
+      }
       return
     }
 

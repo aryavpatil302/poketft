@@ -91,6 +91,13 @@ export type ClientMessage =
   // resolves the sender's seat from its own occupants table and rejects
   // 'not-host' for anything but seat 0) and no state field.
   | { t: 'start' }
+  // "I have finished watching my recorded fight for this round." Replaces a
+  // server-side time estimate as the signal that gates the next planning
+  // phase (party/lobby.ts's waitForPlaybackAcks) — see that file's
+  // onDeadline for why an estimate alone was not enough. `round` is not a
+  // seat field (see (a) above); it exists only so a stale ack for an
+  // already-superseded round can be told apart from a current one.
+  | { t: 'playback-done'; round: number }
 
 export type ServerMessage =
   | { t: 'welcome'; protocol: number; seat: number; snapshot: RunState; lobby: LobbySeatView[]; phase: RoomPhase; round: number }
@@ -117,9 +124,9 @@ export type ServerMessage =
 
 // Narrow parse — never throws. Returns null for non-JSON input, a parsed
 // value that is not a plain object, or any `t` outside the ClientMessage
-// union ('action', 'start'). Does NOT deeply validate the GameAction
-// payload: applyAction is already a validate-before-mutate function and is
-// the sole authority on whether an action is legal.
+// union ('action', 'start', 'playback-done'). Does NOT deeply validate the
+// GameAction payload: applyAction is already a validate-before-mutate
+// function and is the sole authority on whether an action is legal.
 export function parseClientMessage(raw: string): ClientMessage | null {
   let parsed: unknown
   try {
@@ -128,8 +135,13 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     return null
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
-  const candidate = parsed as { t?: unknown; action?: unknown }
+  const candidate = parsed as { t?: unknown; action?: unknown; round?: unknown }
   if (candidate.t === 'start') return { t: 'start' }
+  if (candidate.t === 'playback-done') {
+    return typeof candidate.round === 'number' && Number.isFinite(candidate.round)
+      ? { t: 'playback-done', round: candidate.round }
+      : null
+  }
   if (candidate.t !== 'action') return null
   return { t: 'action', action: candidate.action as GameAction }
 }

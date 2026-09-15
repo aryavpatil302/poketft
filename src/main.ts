@@ -2739,16 +2739,66 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
 // ─── The networked round: resolve, then playback ─────────────────────────────
 
 // econPhase is this file's VIEW state machine; netPhase is the room's. They
-// are deliberately allowed to disagree for the length of a playback, because
-// party/lobby.ts opens the next planning phase the instant it has finished
-// streaming the chunks — so the 'planning' broadcast lands WHILE this tab is
-// still watching the fight it just received. Flipping the view then would
+// are deliberately allowed to disagree for as long as this tab is still
+// showing a fight — party/lobby.ts now opens the next planning phase only
+// once every connected fighting seat has ack'd (see waitForPlaybackAcks),
+// but THIS seat's own local intro/playback (or its post-combat celebration,
+// if it finished first and is waiting on someone else) may still be
+// on-screen when that broadcast lands. Flipping the view mid-fight would
 // re-arm the planning-only board interactions (board sell, `r` to pull an
 // item) on top of a board whose hexes currently hold replayed combat units.
-// The switch therefore waits for restorePlayerBoard, which is the same point
-// the solo path leaves its own combat view at.
+//
+// The guard below blocks only while combat is ACTIVELY showing (the Poke
+// Ball intro, or live ticks) — not during the post-combat celebration, so
+// this is also the sole networked-mode transition point: it absorbs the
+// teardown restorePlayerBoard() performs for solo (reset
+// victoryCelebrationTs, clear combat state, rebuild the board from
+// preCombatSnapshot) so units keep celebrating (celebBob) uninterrupted
+// right up until this actually runs, instead of a fixed local timer cutting
+// that off early regardless of whether the room has really moved on.
 function enterNetPlanningView(): void {
-  if (playbackLog !== null || combatRunning) return
+  if (combatRunning || introActive) return
+
+  autoResetTimer       = null
+  victoryCelebrationTs = 0
+  inOvertime           = false
+  document.getElementById('overtime-box')!.style.display = 'none'
+  combatState          = null
+  playbackLog = null
+  playbackIndex        = 0
+  inspectedUnitId = null
+  document.getElementById('unit-info-panel')!.style.display = 'none'
+  document.getElementById('result-box')!.style.display = 'none'
+  document.getElementById('combat-info')!.textContent = ''
+
+  // Rebuild player side from snapshot; enemy side wiped entirely
+  placedUnits.clear()
+  for (const snap of preCombatSnapshot) {
+    const unit = makeUnit(snap.definitionId, 'player', snap.tier as 1 | 2 | 3)
+    unit.hexPos    = { ...snap.hexPos }
+    unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
+    if (snap.item) unit.items = [snap.item]
+    if (snap.isShiny) unit.isShiny = true
+    if (snap.chosenTrait) unit.chosenTrait = snap.chosenTrait
+    placedUnits.set(hexId(unit.hexPos), unit)
+  }
+
+  boardLayer.setCombatActive(false)
+  unitLayer.setTailwind(false)
+  boardLayer.setSunny(false)
+  boardLayer.setTerrainPulse(null)
+  boardLayer.setEarthquakeFlash(0)
+  earthquakeFlashTs = 0
+  unitLayer.setRingPassAnim(null)
+  setCombatBarState('idle')
+  renderCombatTimer()
+  renderSunEffect()
+  renderTerrainIndicator()
+  renderTraitDisplay()
+  renderEnemyTraitDisplay()
+  renderDamageMeter()
+  applyLayoutMode()
+
   econPhase = 'planning'
   updateEconVisibility()
 }
@@ -5382,18 +5432,17 @@ function restorePlayerBoard(): void {
   renderDamageMeter()
   applyLayoutMode()
 
-  // Economy mode: next planning phase (fresh shop) or the run is over.
-  // NEVER while networked: the room owns the round loop, and the next planning
-  // phase arrives as a `phase` broadcast. Advancing locally here would roll
-  // this seat's shop against a RunState the server never agreed to.
-  if (econActive() && !isNetworked()) {
+  // Economy mode: next planning phase (fresh shop) or the run is over. Test
+  // mode (econActive() false) falls through with just the visual reset
+  // above — no phase to advance. NEVER while networked: this function is
+  // solo-only now (see the done block in frame() — networked combat-end
+  // routes through enterNetPlanningView() instead, which owns that
+  // transition end to end). The room owns the round loop there, and the
+  // next planning phase arrives as a `phase` broadcast; advancing locally
+  // would roll this seat's shop against a RunState the server never agreed to.
+  if (econActive()) {
     if (run.gameOver) enterGameOver(run.gameOver)
     else startPlanningPhase(true)
-  } else if (isNetworked() && netPhase === 'planning') {
-    // The room's next planning phase already opened while this fight was
-    // still on screen; take the view transition it deferred. A VIEW change
-    // only — no shop roll, no income bank, no round advance.
-    enterNetPlanningView()
   }
 }
 
@@ -6188,7 +6237,17 @@ function frame(ts: number): void {
         box.innerHTML = `${box.textContent}<div style="font-size:10px;font-weight:normal;margin-top:4px;opacity:0.85;">${lastSettlementLine}</div>`
       }
 
-      if (autoResetTimer === null) {
+      if (isNetworked()) {
+        // Tell the room we've finished watching, so it can advance the
+        // round the moment every connected seat with a fight does the same
+        // — instead of guessing a duration from frame count (see
+        // party/lobby.ts's waitForPlaybackAcks). No local timer: units keep
+        // celebrating (celebBob) with victoryCelebrationTs left set, until
+        // the room's own `phase: 'planning'` broadcast actually arrives and
+        // enterNetPlanningView() runs.
+        net?.sendPlaybackDone(currentCombatRound)
+        if (netPhase === 'planning') enterNetPlanningView()
+      } else if (autoResetTimer === null) {
         autoResetTimer = setTimeout(restorePlayerBoard, 5000)
       }
     }
