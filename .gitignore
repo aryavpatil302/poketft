@@ -27,3 +27,6 @@ dist-verify/
 
 # macOS Finder metadata — never meaningful to the app.
 .DS_Store
+
+# Local Netlify folder
+.netlify
