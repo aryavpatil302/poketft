@@ -2005,18 +2005,54 @@ export class UnitLayer {
     ctx.restore()
   }
 
-  // Pre-combat enemy intro ball. Task 1: static placeholder only (proves the
-  // window/preload/call-site wiring); Task 2 replaces the body with the
-  // wiggle/pop two-phase animation.
-  private drawIntroBall(ctx: CanvasRenderingContext2D, unit: Unit, _intro: EnemyIntro): void {
-    if (!pokeBallImg.complete || pokeBallImg.naturalWidth === 0) return
-    const size = SPRITE_HALF * 1.4
+  // Pre-combat enemy intro ball. Two phases, split at PHASE_A_END:
+  //   A) wiggle (t < 0.67, ~600ms of 900ms) — full-size/opacity ball, decaying
+  //      sine rotation. This window exists specifically to give preloadSprites
+  //      (fired at intro start, in beginCombatPlayback) time to land.
+  //   B) pop and reveal (t >= 0.67, ~300ms of 900ms) — the ball shrinks and
+  //      fades out while the now-warm real sprite swells in underneath it.
+  private drawIntroBall(ctx: CanvasRenderingContext2D, unit: Unit, intro: EnemyIntro): void {
+    const PHASE_A_END = 0.67
+    const t = Math.min(1, intro.elapsedMs / intro.durationMs)
+
     ctx.save()
     ctx.translate(unit.visualPos.x, unit.visualPos.y)
     // Counter-scale out the caller's ctx.scale(1, BOARD_PERSP_Y) — same idiom
-    // as drawItems — so the ball renders as a circle, not vertically squashed.
+    // as drawItems — so the ball/sprite render circular, not vertically
+    // squashed. Rotating AFTER this counter-scale keeps phase A's rotation
+    // circular rather than sheared.
     ctx.scale(1, 1 / BOARD_PERSP_Y)
-    ctx.drawImage(pokeBallImg, -size / 2, -size / 2, size, size)
+
+    if (t < PHASE_A_END) {
+      const tp = t / PHASE_A_END
+      const rot = Math.sin(tp * Math.PI * 6) * (8 * Math.PI / 180) * (1 - tp)
+      if (pokeBallImg.complete && pokeBallImg.naturalWidth > 0) {
+        const size = SPRITE_HALF * 1.4
+        ctx.rotate(rot)
+        ctx.drawImage(pokeBallImg, -size / 2, -size / 2, size, size)
+      }
+    } else {
+      const tp = (t - PHASE_A_END) / (1 - PHASE_A_END)
+      const ballScale = 1 - tp
+      if (ballScale > 0 && pokeBallImg.complete && pokeBallImg.naturalWidth > 0) {
+        const size = SPRITE_HALF * 1.4 * ballScale
+        ctx.globalAlpha = ballScale
+        ctx.drawImage(pokeBallImg, -size / 2, -size / 2, size, size)
+        ctx.globalAlpha = 1
+      }
+      // Warm by now because preloading started at t = 0 (beginCombatPlayback).
+      // If still undefined/null (unusually slow load), draw nothing this
+      // frame and let the next frames pick it up — do NOT reimplement the
+      // fallback circle here; once the intro window ends the unit falls
+      // through to the existing draw path, which already handles that case.
+      const sprite = getSprite(unit.definitionId, unit.isShiny === true)
+      if (sprite) {
+        const swell = 0.3 + 0.7 * Math.sin(tp * Math.PI / 2)
+        const size = SPRITE_HALF * 2 * swell
+        ctx.drawImage(sprite, -size / 2, -size / 2, size, size)
+      }
+    }
+
     ctx.restore()
   }
 
