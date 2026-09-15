@@ -1946,7 +1946,7 @@ export class UnitLayer {
   /** Draw HP + mana bars and status dots for all living units. Call this last so bars render above everything. */
   // Equipped-item icon, drawn to the right of each unit. Called in both planning
   // (preview) and combat, since neither path shares an overlay pass.
-  drawItems(units: Map<string, Unit>): void {
+  drawItems(units: Map<string, Unit>, enemyIntro: EnemyIntro | null = null): void {
     const ctx = this.ctx
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.translate(0, OVERLAY_HEADROOM)
@@ -1954,6 +1954,8 @@ export class UnitLayer {
     ctx.scale(1, BOARD_PERSP_Y)
     for (const unit of units.values()) {
       if (unit.state === 'dead') continue
+      // No item icon should float over a ball that has not opened yet.
+      if (enemyIntro !== null && unit.team === 'enemy' && !unit.isDummy && enemyIntro.elapsedMs < enemyIntro.durationMs) continue
       const itemId = unit.items[0]
       if (!itemId) continue
       const path = ITEM_MAP.get(itemId)?.iconPath
@@ -1979,7 +1981,7 @@ export class UnitLayer {
     ctx.restore()
   }
 
-  drawAllHealthBars(units: Map<string, Unit>): void {
+  drawAllHealthBars(units: Map<string, Unit>, enemyIntro: EnemyIntro | null = null): void {
     const ctx = this.ctx
     // Same headroom offset as draw() (this runs after it, on the same canvas,
     // and must not clear — it draws bars/CC icons on top of the sprites).
@@ -1989,6 +1991,9 @@ export class UnitLayer {
     ctx.scale(1, BOARD_PERSP_Y)
     for (const unit of units.values()) {
       if (unit.state === 'dead' || unit.definitionId === 'ruiner_stone') continue
+      // No HP bar, mana bar, status dot or CC icon should float over a ball
+      // that has not opened yet.
+      if (enemyIntro !== null && unit.team === 'enemy' && !unit.isDummy && enemyIntro.elapsedMs < enemyIntro.durationMs) continue
       this.drawHealthBars(ctx, unit)
       this.drawStatusDots(ctx, unit)
 

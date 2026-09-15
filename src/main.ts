@@ -1948,6 +1948,7 @@ function deleteSnapshot(idx: number): void {
 
 function loadScenario(scenario: TestScenario): void {
   combatRunning = false
+  introActive = false
   combatState   = null
   placedUnits.clear()
   // Defensive only: the Test Tools panel that reaches this function is
@@ -2783,6 +2784,7 @@ function handleNetResolve(m: Extract<ServerMessage, { t: 'resolve' }>): void {
     // may not do.
     combatState = null
     combatRunning = false
+    introActive = false
     playbackLog = null
     playbackIndex = 0
     econPhase = 'planning'
@@ -5337,6 +5339,7 @@ function restorePlayerBoard(): void {
   inOvertime           = false
   document.getElementById('overtime-box')!.style.display = 'none'
   combatRunning        = false
+  introActive = false
   combatState          = null
   playbackLog = null
   playbackIndex        = 0
@@ -5432,6 +5435,7 @@ function resetCombat(): void {
   inOvertime = false
   document.getElementById('overtime-box')!.style.display = 'none'
   combatRunning = false
+  introActive = false
   combatState   = null
   playbackLog   = null
   playbackIndex = 0
@@ -5544,6 +5548,12 @@ function setCombatBarState(state: 'idle' | 'running' | 'paused'): void {
 }
 
 document.getElementById('btn-start')!.addEventListener('click', () => {
+  // An armed intro is not a paused fight — letting this branch resume here
+  // would tick combat with introActive still true, leaving every enemy stuck
+  // as a ball for the rest of the round. Unreachable in solo economy today
+  // (the whole #combat-bar is hidden there — quick task 260913-0bt), but
+  // guarded regardless since this path is still live for test mode / future UI.
+  if (introActive) return
   if (combatState && !combatRunning) {
     // Resume from pause
     combatRunning = true
@@ -6186,7 +6196,9 @@ function frame(ts: number): void {
   renderPlanningTimer()
   renderSunEffect()
   renderTerrainIndicator()
-  drawDimOverlay(combatRunning)
+  // The dim overlay comes up with the pre-combat intro instead of snapping on
+  // 900ms later once the intro ends and combatRunning flips true.
+  drawDimOverlay(combatRunning || introActive)
   dimSidePanel(false)
   unitLayer.setTailwind(!!(combatState?.tailwind && (combatState.tailwind.player || combatState.tailwind.enemy)))
   boardLayer.setSunny(combatState?.terrain.sunny ?? false)
@@ -6206,9 +6218,9 @@ function frame(ts: number): void {
 
   if (combatState) {
     unitLayer.draw(combatState.units, combatRunning, victoryCelebrationTs, effectLayer.getHealFlashUnits(), effectLayer.getCastAnimations(), combatState.tick, enemyIntro)
-    unitLayer.drawItems(combatState.units)
+    unitLayer.drawItems(combatState.units, enemyIntro)
     effectLayer.draw(combatState)
-    unitLayer.drawAllHealthBars(combatState.units)
+    unitLayer.drawAllHealthBars(combatState.units, enemyIntro)
   } else {
     // Preview placed units. A unit whose hex is lifted is skipped: it is still
     // in placedUnits (and in run.board) because picking it up changes no state
