@@ -7,8 +7,9 @@ import { HELP_TABS, helpTab } from './helpModal'
 import { REROLL_COST, STARTING_HP } from '../econ/constants'
 
 // Keys the keydown map (src/main.ts ~3971-3979) binds: d reroll, f buy XP,
-// e sell hovered unit, r pull item off hovered unit.
-const KEYDOWN_KEYS = ['d', 'f', 'e', 'r']
+// e sell hovered unit, r pull item off hovered unit. main.ts accepts either
+// case, but the help copy documents the capitalized, bolded (**X**) form.
+const KEYDOWN_KEYS = ['D', 'F', 'E', 'R']
 
 describe('HELP_TABS', () => {
   it('contains exactly two tabs, ids rules and controls, in that order', () => {

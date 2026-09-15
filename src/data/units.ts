@@ -321,7 +321,7 @@ export const GRAVELER: UnitDefinition = {
   types: ['volcanic','bruiser'],
   role: 'tank',
   baseStats: {
-    hp: 700, startMana: 9999, maxMana: 9999,
+    hp: 450, startMana: 9999, maxMana: 9999,
     attack: 40, special: 100, defense: 65, spDefense: 35,
     attackSpeed: 0.55, critChance: 0.25, critDamage: 1.40, range: 1,
   },
@@ -503,7 +503,7 @@ export const PIDGEOTTO: UnitDefinition = {
   },
   ability: {
     id: 'pidgeotto_dual_wingbeat',
-    name: 'Wing Slap',
+    name: 'Wing Attack',
     description: 'The next auto strikes twice in quick succession, each hit dealing 120/150/250% of Attack as physical damage and applying on-hit effects.',
     scaling: { damagePercent: [120, 150, 250] },
   },

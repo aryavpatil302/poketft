@@ -125,8 +125,8 @@ const CONTROLS_TAB: HelpTab = {
       heading: 'Shop & Gold',
       body: [
         'Click a shop card to buy that Pokemon onto your bench.',
-        `Reroll (d) rerolls the shop for ${REROLL_COST} gold.`,
-        `Buy XP (f) buys ${XP_BUY_AMOUNT} XP for ${XP_BUY_COST} gold.`,
+        `Reroll (**D**) rerolls the shop for ${REROLL_COST} gold.`,
+        `Buy XP (**F**) buys ${XP_BUY_AMOUNT} XP for ${XP_BUY_COST} gold.`,
         'The 🔒 button keeps your shop the same into the next round.',
       ],
     },
@@ -143,14 +143,14 @@ const CONTROLS_TAB: HelpTab = {
       heading: 'Selling',
       body: [
         "While you're carrying a Pokemon, the shop bar turns into a sell target. Click it to sell.",
-        'Or hover a Pokemon on your bench or board and press e to sell it.',
+        'Or hover a Pokemon on your bench or board and press **E** to sell it.',
       ],
     },
     {
       heading: 'Items',
       body: [
         'The Items panel sits at the bottom left. Click an item to pick it up, then click a Pokemon to equip it.',
-        'Hover a Pokemon holding an item and press r to pull it back off. It returns to the Items bench, not your cursor.',
+        'Hover a Pokemon holding an item and press **R** to pull it back off. It returns to the Items bench, not your cursor.',
         'Use the ▲▼ arrows to page through more items.',
       ],
     },
@@ -190,6 +190,13 @@ const HELP_Z_INDEX = 600
 
 let rootEl: HTMLDivElement | null = null
 
+// Escapes the line first (same safety as a plain escapeHtml call), then
+// turns `**X**` markers into bold spans — used by CONTROLS_TAB body lines to
+// call out the literal key a player presses (e.g. "press **E** to sell it").
+function boldKeys(line: string): string {
+  return escapeHtml(line).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+}
+
 function renderBody(tabId: HelpTabId): void {
   const root = rootEl
   if (root === null) return
@@ -200,7 +207,7 @@ function renderBody(tabId: HelpTabId): void {
     body.innerHTML = tab.sections.map(section => `
       <div style="margin-bottom:16px;">
         <div style="color:${SCREEN_YELLOW};font-weight:900;font-size:14px;margin-bottom:4px;">${escapeHtml(section.heading)}</div>
-        ${section.body.map(line => `<div style="font-size:12px;line-height:1.5;color:#cce;">${escapeHtml(line)}</div>`).join('')}
+        ${section.body.map(line => `<div style="font-size:12px;line-height:1.5;color:#cce;">${boldKeys(line)}</div>`).join('')}
       </div>
     `).join('')
     // Reset scroll on every tab switch so the new tab starts at the top
