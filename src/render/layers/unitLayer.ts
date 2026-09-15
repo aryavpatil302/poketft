@@ -145,8 +145,32 @@ const darmanitanZenImg = new Image()
 darmanitanZenImg.src = '/visuals/sprites/misc/darmanitan_zen_sprite.png'
 
 // Pre-combat enemy intro ball — wiggles then pops open into the real sprite.
+// Ball tier is keyed by the unit's shop cost (1-5): Poke -> Premier -> Great
+// -> Ultra -> Master, mirroring the mainline games' rough capture-ball
+// hierarchy.
 const pokeBallImg = new Image()
 pokeBallImg.src = '/visuals/trainer_and_balls/Poke_Ball_Sprite.webp'
+
+const premierBallImg = new Image()
+premierBallImg.src = '/visuals/trainer_and_balls/Premier_Ball_Sprite.webp'
+
+const greatBallImg = new Image()
+greatBallImg.src = '/visuals/trainer_and_balls/Great_Ball_Sprite.webp'
+
+const ultraBallImg = new Image()
+ultraBallImg.src = '/visuals/trainer_and_balls/Ultra_Ball_Sprite.webp'
+
+const masterBallImg = new Image()
+masterBallImg.src = '/visuals/trainer_and_balls/Master_Ball_Sprite.webp'
+
+// Cost 1 -> pokeBallImg is the fallback for cost 0/unknown too.
+const INTRO_BALL_BY_COST: Record<number, HTMLImageElement> = {
+  1: pokeBallImg,
+  2: premierBallImg,
+  3: greatBallImg,
+  4: ultraBallImg,
+  5: masterBallImg,
+}
 
 // Flair Blitz fire — drawn behind Darmanitan (rotated 90°) during the blitz dash.
 const flairBlitzImg = new Image()
@@ -2019,6 +2043,8 @@ export class UnitLayer {
   private drawIntroBall(ctx: CanvasRenderingContext2D, unit: Unit, intro: EnemyIntro): void {
     const PHASE_A_END = 0.67
     const t = Math.min(1, intro.elapsedMs / intro.durationMs)
+    const cost = UNIT_MAP.get(unit.definitionId)?.cost ?? 1
+    const ballImg = INTRO_BALL_BY_COST[cost] ?? pokeBallImg
 
     ctx.save()
     ctx.translate(unit.visualPos.x, unit.visualPos.y)
@@ -2030,19 +2056,23 @@ export class UnitLayer {
 
     if (t < PHASE_A_END) {
       const tp = t / PHASE_A_END
-      const rot = Math.sin(tp * Math.PI * 6) * (8 * Math.PI / 180) * (1 - tp)
-      if (pokeBallImg.complete && pokeBallImg.naturalWidth > 0) {
-        const size = SPRITE_HALF * 1.4
+      const decay = 1 - tp
+      const rot = Math.sin(tp * Math.PI * 10) * (16 * Math.PI / 180) * decay
+      const shakeX = Math.sin(tp * Math.PI * 12) * 6 * decay
+      const shakeY = Math.sin(tp * Math.PI * 12 + Math.PI / 2) * 4 * decay
+      if (ballImg.complete && ballImg.naturalWidth > 0) {
+        const size = SPRITE_HALF * 0.8
+        ctx.translate(shakeX, shakeY)
         ctx.rotate(rot)
-        ctx.drawImage(pokeBallImg, -size / 2, -size / 2, size, size)
+        ctx.drawImage(ballImg, -size / 2, -size / 2, size, size)
       }
     } else {
       const tp = (t - PHASE_A_END) / (1 - PHASE_A_END)
       const ballScale = 1 - tp
-      if (ballScale > 0 && pokeBallImg.complete && pokeBallImg.naturalWidth > 0) {
-        const size = SPRITE_HALF * 1.4 * ballScale
+      if (ballScale > 0 && ballImg.complete && ballImg.naturalWidth > 0) {
+        const size = SPRITE_HALF * 0.8 * ballScale
         ctx.globalAlpha = ballScale
-        ctx.drawImage(pokeBallImg, -size / 2, -size / 2, size, size)
+        ctx.drawImage(ballImg, -size / 2, -size / 2, size, size)
         ctx.globalAlpha = 1
       }
       // Warm by now because preloading started at t = 0 (beginCombatPlayback).
@@ -2052,9 +2082,17 @@ export class UnitLayer {
       // through to the existing draw path, which already handles that case.
       const sprite = getSprite(unit.definitionId, unit.isShiny === true)
       if (sprite) {
+        // Dramatic hop-out: the sprite launches upward out of the ball on a
+        // parabolic arc (peaks mid-phase, lands back at t=1) and overshoots
+        // past full size before settling, rather than a flat in-place swell.
         const swell = 0.3 + 0.7 * Math.sin(tp * Math.PI / 2)
-        const size = SPRITE_HALF * 2 * swell
+        const bounce = 1 + 0.22 * Math.sin(tp * Math.PI * 2.5) * (1 - tp)
+        const hopY = -24 * Math.sin(tp * Math.PI)
+        const size = SPRITE_HALF * 2 * swell * bounce
+        ctx.save()
+        ctx.translate(0, hopY)
         ctx.drawImage(sprite, -size / 2, -size / 2, size, size)
+        ctx.restore()
       }
     }
 
