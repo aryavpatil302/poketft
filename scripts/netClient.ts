@@ -1227,7 +1227,11 @@ async function main(): Promise<void> {
   // scenario 5 relies on, and exactly why a fixed room id would let one run's
   // mutations leak into the next.
   const roomId = `net-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
-  const vars = { PLANNING_MS: String(PLANNING_MS_TEST) }
+  // SKIP_PLAYBACK_DELAY: these scenarios drive real combat via the same
+  // resolveRound() live play uses, so without this the post-resolve playback
+  // wait party/lobby.ts now adds (src/net/protocol.ts's skipPlaybackDelay)
+  // would tack a real 20-50s per PvP round onto every run here.
+  const vars = { PLANNING_MS: String(PLANNING_MS_TEST), SKIP_PLAYBACK_DELAY: '1' }
 
   const roundBefore = await withRoom(({ host }) => beforeRestart(host, roomId), vars)
 
@@ -1267,7 +1271,7 @@ async function main(): Promise<void> {
       // 2s one. Fresh room id, same process — the scenarios 8-9 trick again.
       await deadlineAgreement(host, `${roomId}-clock`)
     },
-    { PLANNING_MS: String(PLANNING_MS_ACTIONS) },
+    { PLANNING_MS: String(PLANNING_MS_ACTIONS), SKIP_PLAYBACK_DELAY: '1' },
   )
 
   // A FOURTH process, back on the short window: scenario 14 has to drive real

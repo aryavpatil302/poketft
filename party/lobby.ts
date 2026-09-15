@@ -16,14 +16,22 @@ import {
 import {
   PROTOCOL_VERSION,
   planningMsFor,
+  skipPlaybackDelay,
   MAX_ACTIONS_PER_PHASE,
   parseClientMessage,
   type RoomPhase,
   type ServerMessage,
 } from '../src/net/protocol'
 import { encodeFightLog, type FightChunk } from '../src/net/fightWire'
+import { TICK_RATE } from '../src/core/constants'
 
 const MAX_MESSAGE_LENGTH = 4096
+// Combat playback advances exactly one recorded frame per 1/TICK_RATE real
+// seconds (src/main.ts's frame loop) — a fight with a few thousand frames can
+// take tens of seconds to actually watch. Padding on top of the computed
+// playback duration for network/render latency before the next round's shop
+// timer starts.
+const PLAYBACK_BUFFER_MS = 2000
 
 // Hashes the room id into a seed, mixed with the round number, for
 // resolveRound's seat-pairing rng. FNV-1a-style string fold — cheap, no
@@ -256,6 +264,26 @@ export default class Lobby implements Party.Server {
       this.broadcastPhase()
       return
     }
+
+    // Wait for combat playback to actually finish before opening the next
+    // shop window. Without this, beginPlanning() below would start round
+    // N+1's 30s countdown the instant this round's fight logs are encoded
+    // (near-instant, computationally) — completely unsynchronized with how
+    // long clients spend animating the fight they just received. A player
+    // could then return from watching combat to find their shop time
+    // already half gone, or in an extreme case find the round had already
+    // resolved again before they ever saw it. This assumes default (1×)
+    // playback speed; a player who manually slows combat down via the
+    // in-game speed selector can still run past this buffer — closing that
+    // fully would need clients to explicitly signal "done watching" rather
+    // than the server estimating a duration, which is more machinery than
+    // this fix needs.
+    const longestFrameCount = Math.max(0, ...result.logs.map(log => log.frames.length))
+    if (longestFrameCount > 0 && !skipPlaybackDelay(this.room.env)) {
+      const playbackMs = (longestFrameCount / TICK_RATE) * 1000
+      await new Promise(resolve => setTimeout(resolve, playbackMs + PLAYBACK_BUFFER_MS))
+    }
+
     await this.beginPlanning()
   }
 

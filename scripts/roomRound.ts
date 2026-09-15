@@ -406,7 +406,7 @@ async function main(): Promise<void> {
     console.log('PASS: zero-connection pause')
 
     c.close()
-  }, { PLANNING_MS: String(PLANNING_MS_TEST) })
+  }, { PLANNING_MS: String(PLANNING_MS_TEST), SKIP_PLAYBACK_DELAY: '1' })
 }
 
 const timeout = new Promise((_resolve, reject) => {

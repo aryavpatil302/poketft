@@ -30,6 +30,18 @@ export function planningMsFor(env: Record<string, unknown> | undefined): number 
   return raw !== undefined && Number.isFinite(n) && n > 0 ? n : PLANNING_MS
 }
 
+// Same override pattern as planningMsFor, for the delay party/lobby.ts adds
+// after resolving a round so clients finish watching combat playback before
+// the next round's shop timer starts. That delay is computed from a real
+// fight's actual recorded frame count (party/lobby.ts:263-266 or nearby) —
+// tests exercise real combat via the same resolveRound() live play uses, so
+// without this override every PvP round in an automated run would also wait
+// out a real 20-50s playback duration it never renders. A deployed room is
+// never given this flag and always waits the real computed duration.
+export function skipPlaybackDelay(env: Record<string, unknown> | undefined): boolean {
+  return env?.SKIP_PLAYBACK_DELAY === '1'
+}
+
 // A human clicking rerolls as fast as physically possible cannot approach
 // this within one planning phase — it bounds a message flood without ever
 // gating real play. Counted per connection id, reset at connect and at the
