@@ -6160,7 +6160,13 @@ function frame(ts: number): void {
     const ruinerSpeciesInBuilder = new Set(
       [...placedUnits.values()].filter(u => u.types.includes('ruiner')).map(u => u.definitionId)
     )
-    if (ruinerSpeciesInBuilder.size >= 3) {
+    let ruinerCount = ruinerSpeciesInBuilder.size
+    // Chosen-trait shiny bonus: mirrors traitMemberCount in
+    // src/core/systems/traitEffects.ts (the combat-side equivalent of this fix).
+    for (const u of placedUnits.values()) {
+      if (u.isShiny && u.chosenTrait === 'ruiner') ruinerCount++
+    }
+    if (ruinerCount >= 3) {
       const stoneHex = { col: 3, row: 4 }
       const stonePx  = hexToPixel(stoneHex, HEX_SIZE)
       const stone: Unit = {
