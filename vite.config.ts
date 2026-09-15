@@ -19,34 +19,40 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'party/**/*.test.ts'],
   },
 
-  // Dev-only parity shim for the Title Screen's "Dev Blog" button. In
-  // production Netlify serves the real static blog files under this same
-  // origin (see the root netlify.toml), so the button's relative path
-  // resolves natively there and this block is never involved.
+  // ─── No dev-time /blog proxy (tried, reverted — do not re-add) ─────────────
   //
-  // Vite's own dev server has no idea the blog even exists — it's a
-  // separate Astro project with its own dev server. Without this proxy the
-  // button's same-origin `window.open('/blog', ...)` (deliberately written
-  // to mirror the production topology) just falls through to Vite's SPA
-  // fallback and reopens the game instead of the blog.
+  // A dev-only reverse proxy forwarding /blog from this dev server to the
+  // blog's Astro dev server was added and then reverted, because it cannot
+  // work. Astro's `base: '/blog/'` only rewrites page routes and BASE_URL-built
+  // asset references — it does not touch a dev server's own internal
+  // module-graph URLs (/src/..., /@fs/..., /@vite/client, the dev-toolbar
+  // entrypoint). By Vite's design those are always served relative to each dev
+  // server's own root, so they fall outside a /blog path-prefix rule and get
+  // misrouted to this app's dev server, which has no matching files.
   //
-  // Forward matching requests from this dev server (port 5173 by default)
-  // to the blog's Astro dev server (port 4321 by default), path untouched.
-  // No rewrite is needed: blog/astro.config.mjs already sets `base:
-  // '/blog/'`, so Astro serves its own pages under that same prefix — only
-  // the origin needs forwarding.
+  // Confirmed with a live repro: navigating through the proxy to the blog's
+  // posts-listing page rendered the page shell, but the console showed 404s for
+  // /src/pages/blog/index.astro?astro&type=script..., for /src/styles/global.css,
+  // and a 500 for Astro's dev-toolbar entrypoint — which is exactly why that
+  // page's own client-side JS (the Newest/Oldest sort toggle) silently never
+  // ran. There is no clean fix through Vite's proxy option: the two dev
+  // servers' internal path namespaces (/src/, /@fs/, /@vite/client) are
+  // structurally identical and cannot be disambiguated by path prefix, and
+  // referer-sniffing or regex path hacks would still miss the separate HMR
+  // websocket connection each dev server opens — trading one visible break for
+  // subtler ones. This is a hard architectural limitation of running two
+  // independent Vite/Astro dev servers under a single browser origin behind a
+  // reverse proxy, not a bug left half-patched.
   //
-  // Requires the blog's dev server running alongside this one
-  // (`cd blog && npm run dev`, next to the root `npm run dev`). If it isn't
-  // running the proxy just fails to connect — harmless, dev-only.
-  server: {
-    proxy: {
-      '/blog': {
-        target: 'http://localhost:4321',
-        changeOrigin: true,
-      },
-    },
-  },
+  // To read the blog locally during development, run its own dev server
+  // directly (`cd blog && npm run dev`) and open the http://localhost:4321/blog/
+  // URL it prints, rather than going through the game's dev server. The Title
+  // Screen's "Dev Blog" button (window.open('/blog/', '_blank', 'noopener') in
+  // src/main.ts) is correct as written and needs no change; it only resolves as
+  // an in-app link once both apps are served from one origin, which happens
+  // only in the real production build (dist/ with dist/blog/ copied in, per the
+  // root netlify.toml). There is no dev-mode equivalent. That is expected, not
+  // a bug.
 
   plugins: [
     // Trust boundary (T-05-02 / T-05-03): every VITE_-prefixed variable is
