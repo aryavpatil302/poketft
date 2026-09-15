@@ -400,6 +400,21 @@ export class UnitLayer {
     }
   }
 
+  // Fire-and-forget cache warm for EVERY unit in the static catalog (not just
+  // units on a board right now) — called once at boot. Reuses getSprite(), so
+  // this also warms the browser's own HTTP/image cache for each spritePath/
+  // shinySpritePath. That's what actually fixes shop/bench/tooltip <img> tags
+  // (src/main.ts's shopCardHTML and siblings) — those render outside this
+  // canvas layer entirely and never touch spriteCache, so getSprite's fetch is
+  // the only thing standing between "a definitionId nobody's drawn yet" and a
+  // blank flash while the browser fetches it on first-ever request.
+  preloadCatalog(): void {
+    for (const def of UNIT_MAP.values()) {
+      getSprite(def.id, false)
+      if (def.shinySpritePath) getSprite(def.id, true)
+    }
+  }
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d')!

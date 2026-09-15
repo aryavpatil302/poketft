@@ -756,6 +756,12 @@ const boardLayer  = new BoardLayer(cBoard)
 const unitLayer   = new UnitLayer(cUnits)
 const effectLayer = new EffectLayer(cEff, cGround)
 
+// Warm every unit's sprite (and shiny variant, where one exists) once at
+// boot, well before any shop can appear — see UnitLayer.preloadCatalog()
+// for why this fixes shop/bench/tooltip <img> tags, which render entirely
+// outside this canvas layer.
+unitLayer.preloadCatalog()
+
 // ─── Dim overlay (c-dim covers full canvas-wrap; only the hex field is dimmed) ──
 
 const cDimCtx = cDim.getContext('2d')!
