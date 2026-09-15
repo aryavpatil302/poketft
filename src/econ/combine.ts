@@ -47,13 +47,17 @@ function mergeOnce(econ: PlayerEcon, preferId?: string): Upgrade | null {
   // bench items; the upgraded unit keeps the first, extras return to the item bench.
   const boardItems: string[] = []
   const benchItems: string[] = []
-  // True when ANY of the three consumed copies carried the shiny flag — there
-  // can only ever be one shiny owned at a time, so "any" and "the one" copy
-  // coincide, but "any" is the safer rule to encode.
+  // True when ANY of the three consumed copies carried the shiny flag.
+  // NOTE: the cap is one shiny FIELDED, not one shiny OWNED — rollShop keeps
+  // offering Chosen units on a pity cadence while one is already owned (see
+  // hasShinyOwned in src/econ/shop.ts), so a roster can legitimately hold
+  // several, and in the rare case two are the same species at the same tier
+  // they can both land in one merge. "Any" is therefore the load-bearing rule
+  // here, not merely the safer phrasing of a guaranteed-single case.
   let carriedShiny = false
   // The Chosen trait riding along with carriedShiny above — same "any of the
-  // three copies" rule, since only the (at most one) shiny copy ever carries
-  // one.
+  // three copies" rule. If two consumed copies were both shiny, the last one
+  // scanned wins; the merged unit stays a single shiny either way.
   let carriedChosenTrait: string | undefined
 
   // Bench copies first

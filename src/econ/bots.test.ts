@@ -582,6 +582,110 @@ describe('bots', () => {
     })
   })
 
+  // At most one Shiny may be FIELDED per team (see hasFieldedShiny in
+  // src/econ/runState.ts). The human path enforces this in round.ts's moveUnit;
+  // bots never issue moveUnit actions — botPlanRound rebuilds econ.board
+  // wholesale via chooseFielded -> positionFielded — so the cap has to hold
+  // inside chooseFielded itself. Owning two shinies is legal and expected
+  // (rollShop's pity cadence keeps offering Chosen units while one is owned),
+  // so these tests seed two and assert only one reaches the board.
+  describe('chooseFielded — at most one shiny fielded', () => {
+    it('picks only one of two benched shinies, filling the freed slot with a non-shiny', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById('kass')!
+      econ.level = 2   // boardCap === 2
+      econ.board = []
+      // Both shinies are cost-5 tier-2, so on raw unitPowerScore they outbid
+      // the cost-1 control by a wide margin. Unguarded, chooseFielded takes
+      // both and ribombee never gets a slot.
+      econ.bench = mkBench([
+        { definitionId: 'charizard', tier: 2, isShiny: true, chosenTrait: 'volcanic' },
+        { definitionId: 'latios', tier: 2, isShiny: true, chosenTrait: 'mystic' },
+        { definitionId: 'ribombee', tier: 1 },
+      ])
+      const picked = chooseFielded(econ, persona, 0)
+      expect(picked).toHaveLength(2)
+      expect(picked.filter(p => p.isShiny)).toHaveLength(1)
+      // The displaced shiny must not be silently swallowed — the open slot
+      // goes to the best remaining non-shiny.
+      expect(picked.map(p => p.definitionId)).toContain('ribombee')
+    })
+
+    it('enforces the cap across a board/bench mix, not just within the bench', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById('kass')!
+      econ.level = 2
+      // One shiny already fielded, one waiting on the bench: candidates are
+      // gathered from BOTH sources (chooseFielded reads econ.board too), so a
+      // bench-only guard would miss this.
+      econ.board = [{
+        definitionId: 'charizard', tier: 2, hexPos: { col: 3, row: 4 },
+        isShiny: true, chosenTrait: 'volcanic',
+      }]
+      econ.bench = mkBench([
+        { definitionId: 'latios', tier: 2, isShiny: true, chosenTrait: 'mystic' },
+        { definitionId: 'ribombee', tier: 1 },
+      ])
+      const picked = chooseFielded(econ, persona, 0)
+      expect(picked).toHaveLength(2)
+      expect(picked.filter(p => p.isShiny)).toHaveLength(1)
+    })
+
+    it('still fields the single shiny when only one is owned (cap is one, not zero)', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById('kass')!
+      econ.level = 2
+      econ.board = []
+      econ.bench = mkBench([
+        { definitionId: 'charizard', tier: 2, isShiny: true, chosenTrait: 'volcanic' },
+        { definitionId: 'ribombee', tier: 1 },
+      ])
+      const picked = chooseFielded(econ, persona, 0)
+      expect(picked.filter(p => p.isShiny)).toHaveLength(1)
+      expect(picked.map(p => p.definitionId)).toContain('charizard')
+    })
+
+    it('leaves an all-non-shiny roster completely unchanged (regression)', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      const persona = personaById('kass')!
+      econ.level = 2
+      econ.board = []
+      econ.bench = mkBench([
+        { definitionId: 'charizard', tier: 2 },
+        { definitionId: 'latios', tier: 2 },
+        { definitionId: 'ribombee', tier: 1 },
+      ])
+      const picked = chooseFielded(econ, persona, 0)
+      expect(picked).toHaveLength(2)
+      expect(picked.filter(p => p.isShiny)).toHaveLength(0)
+      expect(picked.map(p => p.definitionId).sort()).toEqual(['charizard', 'latios'])
+    })
+
+    it('botPlanRound never writes a board holding two shinies (end-to-end)', () => {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      econ.gold = 0    // no shop/reroll/XP activity; the roster below is the whole story
+      econ.level = 3   // boardCap === 3, room for every candidate
+      econ.board = []
+      econ.bench = mkBench([
+        { definitionId: 'charizard', tier: 2, isShiny: true, chosenTrait: 'volcanic' },
+        { definitionId: 'latios', tier: 2, isShiny: true, chosenTrait: 'mystic' },
+        { definitionId: 'ribombee', tier: 1 },
+      ])
+      botPlanRound(run, econ, 0, seededRng(1))
+      expect(econ.board.filter(u => u.isShiny)).toHaveLength(1)
+      // The benched shiny is not destroyed by being held back — it stays owned.
+      const shiniesOwned =
+        econ.board.filter(u => u.isShiny).length +
+        econ.bench.filter(b => b?.isShiny).length
+      expect(shiniesOwned).toBe(2)
+    })
+  })
+
   describe('botPlanRound — displaced shiny keeps isShiny/chosenTrait', () => {
     it('a fielded shiny displaced by a stronger bench pick lands on the bench still carrying isShiny/chosenTrait; a displaced ordinary unit does not', () => {
       // Two-site closed loop (see 260911-jfu PLAN.md <planning_correction>):

@@ -614,6 +614,16 @@ export function chooseFielded(econ: PlayerEcon, persona: BotPersona, stage: numb
   const picked: Fieldable[] = []
   const pickedIds = new Set<Fieldable>()
   const pickedSpecies = new Set<string>()
+  // At most one Shiny may be FIELDED (see hasFieldedShiny in
+  // src/econ/runState.ts). The human hits this rule in round.ts's moveUnit
+  // handler, but bots never issue moveUnit actions — botPlanRound replaces
+  // econ.board wholesale with positionFielded(picked) — so the cap has to be
+  // enforced here, at selection time, or nothing enforces it for a bot.
+  // Owning two shinies is legal and expected (rollShop keeps offering Chosen
+  // units on a pity cadence while one is already owned); only fielding the
+  // second is illegal, so surplus shinies are simply passed over here and the
+  // bench-rebuild loop in botPlanRound keeps them owned.
+  let pickedShiny = false
 
   // Raw power matters more each stage; a lone trait breakpoint matters less.
   const powerWeight = 1 + Math.max(0, stage - 2) * 0.35   // s1-2:1.0 · s3:1.35 · s4:1.7 · s5:2.05 · s6:2.4
@@ -632,6 +642,9 @@ export function chooseFielded(econ: PlayerEcon, persona: BotPersona, stage: numb
     }
     for (const c of candidates) {
       if (pickedIds.has(c)) continue
+      // One shiny already claimed a slot — every other shiny is ineligible
+      // this round regardless of score.
+      if (c.isShiny && pickedShiny) continue
       const def = UNIT_MAP.get(c.definitionId)
       if (!def) continue
       let s = unitPowerScore(def.cost, c.tier) * powerWeight
@@ -678,6 +691,7 @@ export function chooseFielded(econ: PlayerEcon, persona: BotPersona, stage: numb
     picked.push(best)
     pickedIds.add(best)
     pickedSpecies.add(best.definitionId)
+    if (best.isShiny) pickedShiny = true
   }
   return picked
 }
