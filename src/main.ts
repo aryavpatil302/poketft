@@ -2042,7 +2042,13 @@ function getAscenderLevel(): number {
       .filter(u => u.team === 'player' && u.types.includes('ascender'))
       .map(u => u.definitionId)
   )
-  return species.size >= 4 ? 4 : species.size >= 2 ? 2 : 0
+  let count = species.size
+  // Chosen-trait shiny bonus: mirrors traitMemberCount in
+  // src/core/systems/traitEffects.ts (the combat-side equivalent of this fix).
+  for (const u of placedUnits.values()) {
+    if (u.team === 'player' && u.isShiny && u.chosenTrait === 'ascender') count++
+  }
+  return count >= 4 ? 4 : count >= 2 ? 2 : 0
 }
 
 function renderDummyButtons(): void {
@@ -6261,6 +6267,7 @@ function titleScreenHandlers(): TitleScreenHandlers {
     onMultiplayer,
     onHelp:     () => { showHelpModal() },
     onTestMode: () => { hideTitleScreen(); bootTestMode() },
+    onOverview: () => { window.open('/PokeFight-Overview.pdf', '_blank', 'noopener') },
     onBlog:     () => { window.open('/blog/', '_blank', 'noopener') },
   }
 }
