@@ -848,6 +848,7 @@ const GLYPH_OVERRIDES: Record<string, string> = {
   earth_spirit: 'earth_spirt_trait_icon.png',
   mind_spirit:  'mind_spirt_icon.png',
   soul_bonded:  'soul_bound_trait_icon.png',
+  zen:          'zen_trait_icon.webp',
 }
 
 // Glyph rendering: every glyph draws in a fixed 30px contain-fit box, then a
