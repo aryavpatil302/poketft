@@ -3142,11 +3142,6 @@ function initFreshRun(): void {
   saveRun(run)
 }
 
-function isFreshRun(): boolean {
-  return run.round === 1 &&
-    run.players.every(p => p.board.length === 0 && p.bench.every(b => b === null))
-}
-
 // ─── Econ UI renderers ────────────────────────────────────────────────────────
 
 const ECON_BTN = 'padding:5px 8px;background:#1a2a3a;border:1px solid #446;color:#88aacc;cursor:pointer;border-radius:5px;font-size:11px;font-weight:bold;'
@@ -6202,21 +6197,20 @@ function frame(ts: number): void {
 
 // ─── Boot: Title Screen, or straight into a lobby by link ────────────────────
 
-// Today's solo boot, lifted verbatim out of the old module-scope boot block
-// and given a name. The statements are byte-for-byte what ran before the
-// Title Screen existed — this is a move, not a rewrite, because
-// 04-UI-SPEC.md requires Start Solo Game to reach the CURRENT solo game with
-// no behavioural change.
-//
-// Nothing between the old boot block and here depended on it having already
-// run: `run` is initialised at module scope and `econPhase` already defaults
-// from `run.gameOver`, so deferring these statements behind a button changes
-// only WHEN they run, never what they do.
+// Start Solo Game always begins a brand new run. It is the only entry point
+// into solo play from the Title Screen and there is no separate resume
+// affordance, so a half-finished run from a previous session must never be
+// silently adopted. The reset sequence deliberately mirrors the New Run
+// button's body in enterGameOver(), which stays the canonical copy. A
+// brand-new run's game-over state is always null, so no game-over branch is
+// reachable from here.
 function bootSolo(): void {
   if (econActive()) {
-    if (isFreshRun()) initFreshRun()
-    if (run.gameOver) enterGameOver(run.gameOver)
-    else startPlanningPhase(false)   // resume persisted shop; roll only if empty
+    clearRun()
+    run = newRun(botSeats())
+    placedUnits.clear()
+    initFreshRun()
+    startPlanningPhase(false)
   } else {
     updateEconVisibility()
   }
