@@ -11,7 +11,7 @@ As I was thinking, I couldn't help but appreciate the process of making my set. 
 ![A card grouping the Jungle trait's roster: Tangela, Cutiefly, Venusaur, Vigoroth, Vikavolt, Tropius, Toucannon, and Fezandipiti](./choosing-the-pokemon/jungle-pokemon.png)
 
 ![A card grouping the Beachy trait's roster: Kingler, Alolan Raichu, Alolan Exeggutor, Palossand, Blastoise, and Tapu Fini](./choosing-the-pokemon/beachy-pokemon.png)
-*The biologist-hat exercise made visible, sorting candidates by habitat before a single ability existed.*
+*The actual Jungle and Beachy sorting cards: the biologist-hat exercise made visible before a single ability existed.*
 
 Most of my process involved pulling up the Pokedex on screen and pictures of environments on the other, scrolling through slowly and asking myself if it would make sense to encounter this or that Pokemon in the region. Slowly but surely, it became a natural process. Weezing would be found inhabiting the sulfuric air that surrounds volcano mouths. Vigoroth would be swinging from vine to vine in dense jungles. Kingler scuttling around the shore. Talonflame swooping and piercing through the air above. A lone Quagsire lazily floating down the river, not a care in the world. I came to realize the most important thing to me about choosing the units was not just picking the cool Pokemon that people know and love. It was about picking Pokemon that, if I was dropped into their environment, I wouldn't be surprised to see. Not everything had to be a rare species, squirrels are just as quintessential to the forest as bears are.
 
@@ -20,6 +20,6 @@ As I kept putting Pokemon in different buckets, the Isle of Imagination began to
 Designing 5 costs was its own unique challenge. These units needed to feel legendary, sometimes literally. Classic legendary Pokemon such as Latios and Latias felt like natural inclusions. 5 cost units must also stand out, sometimes because of their weirdness. Runerigus as the 5 cost for the Ruiner trait was one of my favorite decisions, including what I think is one of Pokemon's most creative creature designs. And since this started as a personal project for me, I allowed myself a little bias. Salamence is my favorite Pokemon, so I made Salamence a 5 cost. Then the paradigm became making Salamence feel like a 5 cost, so I gave him his own unique trait and an ability that makes him one of the strongest attack carries in the late game.
 
 ![Design card for Salamence: $5 cost, ability Outrage, and a shiny effect granting full mana and bonus durability](./choosing-the-pokemon/salamence.png)
-*The design card that came out of pure favoritism, built until it actually felt like a 5-cost.*
+*Salamence's design card, Outrage and all: the result of pure favoritism, built until it actually felt like a 5-cost.*
 
 The process of choosing Pokemon is where I really started to see my set begin to breathe and take life. They provide the true baseline for the game, and jumpstarted everything else that came afterward.

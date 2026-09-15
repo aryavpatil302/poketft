@@ -15,12 +15,12 @@ That scale problem is one I tackled with a report generation process.
 That second part, damage over time, helped me dig into how a unit functions and if it's acting correctly according to its intended design. A unit that deals its damage in the first five seconds and a unit that deals the same total damage but ramps up over the whole fight are doing completely different jobs, even if their end-of-fight totals look identical on a spreadsheet. I wanted to see the shape of a fight and not just its outcome.
 
 ![A single fight's damage breakdown for Armarouge: a cumulative damage-dealt chart with a kill annotated, next to a cumulative damage chart with one line per unit on the board](./balancing/report-armarouge-single-game.png)
-*The shape of one real fight, not just its final number, one line per unit on the board.*
+*Armarouge's cumulative damage in one real fight, charted one line per unit on the board: the shape of the fight, not just its final number.*
 
 The report also compares units against their own peer group. Comparing a tank's win rate to a marksman's doesn't tell me much since they're not doing the same job. Comparing a tank's win rate to other tanks tells me immediately who's overperforming and who's dead weight. I lean on that constantly: a little up arrow next to a unit means it's punching above its archetype, a down arrow means something's off, and I don't have to eyeball a wall of numbers to find either one.
 
 ![Armarouge's detail page: board win rate, damage and taken per round, trait contribution breakdown, and a per-star-level split with up arrows against archetype peers](./balancing/report-armarouge-detail.png)
-*Every unit gets this drill-down, arrows colored against its own archetype instead of the whole roster.*
+*Armarouge's full drill-down, win rate and damage arrows colored against its own archetype: every unit gets this same page.*
 
 None of that tells me how it feels to actually play against the thing, though, and feel is where a lot of real balance problems hide. A trait can average out to a perfectly reasonable 50% win rate while actually being miserable, curb-stomping half its games and doing nothing the other half, and an average just flattens that tension into a number that looks fine on paper. I wanted a signal that couldn't hide behind an average, so I built something that isn't a report at all. I often scroll through TFT subreddits to see other players' opinions on the state of the game, which gave me the idea to build a version of my own to see what my bots thought about the meta. Hundreds of bot personas, each with their own name and a little bit of personality, posting about the game like actual players would, based on what's actually happening in the simulated data underneath.
 
@@ -32,7 +32,7 @@ I could've had these bots say "Tangela has a 34% win rate in this matchup," and 
 I've caught things this way I don't think I would've noticed in the raw tables. One thread argued that wide boards, three or four traits half-lit at once, were quietly outperforming anything built around one or two deep commitments, and the replies split exactly the way a real balance debate splits, some people insisting the width was the reason they were winning, others insisting they only had the luxury of going wide because they were already winning.
 
 ![A Shop Talk thread claiming a Volcano/Spellweaver burn-stack comp wins every lobby, with nested replies confirming the board and pinpointing why: two trait payoffs stacking off the same casts](./balancing/shop-talk-volcano-thread.png)
-*A different comp, same pattern, replies converging on the actual mechanical reason instead of just agreeing it's strong.*
+*A thread calling a Volcano/Spellweaver burn stack broken, replies converging on the actual mechanical reason: the same pattern as the wide-boards thread.*
 
 Another post had a bot asking if the unit Armarouge was overpowered, noticing how it was winning most of its fights. The comments agreed, talking about their own experiences with the unit. This was a strong signal for me to look closer, so I checked the report for Armarouge's damage breakdown to see which levers I could pull to bring it back in line with other units.
 
