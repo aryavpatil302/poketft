@@ -141,16 +141,72 @@ declare module 'astro:content' {
 
 	type ContentEntryMap = {
 		"posts": {
-"designing-the-jungle-trait.md": {
-	id: "designing-the-jungle-trait.md";
-  slug: "designing-the-jungle-trait";
+"balancing.md": {
+	id: "balancing.md";
+  slug: "balancing";
   body: string;
   collection: "posts";
   data: InferEntrySchema<"posts">
 } & { render(): Render[".md"] };
-"why-im-building-poketft.md": {
-	id: "why-im-building-poketft.md";
-  slug: "why-im-building-poketft";
+"bot-training.md": {
+	id: "bot-training.md";
+  slug: "bot-training";
+  body: string;
+  collection: "posts";
+  data: InferEntrySchema<"posts">
+} & { render(): Render[".md"] };
+"choosing-the-abilities.md": {
+	id: "choosing-the-abilities.md";
+  slug: "choosing-the-abilities";
+  body: string;
+  collection: "posts";
+  data: InferEntrySchema<"posts">
+} & { render(): Render[".md"] };
+"choosing-the-pokemon.md": {
+	id: "choosing-the-pokemon.md";
+  slug: "choosing-the-pokemon";
+  body: string;
+  collection: "posts";
+  data: InferEntrySchema<"posts">
+} & { render(): Render[".md"] };
+"designing-the-core-mechanic.md": {
+	id: "designing-the-core-mechanic.md";
+  slug: "designing-the-core-mechanic";
+  body: string;
+  collection: "posts";
+  data: InferEntrySchema<"posts">
+} & { render(): Render[".md"] };
+"testing.md": {
+	id: "testing.md";
+  slug: "testing";
+  body: string;
+  collection: "posts";
+  data: InferEntrySchema<"posts">
+} & { render(): Render[".md"] };
+"theme.md": {
+	id: "theme.md";
+  slug: "theme";
+  body: string;
+  collection: "posts";
+  data: InferEntrySchema<"posts">
+} & { render(): Render[".md"] };
+"traits.md": {
+	id: "traits.md";
+  slug: "traits";
+  body: string;
+  collection: "posts";
+  data: InferEntrySchema<"posts">
+} & { render(): Render[".md"] };
+"ui-decisions.md": {
+	id: "ui-decisions.md";
+  slug: "ui-decisions";
+  body: string;
+  collection: "posts";
+  data: InferEntrySchema<"posts">
+} & { render(): Render[".md"] };
+"why-poketft.md": {
+	id: "why-poketft.md";
+  slug: "why-poketft";
   body: string;
   collection: "posts";
   data: InferEntrySchema<"posts">
@@ -165,5 +221,5 @@ declare module 'astro:content' {
 
 	type AnyEntryMap = ContentEntryMap & DataEntryMap;
 
-	export type ContentConfig = typeof import("./../../src/content/config.js");
+	export type ContentConfig = typeof import("../../src/content/config.js");
 }
