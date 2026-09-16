@@ -9,6 +9,7 @@
 import type * as Party from 'partykit/server'
 import { applyAction, startPlanning, resolveRound, type RoundResult } from '../src/game/round'
 import { resolvePendingCombines } from '../src/econ/combine'
+import { isItemRound, rollItemChoices, autoPickItemChoice, ownedItemIds } from '../src/econ/creeps'
 import type { RunState } from '../src/econ/runState'
 import {
   newRoomRun, newSeatTable, assignSeat, freeSeat, seatOf, lobbyView,
@@ -85,6 +86,15 @@ export default class Lobby implements Party.Server {
   private pendingAckRound: number | null = null
   private ackWaitResolve: (() => void) | null = null
   private ackTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+
+  // Item-pick tracking for resolveItemChoices: the offered choices per seat
+  // still owed a pick this item round, the round they were offered for, the
+  // resolve fn of the Promise that call is awaiting, and its fallback timer.
+  // All null outside an active item-round wait.
+  private pendingItemPicks: Map<number, string[]> | null = null
+  private pendingItemPickRound: number | null = null
+  private itemPickResolve: (() => void) | null = null
+  private itemPickTimer: ReturnType<typeof setTimeout> | null = null
 
   // Per-connection-id action budget for this planning phase. Reset on
   // connect (a fresh connection should not inherit a stale counter from a
@@ -298,6 +308,15 @@ export default class Lobby implements Party.Server {
     this.phase = 'resolving'
     this.clearTimer()
 
+    // Delibird's Gift: if the round about to resolve is an item round, every
+    // connected human seat needs a real chance to choose before
+    // resolveItemRound (src/game/round.ts) runs — its own header comment
+    // states the human's pick must already be on itemBench BEFORE it's
+    // called; it never chooses for a player itself. Waits for every
+    // connected seat to pick or a timeout, auto-picking for stragglers, and
+    // applies every final pick before resolveRound below.
+    if (isItemRound(this.run.round)) await this.resolveItemChoices(this.run.round)
+
     const result = resolveRound(this.run, roundSeedFor(this.room.id, this.run.round))
     // Do NOT increment this.run.round here — resolveRound already does it
     // internally; doing it twice would skip every other round, including
@@ -384,6 +403,62 @@ export default class Lobby implements Party.Server {
     resolve?.()
   }
 
+  // Rolls each connected human seat's 3 Delibird choices, sends them
+  // per-connection (never broadcast — every seat's 3 differ), and waits
+  // until every seat has sent a valid pick or a timeout elapses (the same
+  // 30s default/test-override a planning phase uses, via planningMsFor) —
+  // whichever comes first. Applies every final pick — explicit or
+  // auto-picked for a straggler at timeout — to itemBench before returning,
+  // so resolveItemRound (src/game/round.ts) sees it already there,
+  // fulfilling its own documented contract for the first time in networked
+  // play. A seat with no live connection (bot-controlled, or a human who
+  // dropped — already reverted to its bot persona) is never waited on;
+  // resolveItemRound's own bot-planning pass picks for it exactly as today.
+  private async resolveItemChoices(round: number): Promise<void> {
+    const pending = new Map<number, string[]>()
+    for (const conn of this.room.getConnections()) {
+      const seat = seatOf(this.table, conn.id)
+      if (seat === null) continue
+      const econ = this.run.players[seat]
+      if (!econ || econ.eliminated) continue
+      const choices = rollItemChoices(ownedItemIds(econ), Math.random)
+      pending.set(seat, choices)
+      const deadline = Date.now() + planningMsFor(this.room.env)
+      conn.send(JSON.stringify({ t: 'item-choices', round, choices, deadline, serverNow: Date.now() } satisfies ServerMessage))
+    }
+    if (pending.size === 0) return   // nobody connected needs to pick
+
+    this.pendingItemPickRound = round
+    this.pendingItemPicks = pending
+
+    const timeoutMs = planningMsFor(this.room.env)
+    await new Promise<void>(resolve => {
+      this.itemPickResolve = resolve
+      this.itemPickTimer = setTimeout(() => this.resolveItemPickWait(), timeoutMs)
+    })
+  }
+
+  // Clears whatever's pending, auto-picking (from each straggler's OWN
+  // offered choices, never an arbitrary one) for any seat that never sent a
+  // valid pick, then resolves the wait exactly once. Called from the
+  // fallback timeout, from onMessage once every seat has picked, and from
+  // onClose if a seat disconnects mid-wait.
+  private resolveItemPickWait(): void {
+    if (this.itemPickTimer !== null) { clearTimeout(this.itemPickTimer); this.itemPickTimer = null }
+    if (this.pendingItemPicks) {
+      for (const [seat, choices] of this.pendingItemPicks) {
+        const econ = this.run.players[seat]
+        const picked = autoPickItemChoice(choices)
+        if (econ && picked) econ.itemBench.push(picked)
+      }
+    }
+    const resolve = this.itemPickResolve
+    this.itemPickResolve = null
+    this.pendingItemPicks = null
+    this.pendingItemPickRound = null
+    resolve?.()
+  }
+
   async onConnect(conn: Party.Connection, ctx: Party.ConnectionContext): Promise<void> {
     // Read the display name once, at connect time, from the connection
     // URL's query string — never from a message, so a seated connection's
@@ -445,6 +520,19 @@ export default class Lobby implements Party.Server {
     if (this.pendingAcks?.has(seat)) {
       this.pendingAcks.delete(seat)
       if (this.pendingAcks.size === 0) this.resolveAckWait()
+    }
+
+    // Same idea for a seat mid-item-pick: auto-pick from ITS OWN offered
+    // choices immediately (matching how a disconnected human seat already
+    // gets bot-quality treatment everywhere else, rather than silently
+    // getting nothing) rather than stalling everyone else for the full wait.
+    if (this.pendingItemPicks?.has(seat)) {
+      const choices = this.pendingItemPicks.get(seat)!
+      const econ = this.run.players[seat]
+      const picked = autoPickItemChoice(choices)
+      if (econ && picked) econ.itemBench.push(picked)
+      this.pendingItemPicks.delete(seat)
+      if (this.pendingItemPicks.size === 0) this.resolveItemPickWait()
     }
 
     await this.persist()
@@ -517,6 +605,29 @@ export default class Lobby implements Party.Server {
       if (this.pendingAcks !== null && this.pendingAckRound === msg.round) {
         this.pendingAcks.delete(seat)
         if (this.pendingAcks.size === 0) this.resolveAckWait()
+      }
+      return
+    }
+
+    if (msg.t === 'pickItem') {
+      // Also handled before the planning-phase guard: this always arrives
+      // while phase === 'resolving' (see resolveItemChoices), never
+      // 'planning'. Silently ignored if it doesn't match the round we're
+      // actually waiting on, exactly like playback-done above — EXCEPT an
+      // itemId that isn't one of this seat's own 3 offered choices, which
+      // is reported back rather than silently dropped (a real client can
+      // only ever construct this from stale/forged input, worth surfacing).
+      if (this.pendingItemPicks !== null && this.pendingItemPickRound === msg.round) {
+        const choices = this.pendingItemPicks.get(seat)
+        if (choices !== undefined) {
+          if (!choices.includes(msg.itemId)) {
+            sender.send(JSON.stringify({ t: 'rejected', reason: 'invalid-item' } satisfies ServerMessage))
+            return
+          }
+          this.run.players[seat].itemBench.push(msg.itemId)
+          this.pendingItemPicks.delete(seat)
+          if (this.pendingItemPicks.size === 0) this.resolveItemPickWait()
+        }
       }
       return
     }

@@ -129,6 +129,13 @@ export class RoomClient {
     this.socket.send(JSON.stringify({ t: 'playback-done', round }))
   }
 
+  // Commits this connection's Delibird's Gift pick for the item round named
+  // by `round` — see party/lobby.ts's resolveItemChoices.
+  sendPickItem(itemId: string, round: number): void {
+    if (this.currentStatus !== 'open' || this.socket === null) return
+    this.socket.send(JSON.stringify({ t: 'pickItem', round, itemId }))
+  }
+
   get seat(): number | null { return this.currentSeat }
   get status(): RoomClientStatus { return this.currentStatus }
   get droppedFrames(): number { return this.dropped }

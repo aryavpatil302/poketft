@@ -31,7 +31,7 @@ import { xpToNext, boardCap } from './econ/xp'
 import { resolvePendingCombines } from './econ/combine'
 import { botSeats, botPlanRound, econBoardPower } from './econ/bots'
 import { checkGameOver } from './econ/botMatches'
-import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices, autoPickItemChoice } from './econ/creeps'
+import { isCreepRound, creepRoundDef, isItemRound, rollItemChoices, autoPickItemChoice, ownedItemIds } from './econ/creeps'
 import { displayedOpponentSeat, displayedRound } from './econ/opponentView'
 import {
   REROLL_COST, XP_BUY_COST, sellValue, stageLabel, SHOP_ODDS,
@@ -1431,6 +1431,22 @@ function renderPlanningTimer(): void {
   const label = document.getElementById('planning-timer-label')!
 
   if (isNetworked()) {
+    // Networked item-pick window: a dedicated clock, not netClock — netClock
+    // is still holding the PREVIOUS round's planning countdown throughout
+    // this window (the room never broadcasts a `phase` frame for it). Purely
+    // informational: like the planning branch below, the server's own
+    // timeout is the sole authority on what happens if nobody clicks.
+    if (econPhase === 'itemRound') {
+      if (netItemPickClock === null) { bar.style.display = 'none'; return }
+      const now = performance.now()
+      const remaining = fractionRemaining(netItemPickClock, now)
+      bar.style.display = 'block'
+      fill.style.width = `${remaining * 100}%`
+      fill.style.background = remaining > 0.5 ? '#44cc44' : remaining > 0.2 ? '#ffcc00' : '#ff3333'
+      label.textContent = `${remainingSeconds(netItemPickClock, now)}`
+      return
+    }
+
     // ── The networked branch: WHEN THIS REACHES ZERO, DO NOTHING. ──────────
     // The server's own timer ends the planning phase and tells this client
     // via `resolve`; a client that called startCombat() at zero would fight a
@@ -2211,6 +2227,23 @@ let netPhase: RoomPhase | null = null
 // phase, which is exactly when the countdown bar hides.
 let netClock: RoomClock | null = null
 
+// True whenever this seat's own part of the current round is done (a bye,
+// an abstractly-resolved bot-vs-bot pairing, an item round it just picked
+// for) but the room hasn't broadcast the next planning phase for everyone
+// yet. Set by enterNetAwaitingSync, cleared by enterNetPlanningView — the
+// bye/item-round counterpart to a still-fighting seat's own combatRunning/
+// introActive gate, so renderRoundIndicator's Stage label stays pinned to
+// the round that just resolved instead of jumping to the already-bumped
+// live run.round the instant this seat's own resolve arrives.
+let netAwaitingPlanningSync = false
+
+// Which round's Delibird choices this tab is currently deciding between (or
+// null outside a networked item-pick window), and the deadline for that
+// pick — a dedicated clock, not netClock, because netClock is still holding
+// the PREVIOUS round's planning countdown throughout this window.
+let netItemPickRound: number | null = null
+let netItemPickClock: RoomClock | null = null
+
 // The room's last broadcast seat view: who holds which seat, whether that
 // holder is a live human connection or the seat's bot persona, and each
 // seat's HP. Null in solo mode, which is what renderLobby falls back on.
@@ -2452,6 +2485,7 @@ const REJECT_TEXT: Record<ActionReason | RejectReason, string> = {
   'rate-limited': 'Slow down — too many actions at once.',
   'not-host': 'Only the host can start the game.',
   'already-started': 'The game has already started.',
+  'invalid-item': 'That was not one of your offered choices.',
 }
 
 const REJECT_NOTICE_MS = 2000
@@ -2713,6 +2747,10 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
       handleNetResolve(m)
     } else if (m.t === 'fight-chunk') {
       handleFightChunk(m.chunk)
+    } else if (m.t === 'item-choices') {
+      netItemPickRound = m.round
+      netItemPickClock = captureDeadline(m, performance.now())
+      startNetworkedItemRound(m.choices)
     }
   })
 
@@ -2767,6 +2805,7 @@ function enterNetPlanningView(): void {
 
   autoResetTimer       = null
   victoryCelebrationTs = 0
+  netAwaitingPlanningSync = false
   inOvertime           = false
   document.getElementById('overtime-box')!.style.display = 'none'
   combatState          = null
@@ -2777,16 +2816,25 @@ function enterNetPlanningView(): void {
   document.getElementById('result-box')!.style.display = 'none'
   document.getElementById('combat-info')!.textContent = ''
 
-  // Rebuild player side from snapshot; enemy side wiped entirely
-  placedUnits.clear()
-  for (const snap of preCombatSnapshot) {
-    const unit = makeUnit(snap.definitionId, 'player', snap.tier as 1 | 2 | 3)
-    unit.hexPos    = { ...snap.hexPos }
-    unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
-    if (snap.item) unit.items = [snap.item]
-    if (snap.isShiny) unit.isShiny = true
-    if (snap.chosenTrait) unit.chosenTrait = snap.chosenTrait
-    placedUnits.set(hexId(unit.hexPos), unit)
+  // Rebuild player side from snapshot; enemy side wiped entirely. ONLY when
+  // this seat actually watched a fight this round — pendingResolve.fightId
+  // is the record of exactly that (set fresh by handleNetResolve, always
+  // before the phase:'planning' broadcast that gets here). A bye/item-round
+  // seat's placedUnits was never replaced by replay units in the first
+  // place, so preCombatSnapshot is stale for them (only ever refreshed at
+  // this seat's OWN last real combat start) — rebuilding from it here would
+  // silently revert any bench/board change made since.
+  if (pendingResolve?.fightId != null) {
+    placedUnits.clear()
+    for (const snap of preCombatSnapshot) {
+      const unit = makeUnit(snap.definitionId, 'player', snap.tier as 1 | 2 | 3)
+      unit.hexPos    = { ...snap.hexPos }
+      unit.visualPos = hexToPixel(unit.hexPos, HEX_SIZE)
+      if (snap.item) unit.items = [snap.item]
+      if (snap.isShiny) unit.isShiny = true
+      if (snap.chosenTrait) unit.chosenTrait = snap.chosenTrait
+      placedUnits.set(hexId(unit.hexPos), unit)
+    }
   }
 
   boardLayer.setCombatActive(false)
@@ -2807,6 +2855,19 @@ function enterNetPlanningView(): void {
 
   econPhase = 'planning'
   updateEconVisibility()
+}
+
+// Call whenever this seat's own part of the current round is done — a bye,
+// a bot-vs-bot pairing it wasn't part of, an item pick it just submitted —
+// but the room hasn't broadcast the next planning phase for everyone yet.
+// Keeps this seat visibly "waiting" (idle-hop via the same celebBob a
+// combat winner gets, Stage pinned via renderRoundIndicator's inCombat
+// check) instead of jumping ahead the instant its own resolve/pick lands.
+// enterNetPlanningView is what clears this, at the real synchronized
+// moment — same shared transition point every seat funnels through.
+function enterNetAwaitingSync(): void {
+  netAwaitingPlanningSync = true
+  victoryCelebrationTs = performance.now()
 }
 
 // Takes the room's settlement for this seat. Settles NOTHING locally: HP,
@@ -2843,13 +2904,19 @@ function handleNetResolve(m: Extract<ServerMessage, { t: 'resolve' }>): void {
     // guards that explicitly). Clear the combat view, stay in the planning
     // view, and wait for the room's next `phase` broadcast — synthesising a
     // fight, or advancing the round here, is exactly what a networked client
-    // may not do.
+    // may not do. Shop/bench stay interactive (econPhase='planning', matches
+    // the already-shipped "actions any time" design) but the visible Stage
+    // stays pinned to the round that just resolved (enterNetAwaitingSync)
+    // until that broadcast actually arrives — otherwise this seat's own
+    // resolve (which already carries the live, already-bumped round number)
+    // would show a later Stage than a seat still watching a real fight.
     combatState = null
     combatRunning = false
     introActive = false
     playbackLog = null
     playbackIndex = 0
     econPhase = 'planning'
+    enterNetAwaitingSync()
     updateEconVisibility()
     return
   }
@@ -4430,7 +4497,14 @@ function renderRoundIndicator(): void {
   // Which round/seat this view describes: during combat, the fight actually
   // on screen (captured at settlement); otherwise, the upcoming pairing
   // preview. See src/econ/opponentView.ts for why these two differ.
-  const inCombat = econPhase === 'combat'
+  // netAwaitingPlanningSync covers the bye/item-round counterpart to combat:
+  // this seat's own resolve/pick already landed (and already bumped the
+  // live run.round), but the room hasn't opened the next planning phase for
+  // everyone yet — treat that exactly like still-in-combat for display
+  // purposes, so this seat's Stage/opponent stays pinned to the round that
+  // just resolved (currentCombatRound/currentOpponentIndex) instead of
+  // jumping ahead of a seat still watching a real fight.
+  const inCombat = econPhase === 'combat' || netAwaitingPlanningSync
   const shownRound = displayedRound(inCombat, run.round, currentCombatRound)
   const shownSeat = displayedOpponentSeat(
     inCombat, localSeatIndex, run.players[localSeatIndex].nextOpponent, currentOpponentIndex,
@@ -4498,7 +4572,14 @@ function renderLobby(): void {
   // Which round/seat this view describes — same three values renderRoundIndicator
   // computes, so the lobby highlight always names the same seat as the "Vs {name}"
   // line during combat, and the same upcoming pairing during planning.
-  const inCombat = econPhase === 'combat'
+  // netAwaitingPlanningSync covers the bye/item-round counterpart to combat:
+  // this seat's own resolve/pick already landed (and already bumped the
+  // live run.round), but the room hasn't opened the next planning phase for
+  // everyone yet — treat that exactly like still-in-combat for display
+  // purposes, so this seat's Stage/opponent stays pinned to the round that
+  // just resolved (currentCombatRound/currentOpponentIndex) instead of
+  // jumping ahead of a seat still watching a real fight.
+  const inCombat = econPhase === 'combat' || netAwaitingPlanningSync
   const shownRound = displayedRound(inCombat, run.round, currentCombatRound)
   const shownSeat = displayedOpponentSeat(
     inCombat, localSeatIndex, run.players[localSeatIndex].nextOpponent, currentOpponentIndex,
@@ -4880,17 +4961,17 @@ function enterGameOver(kind: 'win' | 'loss'): void {
 const DELIBIRD_SWOOP_MS = 760
 const DELIBIRD_HOPS_MS   = 1260
 
-// Every item the human currently holds — uncommitted (item bench), on benched
-// units, and on units placed on the board — so item rounds never re-offer a dupe.
+// Every item the human currently holds — a thin wrapper over the shared
+// engine-side scan (src/econ/creeps.ts's ownedItemIds), which both this
+// client and party/lobby.ts's networked item-round handling call.
 function humanOwnedItems(): string[] {
-  const h = humanEcon()
-  const ids = [...h.itemBench]
-  for (const b of h.bench) if (b?.item) ids.push(b.item)
-  for (const u of getPlacedUnitsArray()) if (u.team === 'player' && u.items[0]) ids.push(u.items[0])
-  return ids
+  return ownedItemIds(humanEcon())
 }
 
-function startItemRound(): void {
+// `choices` (networked only): the room already rolled and sent this seat's
+// 3 offers (party/lobby.ts's resolveItemChoices) — use them verbatim instead
+// of rolling a fresh set locally. Solo omits it and rolls its own, unchanged.
+function startItemRound(choices?: string[]): void {
   econPhase = 'itemRound'
   planningTimerStartTs = null
   itemRoundTimerStartTs = null   // a fresh round never inherits a stale deadline
@@ -4917,7 +4998,7 @@ function startItemRound(): void {
   void (sprite as HTMLElement).offsetWidth   // restart animation
   sprite.classList.add('delibird-swoop')
 
-  const choices = rollItemChoices(humanOwnedItems())
+  const resolvedChoices = choices ?? rollItemChoices(humanOwnedItems())
 
   // Phase 2 — three hops at varied angles.
   window.setTimeout(() => {
@@ -4931,7 +5012,7 @@ function startItemRound(): void {
     // The round was torn down while Delibird was still animating (game over,
     // test-mode toggle, etc.) — nothing to reveal and no deadline to arm.
     if (econPhase !== 'itemRound') return
-    tray.innerHTML = choices.map(id => {
+    tray.innerHTML = resolvedChoices.map(id => {
       const def = ITEM_MAP.get(id)
       return `<div class="delibird-item" data-item-id="${id}" style="
         width:96px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;flex-shrink:0;">
@@ -4943,7 +5024,7 @@ function startItemRound(): void {
       </div>`
     }).join('')
     // Target width = 3 cards (96) + gaps (22) + horizontal padding (2×20).
-    const trayW = choices.length * 96 + Math.max(0, choices.length - 1) * 22 + 40
+    const trayW = resolvedChoices.length * 96 + Math.max(0, resolvedChoices.length - 1) * 22 + 40
     tray.style.setProperty('--tray-w', `${trayW}px`)
     trayWrap.style.display = 'flex'    // now the jumps are done — reveal it
     tray.style.pointerEvents = 'auto'
@@ -4952,7 +5033,7 @@ function startItemRound(): void {
     tray.querySelectorAll<HTMLElement>('.delibird-item').forEach(el => {
       const id = el.dataset.itemId!
       const key = `delibird:${id}`
-      el.addEventListener('click', () => finishItemRound(id))
+      el.addEventListener('click', () => { if (isNetworked()) finishNetworkedItemRound(id); else finishItemRound(id) })
       // Same hover card as the item bench: name / stats / effect. Driven off
       // mousemove as well as mouseenter — when the tray expands or an item hops
       // under a stationary cursor, CSS :hover activates (the item jumps) but
@@ -4967,19 +5048,25 @@ function startItemRound(): void {
     // arming any earlier would run the clock against cards the player cannot
     // yet click. Never armed while networked: the lobby item-pick path is a
     // server-owned round, not something a client may locally settle.
-    itemRoundChoices = choices
+    itemRoundChoices = resolvedChoices
     itemRoundTimerStartTs = isNetworked() ? null : performance.now()
   }, DELIBIRD_SWOOP_MS + DELIBIRD_HOPS_MS)
 }
 
-function finishItemRound(itemId: string | undefined): void {
-  if (econPhase !== 'itemRound') return
-  econPhase = 'planning'   // claim immediately so a double-click can't run this twice
-  // The one teardown both the click path and the timer-expiry path pass
-  // through — whichever settles the round, the deadline dies with it.
+// Networked message handler's counterpart to the solo isItemRound() check
+// inside startCombat — the room, not this tab, decides when an item round
+// begins (party/lobby.ts's resolveItemChoices), so this just forwards its
+// server-provided choices into the same overlay/animation solo uses.
+function startNetworkedItemRound(choices: string[]): void {
+  startItemRound(choices)
+}
+
+// Shared DOM teardown both finishItemRound and finishNetworkedItemRound
+// pass through — whichever settles the round, the tray/overlay/deadline
+// state and hover card all die with it.
+function teardownItemRoundOverlay(): void {
   itemRoundTimerStartTs = null
   itemRoundChoices = []
-
   const overlay  = document.getElementById('delibird-round')!
   const trayWrap = document.getElementById('delibird-tray-wrap')!
   const tray     = document.getElementById('delibird-tray')!
@@ -4988,6 +5075,12 @@ function finishItemRound(itemId: string | undefined): void {
   trayWrap.style.display = 'none'
   overlay.style.display = 'none'
   tooltipHiddenReset()   // drop the hover card — the tray is being torn down
+}
+
+function finishItemRound(itemId: string | undefined): void {
+  if (econPhase !== 'itemRound') return
+  econPhase = 'planning'   // claim immediately so a double-click can't run this twice
+  teardownItemRoundOverlay()
 
   if (itemId) humanEcon().itemBench.push(itemId)
 
@@ -5002,6 +5095,24 @@ function finishItemRound(itemId: string | undefined): void {
   if (run.gameOver) { enterGameOver(run.gameOver); return }
   startPlanningPhase(true)
   renderEconUI()
+}
+
+// Networked counterpart: commits this seat's pick over the wire instead of
+// mutating `run`/calling resolveRound locally — the room owns both, exactly
+// like every other networked action (see dispatchAction's own header).
+// Enters the same "waiting for everyone else" holding state a bye seat gets
+// (enterNetAwaitingSync) until the room's own resolve+phase broadcast for
+// this round eventually arrive.
+function finishNetworkedItemRound(itemId: string): void {
+  if (econPhase !== 'itemRound') return
+  econPhase = 'planning'   // claim immediately, same double-click guard as solo
+  teardownItemRoundOverlay()
+
+  net?.sendPickItem(itemId, netItemPickRound ?? run.round)
+  netItemPickRound = null
+  netItemPickClock = null
+  enterNetAwaitingSync()
+  updateEconVisibility()
 }
 
 // Handle a planning-phase click on the board canvas. Returns true if consumed.

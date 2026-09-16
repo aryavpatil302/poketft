@@ -166,6 +166,77 @@ async function main(): Promise<void> {
       b.close()
       console.log("PASS: shop actions during 'resolving' work, and a reroll there isn't silently discarded")
     }
+
+    // ─── Scenario 4: Delibird's Gift — one seat picks, one times out ──────
+    // Round 3 is always the first item round (src/econ/creeps.ts's
+    // isItemRound). Rounds 1-2 are creep rounds — every connected seat gets
+    // a real recorded fight there too, so (like every other scenario in
+    // this file) both must ack playback-done before the room opens the
+    // next round's planning phase.
+    {
+      const roomId = `ackwait-item-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+      const { a, b } = await connectAndStart(host, roomId)
+
+      for (const creepRound of [1, 2]) {
+        const resolveBoth = Promise.all([
+          nextMessage<any>(a, m => m.t === 'resolve' && m.round === creepRound),
+          nextMessage<any>(b, m => m.t === 'resolve' && m.round === creepRound),
+        ])
+        const nextPhaseBoth = Promise.all([
+          nextMessage<any>(a, m => m.t === 'phase' && m.phase === 'planning' && m.round === creepRound + 1, 10_000),
+          nextMessage<any>(b, m => m.t === 'phase' && m.phase === 'planning' && m.round === creepRound + 1, 10_000),
+        ])
+        await resolveBoth
+        a.send(JSON.stringify({ t: 'playback-done', round: creepRound }))
+        b.send(JSON.stringify({ t: 'playback-done', round: creepRound }))
+        await nextPhaseBoth
+      }
+
+      // Round 3's own deadline fires next; the room rolls each connected
+      // seat's OWN 3 choices and sends item-choices — before resolving the
+      // round at all (party/lobby.ts's resolveItemChoices runs ahead of
+      // resolveRound).
+      const itemChoicesBoth = Promise.all([
+        nextMessage<any>(a, m => m.t === 'item-choices' && m.round === 3, 10_000),
+        nextMessage<any>(b, m => m.t === 'item-choices' && m.round === 3, 10_000),
+      ])
+      const [choicesA, choicesB] = await itemChoicesBoth
+      assert(Array.isArray(choicesA.choices) && choicesA.choices.length === 3, 'seat A is offered exactly 3 item choices')
+      assert(Array.isArray(choicesB.choices) && choicesB.choices.length === 3, 'seat B is offered exactly 3 item choices')
+
+      // A picks promptly; B never responds at all.
+      const pickedItem = choicesA.choices[0]
+      a.send(JSON.stringify({ t: 'pickItem', round: 3, itemId: pickedItem }))
+
+      // The round must NOT resolve just because A picked — B hasn't, and
+      // nothing should proceed until either B picks or the timeout elapses.
+      const prematureResolve = await nextMessage<any>(a, m => m.t === 'resolve', 1200)
+        .then(() => true).catch(() => false)
+      assert(!prematureResolve, 'round 3 does NOT resolve just because one seat picked — it waits for the other or a timeout')
+
+      // Eventually (the item-pick deadline elapses) it resolves anyway,
+      // auto-picking for B from B's own offered choices.
+      const resolveBoth = Promise.all([
+        nextMessage<any>(a, m => m.t === 'resolve', 10_000),
+        nextMessage<any>(b, m => m.t === 'resolve', 10_000),
+      ])
+      const [resolveA] = await resolveBoth
+      assert(resolveA.kind === 'item', 'round 3 resolves as an item round')
+      assert(
+        resolveA.snapshot.players[0].itemBench.includes(pickedItem),
+        "seat A's own picked item landed in its itemBench",
+      )
+      const bItemBench: string[] = resolveA.snapshot.players[1].itemBench
+      assert(bItemBench.length > 0, 'seat B (never responded) still got an item')
+      assert(
+        bItemBench.every(id => choicesB.choices.includes(id)),
+        "seat B's auto-picked item came from B's OWN offered 3 choices, not an arbitrary one",
+      )
+
+      a.close()
+      b.close()
+      console.log("PASS: Delibird's Gift — one seat picks, the other times out and gets auto-picked")
+    }
   }, { PLANNING_MS: String(PLANNING_MS_TEST) })   // SKIP_PLAYBACK_DELAY intentionally NOT set
 }
 

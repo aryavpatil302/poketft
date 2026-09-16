@@ -65,6 +65,9 @@ export type RejectReason =
   // A `start` from a seat other than 0, and a `start` for a room that has
   // already left the 'lobby' phase, respectively.
   | 'not-host' | 'already-started'
+  // A `pickItem` naming an id that wasn't one of this seat's own 3 offered
+  // choices for the current item round.
+  | 'invalid-item'
 
 export interface LobbySeatView {
   seat: number
@@ -98,6 +101,11 @@ export type ClientMessage =
   // seat field (see (a) above); it exists only so a stale ack for an
   // already-superseded round can be told apart from a current one.
   | { t: 'playback-done'; round: number }
+  // Commits this seat's Delibird's Gift pick for an item round. `round`
+  // guards a stale pick the same way playback-done's does; `itemId` must be
+  // one of the 3 ids the room's own 'item-choices' message offered this
+  // seat, or the room rejects it 'invalid-item'.
+  | { t: 'pickItem'; round: number; itemId: string }
 
 export type ServerMessage =
   | { t: 'welcome'; protocol: number; seat: number; snapshot: RunState; lobby: LobbySeatView[]; phase: RoomPhase; round: number }
@@ -121,12 +129,20 @@ export type ServerMessage =
   // unspecified (only per-connection order is FIFO).
   | { t: 'resolve'; round: number; kind: 'pvp' | 'creep' | 'item'; snapshot: RunState; seat: SeatFightResult | null; fightId: string | null; eliminated: number[]; survivors: number[] }
   | { t: 'fight-chunk'; chunk: FightChunk }
+  // Sent per-connection (never broadcast — each seat's 3 choices differ),
+  // once per item round, before that round is resolved. `deadline`/
+  // `serverNow` follow the same absolute-timestamp pairing as `phase` above,
+  // for the same clock-skew reason; a client that never responds by
+  // `deadline` gets auto-picked server-side (party/lobby.ts's
+  // resolveItemChoices) exactly like solo's own timeout fallback.
+  | { t: 'item-choices'; round: number; choices: string[]; deadline: number; serverNow: number }
 
 // Narrow parse — never throws. Returns null for non-JSON input, a parsed
 // value that is not a plain object, or any `t` outside the ClientMessage
-// union ('action', 'start', 'playback-done'). Does NOT deeply validate the
-// GameAction payload: applyAction is already a validate-before-mutate
-// function and is the sole authority on whether an action is legal.
+// union ('action', 'start', 'playback-done', 'pickItem'). Does NOT deeply
+// validate the GameAction payload: applyAction is already a
+// validate-before-mutate function and is the sole authority on whether an
+// action is legal.
 export function parseClientMessage(raw: string): ClientMessage | null {
   let parsed: unknown
   try {
@@ -135,11 +151,17 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     return null
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
-  const candidate = parsed as { t?: unknown; action?: unknown; round?: unknown }
+  const candidate = parsed as { t?: unknown; action?: unknown; round?: unknown; itemId?: unknown }
   if (candidate.t === 'start') return { t: 'start' }
   if (candidate.t === 'playback-done') {
     return typeof candidate.round === 'number' && Number.isFinite(candidate.round)
       ? { t: 'playback-done', round: candidate.round }
+      : null
+  }
+  if (candidate.t === 'pickItem') {
+    return typeof candidate.round === 'number' && Number.isFinite(candidate.round)
+      && typeof candidate.itemId === 'string' && candidate.itemId.length > 0
+      ? { t: 'pickItem', round: candidate.round, itemId: candidate.itemId }
       : null
   }
   if (candidate.t !== 'action') return null
@@ -150,7 +172,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
 // from a future protocol version, a proxy, or an attacker, and is dropped.
 const SERVER_MESSAGE_TYPES = new Set<string>([
   'welcome', 'snapshot', 'lobby', 'rejected', 'seat-taken', 'seat-freed',
-  'phase', 'resolve', 'fight-chunk',
+  'phase', 'resolve', 'fight-chunk', 'item-choices',
 ])
 
 // The client-side mirror of parseClientMessage — never throws. Returns null

@@ -12,6 +12,7 @@
 import { ALL_ITEMS } from '../data/items'
 import type { ItemDefinition } from '../core/types'
 import type { Rng } from './shop'
+import type { PlayerEcon } from './runState'
 
 export interface CreepSpawn {
   definitionId: string
@@ -73,6 +74,18 @@ function shuffle<T>(arr: T[], rng: Rng): T[] {
     ;[arr[i], arr[j]] = [arr[j], arr[i]]
   }
   return arr
+}
+
+// Every item a seat currently holds — uncommitted (item bench), on benched
+// units, and on units placed on the board — so an item round never re-offers
+// a dupe. Pure engine-side scan over PlayerEcon (works for any seat, human
+// or bot, client or server) — src/main.ts's humanOwnedItems() is a thin
+// wrapper over this for the local human seat.
+export function ownedItemIds(econ: PlayerEcon): string[] {
+  const ids = [...econ.itemBench]
+  for (const b of econ.bench) if (b?.item) ids.push(b.item)
+  for (const u of econ.board) if (u.item) ids.push(u.item)
+  return ids
 }
 
 // Pick `count` distinct items to offer this Delibird round.

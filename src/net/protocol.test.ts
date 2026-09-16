@@ -63,7 +63,7 @@ describe('parseServerMessage', () => {
   })
 
   it('accepts every discriminant the ServerMessage union carries', () => {
-    for (const t of ['snapshot', 'lobby', 'rejected', 'seat-taken', 'seat-freed', 'phase', 'resolve', 'fight-chunk']) {
+    for (const t of ['snapshot', 'lobby', 'rejected', 'seat-taken', 'seat-freed', 'phase', 'resolve', 'fight-chunk', 'item-choices']) {
       expect(parseServerMessage(JSON.stringify({ t }))?.t).toBe(t)
     }
   })
@@ -106,5 +106,26 @@ describe('parseClientMessage', () => {
 
   it('rejects a playback-done message with a non-numeric round', () => {
     expect(parseClientMessage('{"t":"playback-done","round":"3"}')).toBeNull()
+  })
+
+  it('parses a well-formed pickItem message', () => {
+    expect(parseClientMessage('{"t":"pickItem","round":3,"itemId":"metronome"}'))
+      .toEqual({ t: 'pickItem', round: 3, itemId: 'metronome' })
+  })
+
+  it('rejects a pickItem message with a missing round', () => {
+    expect(parseClientMessage('{"t":"pickItem","itemId":"metronome"}')).toBeNull()
+  })
+
+  it('rejects a pickItem message with a missing itemId', () => {
+    expect(parseClientMessage('{"t":"pickItem","round":3}')).toBeNull()
+  })
+
+  it('rejects a pickItem message with an empty itemId', () => {
+    expect(parseClientMessage('{"t":"pickItem","round":3,"itemId":""}')).toBeNull()
+  })
+
+  it('rejects a pickItem message with a non-string itemId', () => {
+    expect(parseClientMessage('{"t":"pickItem","round":3,"itemId":5}')).toBeNull()
   })
 })

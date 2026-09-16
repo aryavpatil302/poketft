@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { makeUnit } from '../core/unitFactory'
 import { createCombatState, runCombat } from '../core/combatEngine'
 import type { Unit } from '../core/types'
-import { CREEP_ROUNDS, isCreepRound, isItemRound, rollItemChoices, autoPickItemChoice, CREEP_ROUND_COUNT } from './creeps'
+import { CREEP_ROUNDS, isCreepRound, isItemRound, rollItemChoices, autoPickItemChoice, ownedItemIds, CREEP_ROUND_COUNT } from './creeps'
 import { ITEM_MAP } from '../data/items'
-import { shopEligibleUnits } from './runState'
+import { shopEligibleUnits, emptyEcon } from './runState'
 import '../core/systems/ability'   // register ability handlers
 
 function creepEnemies(round: number): Unit[] {
@@ -71,6 +71,27 @@ describe('creep rounds — round classification', () => {
     const all = rollItemChoices([], () => 0.5, 99)   // every offerable item id
     const picks = rollItemChoices(all, () => 0.5, 3)
     expect(picks.length).toBeGreaterThan(0)   // never empty → no soft-lock
+  })
+})
+
+describe('ownedItemIds', () => {
+  it('collects items from the item bench, bench units, and board units', () => {
+    const e = emptyEcon('t', null)
+    e.itemBench = ['metronome']
+    e.bench[0] = { definitionId: 'tangela', tier: 1, item: 'sitrus_berry' }
+    e.board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 3, row: 5 }, item: 'spell_tag' }]
+    expect(ownedItemIds(e).sort()).toEqual(['metronome', 'sitrus_berry', 'spell_tag'])
+  })
+
+  it('skips bench/board units carrying no item', () => {
+    const e = emptyEcon('t', null)
+    e.bench[0] = { definitionId: 'tangela', tier: 1 }
+    e.board = [{ definitionId: 'zubat', tier: 1, hexPos: { col: 3, row: 5 } }]
+    expect(ownedItemIds(e)).toEqual([])
+  })
+
+  it('a fresh econ with nothing held returns an empty array', () => {
+    expect(ownedItemIds(emptyEcon('t', null))).toEqual([])
   })
 })
 
