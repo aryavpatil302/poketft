@@ -1382,7 +1382,14 @@ function renderCombatTimer(): void {
   const bar   = document.getElementById('combat-timer-bar')!
   const fill  = document.getElementById('combat-timer-fill')!
   const label = document.getElementById('combat-timer-label')!
-  if (!combatState) {
+  // Networked: the planning-timer-bar's shared server clock now spans combat
+  // AND shop time as one continuous countdown, drawn at this exact same
+  // screen position — this local, tick-only timer would either double up
+  // with it (stacked, unreadable digits) or show a genuinely different
+  // number (this is derived purely from combatState.tick, never the
+  // server's netClock). Solo mode has no such clock, so it keeps showing
+  // this one exactly as before.
+  if (!combatState || isNetworked()) {
     bar.style.display = 'none'
     return
   }
