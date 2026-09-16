@@ -121,14 +121,6 @@ export class RoomClient {
     this.socket.send(JSON.stringify({ t: 'start' }))
   }
 
-  // Tells the room this connection has finished watching its recorded fight
-  // for `round` — see party/lobby.ts's waitForPlaybackAcks, which gates the
-  // next planning phase on every connected fighting seat sending this.
-  sendPlaybackDone(round: number): void {
-    if (this.currentStatus !== 'open' || this.socket === null) return
-    this.socket.send(JSON.stringify({ t: 'playback-done', round }))
-  }
-
   // Commits this connection's Delibird's Gift pick for the item round named
   // by `round` — see party/lobby.ts's resolveItemChoices.
   sendPickItem(itemId: string, round: number): void {

@@ -33,6 +33,15 @@ export const OVERTIME_START_TICK    = 30 * TICK_RATE  // 1800
 export const OVERTIME_DAMAGE_AMP    = 0.30            // +30% outgoing damage
 export const OVERTIME_DURABILITY_LOSS = 0.30          // -30% armor & sp. defense
 
+// Pre-combat enemy intro (Poke Ball wiggle-then-pop) duration, in real ms.
+// Shared with party/lobby.ts's stage-window computation — a networked fight
+// using close to the full per-stage time budget needs this accounted for
+// too, or the room's own deadline can elapse before this ever finishes
+// playing on the client. Client and server must never drift apart on this
+// number; that's the whole reason it lives here instead of only in
+// src/main.ts.
+export const COMBAT_INTRO_MS = 900
+
 // Rendering — hex pixel sizes
 export const HEX_SIZE = 62               // pixels, flat-top hex circumradius
 

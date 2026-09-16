@@ -95,19 +95,6 @@ describe('parseClientMessage', () => {
     expect(parseClientMessage('{"t":"start","seat":3}')).toEqual({ t: 'start' })
   })
 
-  it('parses a well-formed playback-done message', () => {
-    expect(parseClientMessage('{"t":"playback-done","round":3}'))
-      .toEqual({ t: 'playback-done', round: 3 })
-  })
-
-  it('rejects a playback-done message with a missing round', () => {
-    expect(parseClientMessage('{"t":"playback-done"}')).toBeNull()
-  })
-
-  it('rejects a playback-done message with a non-numeric round', () => {
-    expect(parseClientMessage('{"t":"playback-done","round":"3"}')).toBeNull()
-  })
-
   it('parses a well-formed pickItem message', () => {
     expect(parseClientMessage('{"t":"pickItem","round":3,"itemId":"metronome"}'))
       .toEqual({ t: 'pickItem', round: 3, itemId: 'metronome' })

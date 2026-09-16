@@ -187,14 +187,21 @@ async function main(): Promise<void> {
     )
 
     // Sent immediately, squarely inside 'resolving' — deterministically
-    // accepted now, no more race against the room's own transition.
+    // accepted now, no more race against the room's own transition. Matched
+    // on the gold value the reroll itself must produce, not merely "the next
+    // snapshot or rejected" — round 2's own transition (openPlanningWindow)
+    // broadcasts its own unrelated snapshot moments later, which a looser
+    // predicate could catch instead of this action's actual response.
+    const expected = g1 + predictedIncome - REROLL_COST
     const secondRerollRes = await (async () => {
-      const wait = nextMessage<any>(a, m => m.t === 'snapshot' || m.t === 'rejected')
+      const wait = nextMessage<any>(
+        a, m => m.t === 'rejected' || (m.t === 'snapshot' && m.snapshot.players[0].gold === expected),
+        5000,
+      )
       a.send(JSON.stringify({ t: 'action', action: { t: 'reroll' } }))
       return wait
     })()
     assert(secondRerollRes.t === 'snapshot', "a reroll sent immediately after resolve — during 'resolving' — is accepted, not rejected wrong-phase")
-    const expected = g1 + predictedIncome - REROLL_COST
     assert(
       secondRerollRes.snapshot.players[0].gold === expected,
       `gold reflects income AND the second reroll's cost (expected ${expected}, got ${secondRerollRes.snapshot.players[0].gold})`,

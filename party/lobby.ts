@@ -7,7 +7,7 @@
 // would drag DOM globals into the Workers bundle.
 
 import type * as Party from 'partykit/server'
-import { applyAction, startPlanning, resolveRound, type RoundResult } from '../src/game/round'
+import { applyAction, startPlanning, resolveRound, type RoundResult, type FightLog } from '../src/game/round'
 import { resolvePendingCombines } from '../src/econ/combine'
 import { isItemRound, rollItemChoices, autoPickItemChoice, ownedItemIds } from '../src/econ/creeps'
 import type { RunState } from '../src/econ/runState'
@@ -25,17 +25,48 @@ import {
   type ServerMessage,
 } from '../src/net/protocol'
 import { encodeFightLog, type FightChunk } from '../src/net/fightWire'
-import { TICK_RATE } from '../src/core/constants'
+import { TICK_RATE, OVERTIME_START_TICK, COMBAT_INTRO_MS } from '../src/core/constants'
 
 const MAX_MESSAGE_LENGTH = 4096
-// Fallback-only safety margin for waitForPlaybackAcks: every connected seat
-// with a real fight to watch is expected to explicitly ack ("playback-done")
-// once its own client finishes, so the room advances the instant everyone
-// genuinely has — not on a guess. This buffer, added on top of the minimum
-// possible playback duration (frames / TICK_RATE), only matters for a
-// disconnected/crashed/permanently-backgrounded client that never acks, so
-// it can afford to be generous rather than tight.
-const ACK_TIMEOUT_BUFFER_MS = 8000
+
+// Fixed allowance for chunk-delivery/decode jitter on top of pure combat
+// tick-time — small on purpose: COMBAT_INTRO_MS already covers the one real,
+// unavoidable client-side delay (the Poke Ball intro), and this just absorbs
+// ordinary network/decode variance, not a client that's slow for some other
+// reason (see computeStageWindowMs's own header, and the non-goal on a
+// player manually slowing down their own local playback).
+const STAGE_NETWORK_BUFFER_MS = 1100
+
+// Real wall-clock ms a client needs to fully play back a fight of this many
+// recorded ticks, at the client's own fixed speed schedule: 1x up to
+// OVERTIME_START_TICK, 2x after (src/main.ts's combat loop — the four
+// `tick >= OVERTIME_START_TICK` checks — implements exactly this schedule).
+// Every recorded fight is hard-capped at OVERTIME_START_TICK * 2 ticks
+// (src/game/round.ts's runRecordedFight), so this is bounded: at most 45s.
+export function combatPlaybackMs(frameCount: number): number {
+  if (frameCount <= OVERTIME_START_TICK) return (frameCount / TICK_RATE) * 1000
+  const normalMs = (OVERTIME_START_TICK / TICK_RATE) * 1000
+  const overtimeMs = ((frameCount - OVERTIME_START_TICK) / TICK_RATE) * 1000 / 2
+  return normalMs + overtimeMs
+}
+
+// This stage's total real-time budget: always at least floorMs (so a bye,
+// item, or short-fight round never runs any shorter than every other stage —
+// "every stage is always 30 seconds"), extended only when a recorded fight
+// this round needs longer than that even at its own overtime speed, padded
+// by the fixed pre-combat intro + a small network/decode allowance so a
+// fight using nearly the full budget is never visibly cut off by real-world
+// latency. floorMs is always planningMsFor(this.room.env) at the call site —
+// the same 30s constant (and test override) the planning phase itself uses,
+// not a separate one.
+export function computeStageWindowMs(logs: readonly FightLog[], floorMs: number): number {
+  let windowMs = floorMs
+  for (const log of logs) {
+    const real = COMBAT_INTRO_MS + combatPlaybackMs(log.frames.length) + STAGE_NETWORK_BUFFER_MS
+    if (real > windowMs) windowMs = real
+  }
+  return windowMs
+}
 
 // Hashes the room id into a seed, mixed with the round number, for
 // resolveRound's seat-pairing rng. FNV-1a-style string fold — cheap, no
@@ -76,16 +107,6 @@ export default class Lobby implements Party.Server {
   // the first connection opens the loop).
   deadline: number | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
-
-  // Ack-tracking for waitForPlaybackAcks: the set of seats still owed for
-  // the round named by pendingAckRound, the resolve fn of the Promise that
-  // call is awaiting, and the fallback timer backstopping it. All null
-  // outside an active wait (i.e. outside 'resolving', between resolveRound
-  // returning and beginPlanning() being called).
-  private pendingAcks: Set<number> | null = null
-  private pendingAckRound: number | null = null
-  private ackWaitResolve: (() => void) | null = null
-  private ackTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 
   // Item-pick tracking for resolveItemChoices: the offered choices per seat
   // still owed a pick this item round, the round they were offered for, the
@@ -235,7 +256,12 @@ export default class Lobby implements Party.Server {
   // Sends each connected seat its settled result plus, when and only when it
   // actually fought, the exact recorded fight. Called from onDeadline after
   // the settled snapshot is persisted and before the next beginPlanning().
-  private async broadcastResolve(result: RoundResult): Promise<void> {
+  // `stageDeadline` is this stage's shared, absolute end-of-window timestamp
+  // (null exactly when the game just ended, i.e. no next stage is coming) —
+  // sent alongside every resolve so every seat, fighting or not, starts
+  // seeing the identical countdown the instant its own resolve arrives (see
+  // computeStageWindowMs).
+  private async broadcastResolve(result: RoundResult, stageDeadline: number | null): Promise<void> {
     // Encode each distinct log exactly once, keyed by logIndex. Two seats
     // sharing a logIndex therefore share one fightId and one chunk array —
     // precisely what makes a human-vs-human matchup produce a single fight
@@ -274,6 +300,8 @@ export default class Lobby implements Party.Server {
         fightId: entry?.fightId ?? null,
         eliminated: result.eliminated,
         survivors: result.survivors,
+        deadline: stageDeadline,
+        serverNow: Date.now(),
       } satisfies ServerMessage))
 
       if (entry) {
@@ -305,6 +333,7 @@ export default class Lobby implements Party.Server {
   // event loop (not a race) decides, and onMessage's phase guard reads
   // exactly this flag.
   private async onDeadline(): Promise<void> {
+    const stageStartTs = Date.now()
     this.phase = 'resolving'
     this.clearTimer()
 
@@ -314,7 +343,9 @@ export default class Lobby implements Party.Server {
     // states the human's pick must already be on itemBench BEFORE it's
     // called; it never chooses for a player itself. Waits for every
     // connected seat to pick or a timeout, auto-picking for stragglers, and
-    // applies every final pick before resolveRound below.
+    // applies every final pick before resolveRound below. This wait counts
+    // toward the same stageStartTs-anchored budget computed below, not a
+    // second one stacked on top.
     if (isItemRound(this.run.round)) await this.resolveItemChoices(this.run.round)
 
     const result = resolveRound(this.run, roundSeedFor(this.room.id, this.run.round))
@@ -331,7 +362,20 @@ export default class Lobby implements Party.Server {
     if (result.survivors.length > 1) this.advanceEconomy()
 
     await this.persist()
-    await this.broadcastResolve(result)
+
+    // Every stage is always the same fixed length (planningMsFor — the same
+    // 30s the planning phase itself uses), extended only when a recorded
+    // fight this round genuinely needs longer even at its own overtime
+    // speed — see computeStageWindowMs. Deterministic, computed once, here:
+    // a fight is never live-simulated over the network, it's fully recorded
+    // before any client ever sees it, so exactly how long it takes to watch
+    // is already known — no client needs to say anything for the room to
+    // know when this stage should end. skipPlaybackDelay (existing flag,
+    // scripts/roomRound.ts / netClient.ts) keeps automated tests instant.
+    const stageDeadline = result.survivors.length > 1
+      ? stageStartTs + (skipPlaybackDelay(this.room.env) ? 0 : computeStageWindowMs(result.logs, planningMsFor(this.room.env)))
+      : null
+    await this.broadcastResolve(result, stageDeadline)
 
     if (result.survivors.length <= 1) {
       this.phase = 'over'
@@ -339,68 +383,10 @@ export default class Lobby implements Party.Server {
       return
     }
 
-    // Wait for combat playback to actually finish before opening the next
-    // shop window. Without this, openPlanningWindow() below would start
-    // round N+1's 30s countdown the instant this round's fight logs are
-    // encoded (near-instant, computationally) — completely unsynchronized
-    // with how long clients spend animating the fight they just received. A
-    // player could then return from watching combat to find their shop time
-    // already half gone, or in an extreme case find the round had already
-    // resolved again before they ever saw it. See waitForPlaybackAcks for
-    // how "actually finish" is decided. Economy actions (and this seat's
-    // shop) are already live throughout this wait, per advanceEconomy above
-    // — only the visible planning screen itself waits for everyone.
-    await this.waitForPlaybackAcks(result)
+    const remainingMs = Math.max(0, stageDeadline! - Date.now())
+    await new Promise(resolve => setTimeout(resolve, remainingMs))
 
     await this.openPlanningWindow()
-  }
-
-  // Waits until every currently-connected seat that actually has a recorded
-  // fight this round (result.seats[].logIndex !== null) has told us it's
-  // done watching (onMessage's 'playback-done' case), or a generous fallback
-  // timeout elapses — whichever comes first. Seats with nothing to watch
-  // (a bye, an abstractly-resolved bot-vs-bot pairing, an item round) and
-  // seats with no live connection (bot-controlled, or a human who dropped)
-  // are never waited on.
-  private async waitForPlaybackAcks(result: RoundResult): Promise<void> {
-    if (skipPlaybackDelay(this.room.env)) return   // unchanged: test harnesses
-
-    const required = new Set<number>()
-    for (const conn of this.room.getConnections()) {
-      const seat = seatOf(this.table, conn.id)
-      if (seat === null) continue
-      const seatResult = result.seats.find(s => s.seat === seat)
-      if (seatResult?.logIndex != null) required.add(seat)
-    }
-    if (required.size === 0) return   // nobody connected has anything to watch
-
-    this.pendingAckRound = result.round
-    this.pendingAcks = required
-
-    // Fallback only — should rarely fire. Protects against a disconnected,
-    // crashed, or permanently-backgrounded client stalling the whole room.
-    // Generous on purpose: this is no longer the primary timing mechanism,
-    // just a backstop for it.
-    const longestFrameCount = Math.max(0, ...result.logs.map(log => log.frames.length))
-    const timeoutMs = (longestFrameCount / TICK_RATE) * 1000 + ACK_TIMEOUT_BUFFER_MS
-
-    await new Promise<void>(resolve => {
-      this.ackWaitResolve = resolve
-      this.ackTimeoutTimer = setTimeout(() => this.resolveAckWait(), timeoutMs)
-    })
-  }
-
-  // Clears whatever's pending and resolves the wait, exactly once. Called
-  // from the fallback timeout, from onMessage once the required set empties,
-  // and from onClose if a required seat disconnects mid-wait. Safe to call
-  // when nothing is pending (e.g. a stale event after an earlier resolve).
-  private resolveAckWait(): void {
-    if (this.ackTimeoutTimer !== null) { clearTimeout(this.ackTimeoutTimer); this.ackTimeoutTimer = null }
-    const resolve = this.ackWaitResolve
-    this.ackWaitResolve = null
-    this.pendingAcks = null
-    this.pendingAckRound = null
-    resolve?.()
   }
 
   // Rolls each connected human seat's 3 Delibird choices, sends them
@@ -514,15 +500,7 @@ export default class Lobby implements Party.Server {
     const seat = freeSeat(this.run, this.table, conn.id)
     if (seat === null) return
 
-    // A seat we were still waiting on for this round's playback ack just
-    // left — stop waiting on it rather than stalling everyone else's next
-    // round for the full fallback timeout.
-    if (this.pendingAcks?.has(seat)) {
-      this.pendingAcks.delete(seat)
-      if (this.pendingAcks.size === 0) this.resolveAckWait()
-    }
-
-    // Same idea for a seat mid-item-pick: auto-pick from ITS OWN offered
+    // A seat disconnecting mid-item-pick: auto-pick from ITS OWN offered
     // choices immediately (matching how a disconnected human seat already
     // gets bot-quality treatment everywhere else, rather than silently
     // getting nothing) rather than stalling everyone else for the full wait.
@@ -596,27 +574,16 @@ export default class Lobby implements Party.Server {
       return
     }
 
-    if (msg.t === 'playback-done') {
-      // Also handled before the planning-phase guard: this always arrives
-      // while phase === 'resolving' (see waitForPlaybackAcks), never
-      // 'planning'. Silently ignored if it doesn't match the round we're
-      // actually waiting on — a late/stale ack from a round the room has
-      // already moved past, or one that arrived with no wait in progress.
-      if (this.pendingAcks !== null && this.pendingAckRound === msg.round) {
-        this.pendingAcks.delete(seat)
-        if (this.pendingAcks.size === 0) this.resolveAckWait()
-      }
-      return
-    }
-
     if (msg.t === 'pickItem') {
       // Also handled before the planning-phase guard: this always arrives
       // while phase === 'resolving' (see resolveItemChoices), never
       // 'planning'. Silently ignored if it doesn't match the round we're
-      // actually waiting on, exactly like playback-done above — EXCEPT an
-      // itemId that isn't one of this seat's own 3 offered choices, which
-      // is reported back rather than silently dropped (a real client can
-      // only ever construct this from stale/forged input, worth surfacing).
+      // actually waiting on — a late/stale pick from a round the room has
+      // already moved past, or one that arrived with no wait in progress —
+      // EXCEPT an itemId that isn't one of this seat's own 3 offered
+      // choices, which is reported back rather than silently dropped (a
+      // real client can only ever construct this from stale/forged input,
+      // worth surfacing).
       if (this.pendingItemPicks !== null && this.pendingItemPickRound === msg.round) {
         const choices = this.pendingItemPicks.get(seat)
         if (choices !== undefined) {

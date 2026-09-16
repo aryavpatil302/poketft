@@ -94,15 +94,8 @@ export type ClientMessage =
   // resolves the sender's seat from its own occupants table and rejects
   // 'not-host' for anything but seat 0) and no state field.
   | { t: 'start' }
-  // "I have finished watching my recorded fight for this round." Replaces a
-  // server-side time estimate as the signal that gates the next planning
-  // phase (party/lobby.ts's waitForPlaybackAcks) — see that file's
-  // onDeadline for why an estimate alone was not enough. `round` is not a
-  // seat field (see (a) above); it exists only so a stale ack for an
-  // already-superseded round can be told apart from a current one.
-  | { t: 'playback-done'; round: number }
   // Commits this seat's Delibird's Gift pick for an item round. `round`
-  // guards a stale pick the same way playback-done's does; `itemId` must be
+  // guards a stale pick from an already-superseded round; `itemId` must be
   // one of the 3 ids the room's own 'item-choices' message offered this
   // seat, or the room rejects it 'invalid-item'.
   | { t: 'pickItem'; round: number; itemId: string }
@@ -126,8 +119,14 @@ export type ServerMessage =
   // resolved bot-vs-bot pairing, or an item round). A client must correlate
   // incoming `fight-chunk` messages to this resolve by `fightId`, never by
   // arrival adjacency — broadcast ordering across distinct connections is
-  // unspecified (only per-connection order is FIFO).
-  | { t: 'resolve'; round: number; kind: 'pvp' | 'creep' | 'item'; snapshot: RunState; seat: SeatFightResult | null; fightId: string | null; eliminated: number[]; survivors: number[] }
+  // unspecified (only per-connection order is FIFO). `deadline`/`serverNow`
+  // are this STAGE's shared, absolute end-of-window timestamp (the same
+  // pairing `phase` uses) — sent here, not only in a later `phase` message,
+  // so every seat (fighting or not) starts seeing the identical countdown
+  // the instant its own resolve arrives, not only once the next planning
+  // window formally opens. `deadline` is null exactly when survivors <= 1
+  // (the game just ended — no next stage is coming).
+  | { t: 'resolve'; round: number; kind: 'pvp' | 'creep' | 'item'; snapshot: RunState; seat: SeatFightResult | null; fightId: string | null; eliminated: number[]; survivors: number[]; deadline: number | null; serverNow: number }
   | { t: 'fight-chunk'; chunk: FightChunk }
   // Sent per-connection (never broadcast — each seat's 3 choices differ),
   // once per item round, before that round is resolved. `deadline`/
@@ -139,10 +138,9 @@ export type ServerMessage =
 
 // Narrow parse — never throws. Returns null for non-JSON input, a parsed
 // value that is not a plain object, or any `t` outside the ClientMessage
-// union ('action', 'start', 'playback-done', 'pickItem'). Does NOT deeply
-// validate the GameAction payload: applyAction is already a
-// validate-before-mutate function and is the sole authority on whether an
-// action is legal.
+// union ('action', 'start', 'pickItem'). Does NOT deeply validate the
+// GameAction payload: applyAction is already a validate-before-mutate
+// function and is the sole authority on whether an action is legal.
 export function parseClientMessage(raw: string): ClientMessage | null {
   let parsed: unknown
   try {
@@ -153,11 +151,6 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
   const candidate = parsed as { t?: unknown; action?: unknown; round?: unknown; itemId?: unknown }
   if (candidate.t === 'start') return { t: 'start' }
-  if (candidate.t === 'playback-done') {
-    return typeof candidate.round === 'number' && Number.isFinite(candidate.round)
-      ? { t: 'playback-done', round: candidate.round }
-      : null
-  }
   if (candidate.t === 'pickItem') {
     return typeof candidate.round === 'number' && Number.isFinite(candidate.round)
       && typeof candidate.itemId === 'string' && candidate.itemId.length > 0

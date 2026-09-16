@@ -11,7 +11,7 @@ import {
 } from './enemy/calibration'
 import { createCombatState, advanceCombatTick } from './core/combatEngine'
 import { hexToPixel, pixelToHex, hexId, getNeighbors, isValidHex, hexDistance, BOARD_COLS, BOARD_ROWS } from './core/hexGrid'
-import { HEX_SIZE, TICK_RATE, BOARD_PERSP_Y, OVERLAY_HEADROOM } from './core/constants'
+import { HEX_SIZE, TICK_RATE, BOARD_PERSP_Y, OVERLAY_HEADROOM, OVERTIME_START_TICK, COMBAT_INTRO_MS } from './core/constants'
 import { makeUnit, computeStats } from './core/unitFactory'
 // Per-tick combat systems now live behind combatEngine.advanceCombatTick — the
 // live loop shares one implementation with the headless sim (no more duplicate
@@ -1388,11 +1388,11 @@ function renderCombatTimer(): void {
   }
   bar.style.display = 'block'
   const tick     = combatState.tick
-  const overtime = tick >= 1800
+  const overtime = tick >= OVERTIME_START_TICK
 
-  // Each phase counts down from 1800 ticks (30s); overtime resets and drains at 2x real speed
-  const phaseTick = overtime ? tick - 1800 : tick
-  const remaining = Math.max(0, 1 - phaseTick / 1800)  // 1.0 → 0.0
+  // Each phase counts down from OVERTIME_START_TICK (30s); overtime resets and drains at 2x real speed
+  const phaseTick = overtime ? tick - OVERTIME_START_TICK : tick
+  const remaining = Math.max(0, 1 - phaseTick / OVERTIME_START_TICK)  // 1.0 → 0.0
 
   fill.style.width = `${remaining * 100}%`
 
@@ -1409,8 +1409,8 @@ function renderCombatTimer(): void {
   fill.style.background = barColor
 
   const secsLeft = overtime
-    ? Math.ceil((3600 - tick) / TICK_RATE)
-    : Math.ceil((1800 - tick) / TICK_RATE)
+    ? Math.ceil((OVERTIME_START_TICK * 2 - tick) / TICK_RATE)
+    : Math.ceil((OVERTIME_START_TICK - tick) / TICK_RATE)
   label.textContent = `${Math.max(0, secsLeft)}`
   label.style.color = overtime ? '#ff9966' : '#ffffff'
 }
@@ -1448,13 +1448,20 @@ function renderPlanningTimer(): void {
     }
 
     // ── The networked branch: WHEN THIS REACHES ZERO, DO NOTHING. ──────────
-    // The server's own timer ends the planning phase and tells this client
-    // via `resolve`; a client that called startCombat() at zero would fight a
-    // different battle than the one the room settled and fork this tab's game
-    // state away from the shared one. Note the solo branch immediately below
-    // DOES call startCombat() at zero — that difference is the whole point of
-    // splitting this function in two.
-    if (netPhase !== 'planning' || netClock === null || combatState) {
+    // The server's own timer ends the stage and tells this client via
+    // `resolve`/`phase`; a client that called startCombat() at zero would
+    // fight a different battle than the one the room settled and fork this
+    // tab's game state away from the shared one. Note the solo branch
+    // immediately below DOES call startCombat() at zero — that difference is
+    // the whole point of splitting this function in two.
+    //
+    // Deliberately NOT gated on combatState: this is now one continuous
+    // countdown spanning the whole stage — combat playback, the post-combat
+    // celebration/wait, and shop time — not only the shop-only "planning"
+    // portion of it. netClock is captured from `resolve` the instant this
+    // stage's combat data arrives (see handleNetResolve), so it's already
+    // valid the moment this bar would first render.
+    if (netPhase !== 'planning' || netClock === null) {
       bar.style.display = 'none'
       return
     }
@@ -2784,13 +2791,14 @@ function bootNetworked(code: string, opts: { isHost: boolean }): void {
 
 // econPhase is this file's VIEW state machine; netPhase is the room's. They
 // are deliberately allowed to disagree for as long as this tab is still
-// showing a fight — party/lobby.ts now opens the next planning phase only
-// once every connected fighting seat has ack'd (see waitForPlaybackAcks),
-// but THIS seat's own local intro/playback (or its post-combat celebration,
-// if it finished first and is waiting on someone else) may still be
-// on-screen when that broadcast lands. Flipping the view mid-fight would
-// re-arm the planning-only board interactions (board sell, `r` to pull an
-// item) on top of a board whose hexes currently hold replayed combat units.
+// showing a fight — party/lobby.ts opens the next planning phase at a fixed,
+// deterministic deadline it computes the moment it resolves a round (see
+// computeStageWindowMs), but THIS seat's own local intro/playback (or its
+// post-combat celebration, if it finished first and is waiting on someone
+// else) may still be on-screen when that broadcast lands. Flipping the view
+// mid-fight would re-arm the planning-only board interactions (board sell,
+// `r` to pull an item) on top of a board whose hexes currently hold
+// replayed combat units.
 //
 // The guard below blocks only while combat is ACTIVELY showing (the Poke
 // Ball intro, or live ticks) — not during the post-combat celebration, so
@@ -2891,6 +2899,13 @@ function handleNetResolve(m: Extract<ServerMessage, { t: 'resolve' }>): void {
   applyServerSnapshot(m.snapshot)
   currentOpponentIndex = pending.seat?.opponentSeat ?? -1
   currentCombatRound = pending.round
+  // Captured unconditionally, for every resolve (fighting or not) — this
+  // stage's shared, absolute deadline (party/lobby.ts's computeStageWindowMs)
+  // arrives in the SAME message that determines what this seat shows next,
+  // so every seat starts seeing the identical countdown the instant its own
+  // resolve lands, continuing seamlessly from whatever it showed a moment
+  // before. Null exactly when the game just ended (m.deadline null).
+  netClock = captureDeadline(m, performance.now())
 
   if (pending.seat) {
     lastSettlementLine = buildSettlementLine(
@@ -5111,6 +5126,13 @@ function finishNetworkedItemRound(itemId: string): void {
   net?.sendPickItem(itemId, netItemPickRound ?? run.round)
   netItemPickRound = null
   netItemPickClock = null
+  // This stage's shared countdown (netClock) is stale between now and this
+  // round's real resolve (which carries the fresh deadline for the round
+  // this pick just settled) arriving — null it so the general timer bar
+  // just hides for that brief gap instead of showing an expired one. A bye
+  // seat needs no equivalent: its resolve already carries the fresh
+  // deadline in the same message that triggers its own "awaiting sync" path.
+  netClock = null
   enterNetAwaitingSync()
   updateEconVisibility()
 }
@@ -5249,8 +5271,9 @@ let accumulator = 0
 let lastTs = 0
 // Pre-combat enemy intro (Poke Ball wiggle → pop): a ~900ms client-side pause
 // inserted between "the fight log is ready" and "tick-by-tick playback
-// starts". 900ms = wiggle (~600ms) + pop (~300ms), tunable.
-const COMBAT_INTRO_MS = 900
+// starts". 900ms = wiggle (~600ms) + pop (~300ms), tunable — but shared with
+// party/lobby.ts (src/core/constants.ts) since a networked fight using
+// close to the full per-stage time budget needs this accounted for there too.
 let introActive = false
 let introStartTs = 0
 // Records which lastTs seeding the ACTIVE playback wants at intro-end — that
@@ -5691,7 +5714,7 @@ function tickCombat(state: CombatState): boolean {
     state.phase = playerAlive ? 'playerWin' : 'enemyWin'
     return true
   }
-  if (!inOvertime && state.tick >= 1800) {
+  if (!inOvertime && state.tick >= OVERTIME_START_TICK) {
     inOvertime = true
     document.getElementById('overtime-box')!.style.display = 'block'
   }
@@ -6222,7 +6245,7 @@ function frame(ts: number): void {
 
         // Overtime is latched off the frame actually reached, so a fight whose
         // 2x threshold fell inside the skipped span still comes back speeding.
-        if (!inOvertime && f.tick >= 1800) {
+        if (!inOvertime && f.tick >= OVERTIME_START_TICK) {
           inOvertime = true
           document.getElementById('overtime-box')!.style.display = 'block'
         }
@@ -6260,7 +6283,7 @@ function frame(ts: number): void {
           // The overtime speed-up survives playback: a live fight flipped
           // this at tick 1800, so the recorded frame reaching that tick
           // triggers the same 2× speed and banner.
-          if (!inOvertime && f.tick >= 1800) {
+          if (!inOvertime && f.tick >= OVERTIME_START_TICK) {
             inOvertime = true
             document.getElementById('overtime-box')!.style.display = 'block'
           }
@@ -6378,17 +6401,17 @@ function frame(ts: number): void {
         box.innerHTML = `${box.textContent}<div style="font-size:10px;font-weight:normal;margin-top:4px;opacity:0.85;">${lastSettlementLine}</div>`
       }
 
-      if (isNetworked()) {
-        // Tell the room we've finished watching, so it can advance the
-        // round the moment every connected seat with a fight does the same
-        // — instead of guessing a duration from frame count (see
-        // party/lobby.ts's waitForPlaybackAcks). No local timer: units keep
-        // celebrating (celebBob) with victoryCelebrationTs left set, until
-        // the room's own `phase: 'planning'` broadcast actually arrives and
-        // enterNetPlanningView() runs.
-        net?.sendPlaybackDone(currentCombatRound)
-        if (netPhase === 'planning') enterNetPlanningView()
-      } else if (autoResetTimer === null) {
+      // Networked: nothing to do here at all beyond the celebration state
+      // already set above (victoryCelebrationTs) — the room already knows,
+      // deterministically, exactly how long this stage's combat takes to
+      // watch (party/lobby.ts's computeStageWindowMs, computed the moment
+      // it resolved the round, before any client even received it), so
+      // there's no signal to send and no local timer to race against.
+      // Units just keep celebrating under the already-ticking shared clock
+      // until the room's own `phase: 'planning'` broadcast eventually
+      // arrives and enterNetPlanningView() runs, exactly like every other
+      // seat.
+      if (!isNetworked() && autoResetTimer === null) {
         autoResetTimer = setTimeout(restorePlayerBoard, 5000)
       }
     }
