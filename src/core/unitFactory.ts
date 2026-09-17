@@ -8,6 +8,10 @@ import type { Unit, Team, ComputedStats, UnitBaseStats } from './types'
 
 const HP_SCALE  = [1, 1.8, 1.8] as const   // star 2 = star1 × 1.8, star 3 = star2 × 1.8
 const ATK_SCALE = [1, 1.5, 1.5] as const
+// Defense/sp. defense used to be completely flat across star levels — starring
+// up a tank bought more HP but not one point more mitigation. Scaled the same
+// way attack already is, so a starred-up unit gets tankier, not just bulkier.
+const DEF_SCALE = [1, 1.5, 1.5] as const
 
 function scaleHp(base: number, tier: 1 | 2 | 3): number {
   let hp = base
@@ -19,6 +23,12 @@ function scaleAtk(base: number, tier: 1 | 2 | 3): number {
   let atk = base
   for (let s = 2; s <= tier; s++) atk = Math.round(atk * ATK_SCALE[s - 1])
   return atk
+}
+
+function scaleDef(base: number, tier: 1 | 2 | 3): number {
+  let def = base
+  for (let s = 2; s <= tier; s++) def = Math.round(def * DEF_SCALE[s - 1])
+  return def
 }
 
 // ─── computeStats ─────────────────────────────────────────────────────────────
@@ -303,6 +313,8 @@ export function makeUnit(
   const b = def.baseStats
   const scaledHp  = scaleHp(b.hp, tier)
   const scaledAtk = scaleAtk(b.attack, tier)
+  const scaledDef   = scaleDef(b.defense, tier)
+  const scaledSpDef = scaleDef(b.spDefense, tier)
   const scaledStartMana = Math.min(b.startMana, b.maxMana)
 
   const unit: Unit = {
@@ -324,8 +336,8 @@ export function makeUnit(
 
     attack:     scaledAtk,
     special:    b.special,
-    defense:    b.defense,
-    spDefense:  b.spDefense,
+    defense:    scaledDef,
+    spDefense:  scaledSpDef,
     attackSpeed: b.attackSpeed,
     critChance:  b.critChance,
     critDamage:  b.critDamage,

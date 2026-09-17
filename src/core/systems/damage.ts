@@ -8,15 +8,40 @@ import { AMP_EFFECT_TRAIT } from './traitAttribution'
 import { combatRng } from '../rng'
 
 // ─── Mitigation formula ───────────────────────────────────────────────────────
-// Same formula as League of Legends:
-//   armor >= 0 → reduction = armor / (armor + 100)
-//   armor <  0 → reduction = 1 - (100 / (100 - armor))  which gives a multiplier > 1
+// Same shape as League of Legends:
+//   armor >= 0 → reduction = armor / (armor + MITIG_CONST)              (a fraction, capped below 1 — pure reduction)
+//   armor <  0 → reduction = armor / (MITIG_CONST - armor)              (negative — (1-reduction) is a multiplier > 1, i.e. amplified damage)
+//
+// The negative branch used to be written `1 - MITIG_CONST/(MITIG_CONST-armor)`,
+// which is the NEGATION of the correct value above — e.g. at armor=-45 (with
+// MITIG_CONST=100) that produced a multiplier of 0.69 (30% LESS damage) when
+// real LoL/TFT mechanics (and this codebase's own comment) call for 1.31 (31%
+// MORE damage). Currently unreachable in live play — every actual shred/sunder
+// effect (sunder, shred, sunder_pct, shred_pct, mystic_sunder) clamps at
+// Math.max(0, ...) in unitFactory.ts's computeStats, and the two uncapped
+// status ids that could reach negative resistance (armorShred/spDefShred) are
+// dead — no ability or item currently applies them. Fixed anyway: dead paths
+// shouldn't silently do the opposite of what they claim, and any future
+// content that reaches negative resistance (or reuses armorShred/spDefShred)
+// would otherwise get backwards behavior with no test ever catching it.
+//
+// MITIG_CONST used to be 100 (LoL's own value), but this roster's defense/sp.
+// defense values only span ~15-85 — nothing ever reaches 100 — so even the
+// tankiest unit in the game topped out at 45.9% mitigation and most squishies
+// sat at 13-26%. Sim evidence (runSimulation over 1v1s and a realistic 6v6):
+// a fully-built tank (Tangela, Stalwart procced) died in 100% of 150 trials,
+// averaging just 8.8 damage instances taken over 9.4s. Lowering this constant
+// to 58 measured out to meaningfully longer fights and more hits-to-kill
+// across the board (Tangela: 8.8→10.8 hits, 9.4s→11.3s; Ferrothorn: 18.9→23.2
+// hits; squishy survival rates up ~15-17 points in the same 6v6) with zero
+// changes to any unit's stats or ability numbers.
+const MITIG_CONST = 58
 
 export function mitigationFactor(resistance: number): number {
   if (resistance >= 0) {
-    return resistance / (resistance + 100)
+    return resistance / (resistance + MITIG_CONST)
   } else {
-    return 1 - 100 / (100 - resistance)
+    return resistance / (MITIG_CONST - resistance)
   }
 }
 

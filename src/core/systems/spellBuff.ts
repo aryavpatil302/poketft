@@ -3,14 +3,25 @@ import type { Unit, CombatState } from '../types'
 // Beachy trait: each Beachy unit gains stacks whenever any Beachy ally casts.
 // The per-cast increment depends on the active threshold: 2/4/6 species → +1/+2/+3.
 // Dead units do not count toward the species threshold.
-
+//
+// This needs a LIVE recount every cast (unlike every other trait's one-time
+// combat-start check via traitEffects.ts's traitMemberCount), since a species
+// dying mid-fight must stop counting — so it can't just call that helper and
+// re-implements the same species-counting here instead. It must still honor
+// the same shiny Chosen bonus traitMemberCount does, though (a living shiny
+// unit's chosenTrait counts as +1 EXTRA toward that one trait, on top of its
+// own normal species membership — see traitMemberCount's own comment) or a
+// team relying on a shiny Chosen-Beachy unit to cross a threshold shows
+// "Beachy: active" in the sidebar and gets the HP bonus while spell-buff
+// stacks silently never accrue, since this count alone stays below it.
 function activeBeachyIncrement(unit: Unit, state: CombatState): number {
-  const species = new Set(
-    [...state.units.values()]
-      .filter(u => u.team === unit.team && !u.isDummy && u.state !== 'dead' && u.types.includes('beachy'))
-      .map(u => u.definitionId)
-  )
-  const n = species.size
+  const teamUnits = [...state.units.values()]
+    .filter(u => u.team === unit.team && !u.isDummy && u.state !== 'dead')
+  const species = new Set(teamUnits.filter(u => u.types.includes('beachy')).map(u => u.definitionId))
+  let n = species.size
+  for (const u of teamUnits) {
+    if (u.isShiny && u.chosenTrait === 'beachy') n += 1
+  }
   if (n >= 6) return 3
   if (n >= 4) return 2
   if (n >= 2) return 1
