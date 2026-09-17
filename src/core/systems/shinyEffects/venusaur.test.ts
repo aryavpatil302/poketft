@@ -6,8 +6,8 @@ import type { Unit } from '../../types'
 // NOTE: every shiny-effect test file in this batch includes one explicit
 // non-shiny control case proving the effect does NOT fire without isShiny.
 
-describe('Shiny Venusaur - front 2 rows +100 max HP', () => {
-  it('grants +100 max HP to allies in the front 2 rows (player rows 4-5) when shiny', () => {
+describe('Shiny Venusaur - front 2 rows +50 max HP', () => {
+  it('grants +50 max HP to allies in the front 2 rows (player rows 4-5) when shiny', () => {
     const caster: Unit = makeUnit('venusaur', 'player', 1)
     caster.hexPos = { col: 3, row: 4 }
     caster.isShiny = true
@@ -20,7 +20,7 @@ describe('Shiny Venusaur - front 2 rows +100 max HP', () => {
 
     createCombatState([caster, frontAlly], [enemy])
 
-    expect(frontAlly.maxHp).toBe(frontMaxHpBefore + 100)
+    expect(frontAlly.maxHp).toBe(frontMaxHpBefore + 50)
     expect(frontAlly.currentHp).toBe(frontAlly.maxHp)
   })
 
@@ -72,7 +72,7 @@ describe('Shiny Venusaur - front 2 rows +100 max HP', () => {
 
     createCombatState([player], [enemyCaster, frontAlly, backAlly])
 
-    expect(frontAlly.maxHp).toBe(frontBefore + 100)
+    expect(frontAlly.maxHp).toBe(frontBefore + 50)
     expect(backAlly.maxHp).toBe(backBefore)
   })
 })

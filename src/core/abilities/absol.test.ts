@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { makeUnit } from '../unitFactory'
+import { makeUnit, computeStats } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
 import { tickLeapPixel } from '../systems/movement'
@@ -170,13 +170,22 @@ describe('Shiny Absol — dash attack stacking', () => {
     const enemy = makeUnit('dummy', 'enemy', 1)
     enemy.hexPos = { col: 3, row: 4 }  // adjacent — guarantees a valid dash dest every call
     const state = createCombatState([caster], [enemy])
-    const baseAttack = caster.attack
+    const baseAttack = computeStats(caster).attack
 
     AbsolAbility.onCast(caster, state, 1)
     AbsolAbility.onCast(caster, state, 1)
     AbsolAbility.onCast(caster, state, 1)
 
-    expect(caster.attack).toBe(baseAttack + 30)
+    // The bonus lives in a status effect (dmg_buff), not a raw unit.attack
+    // mutation — so it shows up wherever computeStats is read (damage calc,
+    // the in-combat unit-info panel's ATK row, etc.) instead of being
+    // invisible to anything that isn't the raw field. Also verifies it
+    // stacks as ONE status effect entry with a growing magnitude, not three
+    // separate entries (each dash re-finds the same stackId).
+    expect(computeStats(caster).attack).toBe(baseAttack + 30)
+    const stackFx = caster.statusEffects.filter(fx => fx.stackId === 'absol_shiny_dash_stacks')
+    expect(stackFx.length).toBe(1)
+    expect(stackFx[0].magnitude).toBe(30)
   })
 
   it('does NOT grant the attack bonus on the no-dash slash-in-place fallback, even when shiny', () => {

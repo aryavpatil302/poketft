@@ -9,6 +9,28 @@ import type { OffsetCoord } from '../hexGrid'
 
 const PAUSE_TICKS = 10  // brief pause after landing before the slash fires
 
+// Shiny Absol's dash-stacking attack bonus, tracked as a single persistent
+// self status effect (id 'dmg_buff' = flat attack, per unitFactory.ts's
+// computeStats) so it shows up wherever active buffs are displayed — mirrors
+// A-Raichu's own dash-stack idiom (a_raichu.ts's DASH_STACK_ID). A raw
+// `unit.attack += 10` mutation (the previous implementation) is functionally
+// identical for damage purposes but invisible to any UI that reads
+// statusEffects, which is exactly what this fixes.
+const SHINY_DASH_STACK_ID = 'absol_shiny_dash_stacks'
+
+function grantShinyDashStack(unit: Unit): void {
+  const existing = unit.statusEffects.find(fx => fx.stackId === SHINY_DASH_STACK_ID)
+  if (existing) {
+    existing.magnitude = (existing.magnitude ?? 0) + 10
+    unit._computedStats = null
+  } else {
+    addStatusEffect(unit, {
+      id: 'dmg_buff', sourceUnitId: unit.id, durationTicks: -1,
+      magnitude: 10, stackId: SHINY_DASH_STACK_ID,
+    })
+  }
+}
+
 function findDashDest(unit: Unit, state: CombatState): OffsetCoord | null {
   const neighbors = getNeighbors(unit.hexPos)
   let bestHex: OffsetCoord | null = null
@@ -83,8 +105,7 @@ export const AbsolAbility: AbilityHandler = {
       // +10 attack, stacking across multiple dashes. Mirrors Armor Cannon's
       // existing in-combat pattern.
       if (unit.isShiny) {
-        unit.attack += 10
-        unit._computedStats = null
+        grantShinyDashStack(unit)
       }
 
       const capturedTier = tier

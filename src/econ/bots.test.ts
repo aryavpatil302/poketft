@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { newRun, type BenchedUnit } from './runState'
-import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides, botCanAttemptBuy, scoreUnit, applyBenchHygiene, chooseFielded } from './bots'
+import { botSeats, botPlanRound, PERSONAS, econBoardPower, personaById, resolveGenome, setGenomeOverrides, botCanAttemptBuy, scoreUnit, applyBenchHygiene, chooseFielded, pickRerollTarget } from './bots'
 import { settleRound } from './income'
 import { UNIT_MAP } from '../data/units'
 import { boardCap } from './xp'
@@ -744,6 +744,68 @@ describe('bots', () => {
       expect(controlOnBench).toBeDefined()
       expect(controlOnBench?.isShiny).toBeFalsy()
       expect(controlOnBench?.chosenTrait).toBeFalsy()
+    })
+  })
+
+  // Real TFT reroll boards sometimes commit to TWO carries sharing a trait
+  // (e.g. digging Weavile AND Froslass, both Froststone, to individual 3★s)
+  // rather than settling for either a solo 3★ or a package that only
+  // pushes both to 2★. pickRerollTarget's package candidates used to only
+  // ever offer the 2★ variant — see targetTier below.
+  describe('pickRerollTarget — multi-carry packages', () => {
+    // weavile/froslass are both cost-2 Froststone units (src/data/units.ts).
+    function setup(weavilePool: number, froslassPool: number) {
+      const run = newRun(botSeats())
+      const econ = run.players[1]
+      econ.hp = 100
+      econ.level = 6
+      econ.bench = mkBench([
+        { definitionId: 'weavile', tier: 1 },
+        { definitionId: 'weavile', tier: 1 },
+        { definitionId: 'froslass', tier: 1 },
+        { definitionId: 'froslass', tier: 1 },
+      ])
+      run.pool['weavile'] = weavilePool
+      run.pool['froslass'] = froslassPool
+      const persona = personaById(econ.personaId)!
+      const genome = resolveGenome(econ.personaId!)
+      return { run, econ, persona, genome }
+    }
+
+    it('commits to a genuine dual-3★ package when the pool can support both', () => {
+      const { run, econ, persona, genome } = setup(20, 20)
+      const target = pickRerollTarget(econ, run, persona, genome)
+      expect(target).not.toBeNull()
+      expect(target!.defIds.sort()).toEqual(['froslass', 'weavile'])
+      expect(target!.targetTier).toBe(3)
+    })
+
+    it('falls back to the 2★ package when the pool cannot support both reaching 3★', () => {
+      const { run, econ, persona, genome } = setup(1, 1)
+      const target = pickRerollTarget(econ, run, persona, genome)
+      expect(target).not.toBeNull()
+      expect(target!.defIds.sort()).toEqual(['froslass', 'weavile'])
+      expect(target!.targetTier).toBe(2)
+    })
+
+    it('a member already sitting at a real 3★ scores its full progress, not 50%', () => {
+      // Regression for the aggregate-cap-as-denominator bug: before the fix,
+      // a package member already fully at ITS OWN target tier only ever
+      // contributed 50% progress (have_m / (cap*members) instead of
+      // have_m / cap), undervaluing an otherwise-complete package relative
+      // to an equally-complete solo target.
+      const { run, econ, persona, genome } = setup(20, 20)
+      // Weavile already at a real 3★ (9 copies via one 3★ board entry).
+      econ.board = [{ definitionId: 'weavile', tier: 3, hexPos: { col: 0, row: 4 } }]
+      econ.bench = mkBench([
+        { definitionId: 'froslass', tier: 1 },
+        { definitionId: 'froslass', tier: 1 },
+      ])
+      const target = pickRerollTarget(econ, run, persona, genome)
+      expect(target).not.toBeNull()
+      expect(target!.targetTier).toBe(3)
+      // have = weavile's 9 (already at cap) + froslass's 2 = 11
+      expect(target!.have).toBe(11)
     })
   })
 })

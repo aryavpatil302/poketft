@@ -9,7 +9,7 @@ import { makeUnit } from '../core/unitFactory'
 import { getNeighbors, hexId } from '../core/hexGrid'
 import { calcBoardProfile, calibratedPower, unitPowerScore, getThresholds } from '../enemy/boardPower'
 import type { PlayerEcon, RunState } from './runState'
-import { rollShop, reroll, buyUnit, sellFromBench } from './shop'
+import { rollShop, reroll, buyUnit, sellFromBench, sellFromBoard } from './shop'
 import { buyXp, boardCap } from './xp'
 import { wouldCombine } from './combine'
 import { REROLL_COST, XP_BUY_COST, MAX_LEVEL, MAX_INTEREST, STARTING_HP, stageOf, copiesHeld, shinyPrice } from './constants'
@@ -383,6 +383,22 @@ export function scoreUnit(econ: PlayerEcon, persona: BotPersona, genome: BotGeno
   else if (copies1 >= 2) score += (genome.starCompleteBonus + def.cost * 1.6) * starUpMult   // completes a 2★ right now
   else if (copies1 === 1) score += (genome.starPairBonus + def.cost * 0.5) * starUpMult // forms a pair
   if (has2Star) score += (genome.star3LongRunBonus + def.cost * 0.8) * starUpMult       // chasing a costly 3★ is worth more
+
+  // Direct carry/tank identity bonus: everything above rewards star-completing
+  // ANY unit, scaled only by cost — a random same-cost tank gets the identical
+  // treatment as the board's actual recognized carry. This adds a bonus for
+  // specifically progressing the UNIT rankCarries has already identified as
+  // the board's primary carry or tank (not just something sharing its
+  // traits — see priorityTraits below for that), on top of the generic
+  // star-up terms above. Only fires when this buy actually progresses a
+  // star (copies1 >= 1 or already has2Star) — owning zero copies of the
+  // carry doesn't get this, since that's just "buying a body," not
+  // "investing further in the unit I've committed to."
+  if (!shiny && (copies1 >= 1 || has2Star)) {
+    const [primaryCarryId, secondaryCarryId] = rankCarries(econ)
+    if (defId === primaryCarryId || defId === rankTank(econ)) score += genome.starCompleteBonus * 0.5
+    else if (defId === secondaryCarryId) score += genome.starCompleteBonus * 0.25
+  }
 
   // Comp-aware shiny valuation: the base shiny term above only knows the shop
   // offer is shiny, not WHICH trait it rolled — so it scores every shiny
@@ -774,7 +790,7 @@ function positionFielded(picked: Fieldable[]): Array<{ definitionId: string; tie
   return out
 }
 
-export interface RerollTarget { defIds: string[]; level: number; have: number }
+export interface RerollTarget { defIds: string[]; level: number; have: number; targetTier: 2 | 3 }
 
 // Most frequent value in a small array; ties break toward the smaller (cheaper,
 // safer to anchor on) value. Used to pick a reroll package's anchor cost tier.
@@ -801,7 +817,7 @@ function mode(values: number[]): number {
 // Reads the shared pool (copies still gettable — drops as rivals buy them) plus
 // what it already owns. Stateless: re-decided every round, so it commits while
 // viable and abandons the moment the pool dries up or it gets too late.
-function pickRerollTarget(econ: PlayerEcon, state: RunState, persona: BotPersona, genome: BotGenome, rivalTraitCounts?: Map<string, number>): RerollTarget | null {
+export function pickRerollTarget(econ: PlayerEcon, state: RunState, persona: BotPersona, genome: BotGenome, rivalTraitCounts?: Map<string, number>): RerollTarget | null {
   if (genome.rerollBias <= 0) return null
   // Only reroll while reasonably healthy. If HP is dropping (the weak-board tax of
   // slow-rolling), abandon and pivot to leveling a standard board — avoids the classic
@@ -848,14 +864,23 @@ function pickRerollTarget(econ: PlayerEcon, state: RunState, persona: BotPersona
   interface Candidate { defIds: string[]; targetTier: 2 | 3 }
   const candidates: Candidate[] = []
   const seenPackages = new Set<string>()
+  // Two variants per shared-trait group: BOTH-to-2★ (the original) and, when
+  // realistically reachable, BOTH/ALL-to-3★ — a genuine multi-carry slow-roll
+  // (e.g. digging Weavile AND Froslass, both Froststone, to individual 3★s
+  // rather than stopping at 2★ on each). Distinct dedup keys per tier since
+  // they're independently viable candidates competing on their own merits,
+  // not the same package restated.
   const addPackageCandidates = (groups: Map<string, string[]>) => {
     for (const members of groups.values()) {
-      const reachable = members.filter(id => (owned.get(id) ?? 0) + (state.pool[id] ?? 0) >= 6)
-      if (reachable.length < 2) continue
-      const key = [...reachable].sort().join(',')
-      if (seenPackages.has(key)) continue   // same-cost group can be identical to the any-cost group when a trait only has one cost tier represented — don't double-count it
-      seenPackages.add(key)
-      candidates.push({ defIds: reachable, targetTier: 2 })
+      for (const targetTier of [2, 3] as const) {
+        const need = copiesHeld(targetTier)
+        const reachable = members.filter(id => (owned.get(id) ?? 0) + (state.pool[id] ?? 0) >= need)
+        if (reachable.length < 2) continue
+        const key = `${targetTier}:${[...reachable].sort().join(',')}`
+        if (seenPackages.has(key)) continue   // same-cost group can be identical to the any-cost group when a trait only has one cost tier represented — don't double-count it
+        seenPackages.add(key)
+        candidates.push({ defIds: reachable, targetTier })
+      }
     }
   }
   addPackageCandidates(byTraitCost)
@@ -866,23 +891,58 @@ function pickRerollTarget(econ: PlayerEcon, state: RunState, persona: BotPersona
   let best: RerollTarget | null = null
   let bestScore = -Infinity
   for (const c of candidates) {
-    const cap = c.targetTier === 2 ? 6 : 9
+    // Generalized per-member target scaled by member count: copiesHeld(2)=3
+    // and copiesHeld(3)=9 per member — a solo 3★ (1 member) needs 9 total, a
+    // 2-member 2★ package needs 3*2=6 (the original hardcoded values), and a
+    // 2-member 3★ package (the new case) needs 9*2=18.
+    const cap = copiesHeld(c.targetTier) * c.defIds.length
     const have = c.defIds.reduce((s, id) => s + Math.min(owned.get(id) ?? 0, cap), 0)
     const avail = c.defIds.reduce((s, id) => s + (state.pool[id] ?? 0), 0)
     if (c.defIds.some(id => (owned.get(id) ?? 0) >= cap) && c.defIds.length === 1) continue // already finished — build around it
-    if (have < 4) continue                          // only commit once naturally built up
-    if (have + avail < (c.defIds.length > 1 ? 8 : 9)) continue   // unreachable — pool too drained
-    if (stage >= 4 && have < 6) continue             // too little, too late → don't tunnel
+    // Commit off a real STARTING pair, not "already mostly there" — waiting
+    // for 4 copies to show up unassisted before ever considering a dig is a
+    // chicken-and-egg trap: with ~14 competing 1-cost species contested
+    // across 5 bots, naturally accumulating 4 copies of ONE specific species
+    // before ever committing is rare, so a bot almost never starts a real
+    // slow-roll at all. Real TFT players commit off 1-2 copies (an open,
+    // uncontested-looking unit) and dig proactively via rerolling — the
+    // digging is what gets them from 2 to 6/9, not incidental luck getting
+    // them most of the way there first. Measured before this fix: even
+    // Rilla, the dedicated reroll persona (rerollBias 2.2), reached a 3★
+    // ANYWHERE on the board in only 1.1% of late-game snapshots.
+    if (have < 2) continue
+    // Unreachable — pool too drained to plausibly complete this candidate's
+    // OWN cap, whatever tier/member-count it actually is. The old hardcoded
+    // 8-for-package/9-for-solo pairing only ever matched the two cases that
+    // used to exist (2-member 2★ = cap 6, solo 3★ = cap 9) — extending
+    // packages to 3★ (cap 18 for 2 members) without this would let a barely-
+    // 8-copies-deep candidate through as "reachable" when it's nowhere close.
+    if (have + avail < cap) continue
+    // "Too little, too late" bailout, recalibrated for the lower entry bar
+    // above: a bot that committed early should show real progress (half of
+    // a same-cost package's 6-target, or a third of a solo 3★'s 9-target)
+    // by stage 5 or it's chasing something the pool won't give it — bail
+    // and pivot to a normal board instead of tunneling on a lost cause.
+    if (stage >= 5 && have < cap / 2) continue
 
     // Value each member's progress toward its target tier, scaled by this bot's
     // eagerness. A package's members are valued independently and summed, so a
     // 2-member Volcanic package competes fairly against a single cheap 3★ chase.
     let s = 0
+    // Each member's OWN target (copiesHeld(targetTier)), not the package's
+    // aggregate cap — dividing by the aggregate meant a member already fully
+    // at its own target tier (e.g. Weavile sitting at a real 3★) only ever
+    // showed 50% "progress" in a 2-member package, since 9/(9*2)=0.5, capping
+    // the multiplier below what an equally-complete SOLO candidate would get
+    // (1.0 progress -> 1.5x vs a "complete" package member's 1.0x). That
+    // systematically undervalued a genuine multi-carry package relative to
+    // chasing the same tier solo, for no real reason.
+    const perMemberTarget = copiesHeld(c.targetTier)
     for (const id of c.defIds) {
       const def = UNIT_MAP.get(id)!
       const have_m = owned.get(id) ?? 0
       const avail_m = state.pool[id] ?? 0
-      const progress = Math.min(have_m, cap) / cap
+      const progress = Math.min(have_m, perMemberTarget) / perMemberTarget
       const safety = Math.min(1, (have_m + avail_m) / (cap + 3))
       s += unitPowerScore(def.cost, c.targetTier) * (0.5 + progress) * safety
     }
@@ -909,7 +969,7 @@ function pickRerollTarget(econ: PlayerEcon, state: RunState, persona: BotPersona
       // A package anchors on its majority cost.
       const anchorCost = mode(c.defIds.map(id => UNIT_MAP.get(id)!.cost))
       const level = anchorCost === 1 ? 5 : anchorCost === 2 ? 6 : 7
-      best = { defIds: c.defIds, level, have }
+      best = { defIds: c.defIds, level, have, targetTier: c.targetTier }
     }
   }
   return best
@@ -917,14 +977,20 @@ function pickRerollTarget(econ: PlayerEcon, state: RunState, persona: BotPersona
 
 // "Carry investment" score: like unitPowerScore, but weighted an extra ×tier so
 // a unit the bot has already starred up outranks a same-power-or-slightly-ahead
-// UNSTARRED unit of higher cost. Without this, a 2★ cheap carry sits below any
-// random 1★ 3/4-cost body on the board (e.g. a 1-cost 2★ scores 3 under plain
-// unitPowerScore, a 3-cost 1★ scores 4) and never gets recognized as "the carry"
-// worth building trait support around until it's already 3★ — by which point the
-// shop window to complete its trait may be gone. This is ONLY used to pick which
-// unit's traits to prioritize; actual combat-power math still uses unitPowerScore.
+// UNSTARRED unit of higher cost. tier^2 (not plain tier): unitPowerScore is
+// EXPONENTIAL in cost (2^(cost-1) * 3^(tier-1)), so a merely linear *tier
+// still let any fresh 1★ 4- or 5-cost pickup (score 8, 16) outrank an
+// already-2★'d 1-cost unit (score 3*2=6) — measured via simulation: the
+// board's identified "carry" changed to a DIFFERENT unit in 15.1% of
+// consecutive rounds, and 51% of those changes abandoned a unit already
+// invested to 2★+ for a fresh 1★ pickup. tier^2 (1-cost 2★ -> 3*4=12) fixes
+// that specific case while still letting a genuinely much stronger pickup
+// (a fresh 5-cost 1★ still scores 16) eventually take over — this is meant
+// to resist casual flip-flopping on a real investment, not freeze the choice
+// forever. This is ONLY used to pick which unit's traits to prioritize;
+// actual combat-power math still uses unitPowerScore untouched.
 function carryInvestmentScore(cost: number, tier: 1 | 2 | 3): number {
-  return unitPowerScore(cost, tier) * tier
+  return unitPowerScore(cost, tier) * tier * tier
 }
 
 // Ranks the board's non-tank damage dealers by carry-investment score, highest
@@ -964,7 +1030,7 @@ function secondaryCarryTraitsOf(econ: PlayerEcon): Set<string> {
 // The board's main tank, by the same carry-investment score restricted to
 // role === 'tank'. Mirrors carryTraitsOf so bots also prioritize completing the
 // trait trees that make their own tank durable, not just their damage dealer.
-function tankTraitsOf(econ: PlayerEcon): Set<string> {
+function rankTank(econ: PlayerEcon): string | null {
   let bestId: string | null = null
   let bestScore = 0
   for (const u of econ.board) {
@@ -973,7 +1039,12 @@ function tankTraitsOf(econ: PlayerEcon): Set<string> {
     const score = carryInvestmentScore(def.cost, u.tier)
     if (score > bestScore) { bestScore = score; bestId = u.definitionId }
   }
-  return bestId ? new Set(UNIT_MAP.get(bestId)!.types) : new Set()
+  return bestId
+}
+
+function tankTraitsOf(econ: PlayerEcon): Set<string> {
+  const id = rankTank(econ)
+  return id ? new Set(UNIT_MAP.get(id)!.types) : new Set()
 }
 
 // Is a genuinely stronger unit stuck on the bench because the board is at its cap?
@@ -1118,6 +1189,32 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
 
   const stage = stageOf(state.round)
 
+  // Sell a fielded shiny that has become a genuine misfit, mirroring real TFT
+  // Chosen strategy: take one early for the tempo (a free instant-2★), but if
+  // it never ends up sharing its trait with anything else once the board's
+  // real direction is set, sell it back and let the pity timer offer a fresh
+  // Chosen instead of carrying a permanent stat-stick. Tightly gated against
+  // thrash: only once the rest of the board has a real direction
+  // (hasEstablishedComp) and late enough that direction is unlikely to keep
+  // shifting under it (stage >= 5) — an early Chosen naturally has no
+  // synergy yet, which is expected and fine, not a misfit. Isolation is
+  // checked against FIELDED units only (traitCounts also covers the bench,
+  // which isn't what "does the board actually use this trait" should mean).
+  if (stage >= 5) {
+    const fieldedShinyIdx = econ.board.findIndex(u => u.isShiny)
+    const fieldedShiny = fieldedShinyIdx >= 0 ? econ.board[fieldedShinyIdx] : null
+    if (fieldedShiny?.chosenTrait) {
+      const hasEstablishedComp = [...traitCounts(econ).values()].some(species => species.size >= 2)
+      if (hasEstablishedComp) {
+        const speciesWithTrait = new Set<string>()
+        for (const u of econ.board) {
+          if (UNIT_MAP.get(u.definitionId)?.types.includes(fieldedShiny.chosenTrait)) speciesWithTrait.add(u.definitionId)
+        }
+        if (speciesWithTrait.size <= 1) sellFromBoard(state, econ, fieldedShinyIdx)
+      }
+    }
+  }
+
   // Reroll-comp commitment (tempo/availability). When a viable cheap 3★ is open, the bot
   // SLOW-ROLLS: holds at the reroll level and digs for copies instead of leveling up.
   // Re-decided every round, so it commits while viable and auto-pivots to a normal board
@@ -1132,8 +1229,22 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
   // Leveling boards aim for 8 → 9 (where 4/5-costs actually show up) rather than
   // sprinting to max: the last levels cost enormous XP that's better spent holding
   // interest and rolling for upgrades. Stage 6 allows max for a final push.
+  // A committed reroll target only climbs past its pure anchor level once the
+  // dig is substantially done (>=60% of cap) — otherwise every round's income
+  // gets split between XP and rerolling instead of committing to the dig
+  // first. Before this, the +max(0, stage-4) climb started immediately on
+  // commitment, regardless of progress, and XP purchases (gated on the SAME
+  // low reserve as rerolling, so they were never actually blocked) quietly
+  // ate most of a round's gold before the reroll loop below ever got a
+  // chance — measured before this fix: XP was bought in nearly every single
+  // round for the entire game, actual rerolls (log.rolls) stayed at 0 almost
+  // the whole way, and "have" crept from 2 to only ~6 copies over 30 rounds
+  // despite genome.rerollBias explicitly tuning this persona to dig hard.
+  const rerollProgressed = rerollTarget
+    ? rerollTarget.have >= copiesHeld(rerollTarget.targetTier) * rerollTarget.defIds.length * 0.6
+    : false
   const effectiveTarget = rerollTarget
-    ? Math.min(MAX_LEVEL, rerollTarget.level + Math.max(0, stage - 4))
+    ? Math.min(MAX_LEVEL, rerollTarget.level + (rerollProgressed ? Math.max(0, stage - 4) : 0))
     : stage >= 6 ? MAX_LEVEL
     : stage >= 5 ? Math.min(MAX_LEVEL, 9)
     : stage >= 3 ? Math.min(MAX_LEVEL, Math.max(genome.targetLevel, 8))
@@ -1148,7 +1259,22 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
   // speculative bumps (existing gold affordability below caps how big a jump
   // can actually happen in one round).
   let levelTarget = effectiveTarget
-  {
+  // Skipped once a bot should be COMMITTING to what it has instead of
+  // chasing more level — either a reroll target that hasn't substantially
+  // progressed yet (see rerollProgressed above: this bump is "one piece away
+  // from a DIFFERENT comp, chase that level instead," exactly the tunnel-
+  // vision-breaking flexibility a genuine slow-roll commitment is supposed
+  // to override), or a fast-8/leveling bot that's already arrived at level 8
+  // (the "roll down" phase — see the matching inRollDownPhase gate in
+  // buyFromShop below). Left unskipped, this fired almost every round for
+  // nearly every persona — some catalog entry is "one piece away" from
+  // almost any real roster most rounds — and via tempoBump below zeroing
+  // xpReserve, is what let XP purchases quietly outcompete rerolling for
+  // gold: measured with Kass (the fast-8 persona) stuck at levelTarget=9
+  // from round 2 onward regardless of her actual level, executing ZERO paid
+  // rerolls across an entire 30-round game.
+  const arrivedAtEight = !rerollTarget && stage >= 3 && econ.level >= 8
+  if ((!rerollTarget || rerollProgressed) && !arrivedAtEight) {
     const ownedDefIds = new Set<string>(
       [...econ.board, ...econ.bench.filter((b): b is NonNullable<typeof b> => b !== null)]
         .map(u => u.definitionId),
@@ -1171,6 +1297,16 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
   // from closing out a 3★.
   const lateGame = stage >= 3
   const INTEREST_BANK = MAX_INTEREST * 10                    // 50g = capped interest
+  // The roll-down/rebuild-cycle trigger uses THIS, not the full INTEREST_BANK
+  // — reaching the true interest cap from a realistic mid-game income (a few
+  // gold/round net of upkeep) takes many rounds of saving literally
+  // everything, which measured out to bots still sitting mid-rebuild with
+  // gold climbing but never actually reaching burst mode 15+ rounds after
+  // arriving at level 8. 30 already earns +3/round interest (close to the
+  // +5 cap) and is the SAME value the burst phase steps back down to anyway
+  // — "once you have what you're about to spend down to, go ahead," not
+  // "wait for the theoretical max first."
+  const ROLL_DOWN_TRIGGER = 20
   const losingStreak = econ.streak <= -2
   // Under pressure the bank is worth less than board strength right now.
   const pressure = losingStreak || catchUp > 0.2
@@ -1192,6 +1328,19 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
   if (rng() < 0.75) addPriorityTraits(carryTraitsOf(econ), 1.0)
   if (rng() < 0.75) addPriorityTraits(tankTraitsOf(econ), 1.0)
   if (rng() < 0.75) addPriorityTraits(secondaryCarryTraitsOf(econ), 0.4)
+  // A currently-FIELDED shiny's chosenTrait is a confirmed investment, not a
+  // speculative bias like the carry/tank nudges above — unconditional, full
+  // weight, same as a committed reroll target just below. Without this, a
+  // shiny only ever entered priorityTraits by accident, when it happened to
+  // also rank as the board's single strongest carry/tank (carryTraitsOf/
+  // tankTraitsOf only ever look at ONE unit); a shiny that wasn't quite that
+  // dominant — a cheap one splashed alongside an established higher-cost
+  // carry, say — never got its trait chased afterward and just sat on the
+  // board as an isolated stat-stick. Measured via a real bot-game simulation
+  // before this fix: ~52% of rounds with a fielded shiny had it sharing its
+  // trait with NO other real species on the board at all.
+  const fieldedShiny = econ.board.find(u => u.isShiny)
+  if (fieldedShiny?.chosenTrait) addPriorityTraits([fieldedShiny.chosenTrait], 1.0)
   if (rerollTarget) {
     for (const id of rerollTarget.defIds) {
       const rtDef = UNIT_MAP.get(id)
@@ -1214,10 +1363,27 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
   if (rerollTarget) {
     // Slow-roll comps live off interest: sit at the anchor level and roll only the
     // gold above the bank, so income keeps funding the dig round after round.
-    if (rerollTarget.have >= 6 && (pressure || forceSpend)) {
-      bank = 0; forceSpend = true          // ~a 2★ away and hurting → dump it and hit
+    // Reuses rerollProgressed (>=60% of THIS target's real cap, whatever tier/
+    // member-count it is) rather than a flat "have >= 6" — that hardcoded
+    // number only ever meant "60% of a 2-member 2★ package" and silently
+    // undercounted a solo 3★ (needs 9) or a multi-carry 3★ package (needs 18).
+    if (rerollProgressed && (pressure || forceSpend)) {
+      bank = 0; forceSpend = true          // close to done and hurting → dump it and hit
     } else if (pressure) {
       bank = Math.round(INTEREST_BANK * 0.6)   // dig harder, keep some interest alive
+    } else {
+      // BUG FIX: this used to fall through with bank untouched, meaning it
+      // kept whatever the generic stage-based default was (50 for stage>=3)
+      // — silently discarding genome.reserve, the persona's own tuned
+      // digging aggression (Rilla's is 6: hold almost nothing, dig hard).
+      // reserve gets overwritten to `bank` further down regardless of what
+      // it started as, so genome.reserve never actually took effect for a
+      // committed, unpressured reroll bot. Measured before this fix: even
+      // Rilla (rerollBias 2.2, the dedicated reroller) averaged "have" only
+      // 2.0 -> 6.8 copies of her target across an entire 30-round game and
+      // reached a real 3★ in ~1% of late-game snapshots — barely digging at
+      // all despite it being her whole identity.
+      bank = genome.reserve
     }
   } else if (fastEight) {
     // ─── Fast-8 tempo plan (the non-reroll personas) ───────────────────────────
@@ -1231,7 +1397,7 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
     if (econ.level < 8) {
       bank = FAST8_ARRIVAL_GOLD          // push levels, but never below the arrival float
       if (forceSpend) bank = 0
-    } else if (econ.gold >= INTEREST_BANK || pressure) {
+    } else if (econ.gold >= ROLL_DOWN_TRIGGER || pressure) {
       bank = pressure ? 20 : 30          // rebuilt (or hurting) → commit the roll-down
       if (losingStreak && catchUp > 0.3) bank = 10
     } else {
@@ -1249,7 +1415,24 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
     // ROLL-DOWN: once the bot has reached its target level (8/9), banking has done its
     // job — the gold now buys the 2★ 4- and 5-costs the board is built on. Step the
     // bank down 30 → 20 → 10 as it gets more urgent, and go all-in when desperate.
-    if (lateGame && econ.level >= 8) {
+    //
+    // Gated on econ.gold >= ROLL_DOWN_TRIGGER (a genuine, accumulated war
+    // chest), not unconditional — mirrors real TFT's bank-then-burst pattern
+    // (hold across several rounds, THEN commit hard in one roll-down) rather
+    // than perpetually re-lowering the bank every single round regardless of
+    // whether anything was actually saved up. Without this gate, a bot whose
+    // income never quite reaches the trigger spends continuously in a
+    // low-gold equilibrium and never earns real interest or funds a real
+    // roll-down — measured via simulation before this fix: late-game bots
+    // averaged ~3 gold held, and the shared 4/5-cost pools were still ~90%+
+    // full by round 30 across all 5 bots combined. Uses ROLL_DOWN_TRIGGER
+    // (30), not the full INTEREST_BANK (50) — the fast-8 branch's identical
+    // gate measured bots still mid-rebuild, gold climbing but never reaching
+    // 50, many rounds after arriving at their target level; pressure/
+    // benchUpgradeWaiting above already force spending sooner when there's a
+    // genuine urgent trigger, so this gate only governs the OPPORTUNISTIC
+    // "I'm comfortable, should I dump now" case.
+    if (lateGame && econ.level >= 8 && econ.gold >= ROLL_DOWN_TRIGGER) {
       bank = Math.min(bank, 30)
       if (pressure) bank = 20
       if (losingStreak && catchUp > 0.3) bank = 10
@@ -1295,11 +1478,18 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
       // Board already full late game → concentrate gold into star-ups instead of
       // adding more distinct 1★ bodies (see scoreUnit's concentration penalty).
       const concentrate = lateGame && !needBodies
+      // Once the board has a real direction, needBodies alone shouldn't excuse
+      // taking almost any 1★ filler late-game — real reroll strategy accepts a
+      // board SMALLER than the level allows in exchange for star-up density,
+      // rather than treating every open slot as something that must be filled
+      // right now. A bot still finding its comp (no direction yet) keeps the
+      // lenient bar — it genuinely needs bodies to survive and explore.
+      const hasDirection = [...traitCounts(econ).values()].some(species => species.size >= 2)
       // Buy bar rises with the stage: early on almost any body is worth taking, but
       // late a 1★ filler that doesn't star something up, fit the carry's traits or hit
       // a breakpoint is just gold that should have stayed banked for the roll-down.
       const threshold = needBodies
-        ? (lateGame ? 1.5 : 0.3)
+        ? (lateGame && hasDirection ? 3.0 : lateGame ? 1.5 : 0.3)
         : stage >= 5 ? 6 : stage >= 4 ? 4 : 2.4
       let bestSlot = -1
       let bestScore = threshold
@@ -1326,8 +1516,31 @@ export function botPlanRound(state: RunState, econ: PlayerEcon, playerPower: num
       }
       if (bestSlot >= 0) {
         const id = econ.shop[bestSlot]!
-        const res = buyUnit(state, econ, bestSlot)
-        if (res.ok) { log.bought.push(id); boughtAny = true }
+        // Once genuinely banking toward a late roll-down (see the ROLL-DOWN
+        // gate above), a free-shop buy shouldn't quietly drain the reserve
+        // either — otherwise the bank-then-burst gate does nothing, since
+        // gold never reaches the reserve to trigger a real burst in the
+        // first place (measured: the bank change alone had ~zero effect on
+        // late-game star level until this was added too — buyFromShop had
+        // no connection to reserve/bank at all before this, only paid
+        // rerolls and XP did). Bodies still take priority regardless (an
+        // empty slot is worse than almost anything), and so does a genuine
+        // power spike — bestScore >= 10 only happens for a real star
+        // completion or comparably strong hit (an ordinary trait-fit buy
+        // tops out around 6 at this stage; a completed 2★ on a 4/5-cost
+        // scores 16-18), which is worth breaking the bank for the same way
+        // benchUpgradeWaiting already does above. First attempt at this gate
+        // used NO such exemption and made things measurably worse (avg
+        // late-game star level 1.36 -> 1.28, 1-star 4/5-costs fielded
+        // 2.13 -> 0.56) — it was blocking the very buys meant to raise
+        // star level, not just marginal filler.
+        const inRollDownPhase = lateGame && econ.level >= 8
+        const price = econ.shopShiny[bestSlot] ? shinyPrice(UNIT_MAP.get(id)!.cost) : UNIT_MAP.get(id)!.cost
+        const respectsReserve = !inRollDownPhase || needBodies || bestScore >= 10 || econ.gold - price >= reserve
+        if (respectsReserve) {
+          const res = buyUnit(state, econ, bestSlot)
+          if (res.ok) { log.bought.push(id); boughtAny = true }
+        }
       }
     }
   }

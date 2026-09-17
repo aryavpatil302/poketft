@@ -28,14 +28,26 @@ import { combatRng } from '../rng'
 // MITIG_CONST used to be 100 (LoL's own value), but this roster's defense/sp.
 // defense values only span ~15-85 — nothing ever reaches 100 — so even the
 // tankiest unit in the game topped out at 45.9% mitigation and most squishies
-// sat at 13-26%. Sim evidence (runSimulation over 1v1s and a realistic 6v6):
-// a fully-built tank (Tangela, Stalwart procced) died in 100% of 150 trials,
-// averaging just 8.8 damage instances taken over 9.4s. Lowering this constant
-// to 58 measured out to meaningfully longer fights and more hits-to-kill
-// across the board (Tangela: 8.8→10.8 hits, 9.4s→11.3s; Ferrothorn: 18.9→23.2
-// hits; squishy survival rates up ~15-17 points in the same 6v6) with zero
-// changes to any unit's stats or ability numbers.
-const MITIG_CONST = 58
+// sat at 13-26%. Lowering this constant to 58 fixed that (fully-built tanks
+// went from dying in ~8.8 hits to ~10.8, squishy survival up ~15-17 points in
+// a realistic 6v6) but overshot: def/(def+K) is far more sensitive to K in the
+// LOW-to-MID defense range than at the high end (a saturated tank's defense is
+// already >>K, so the curve there is flat regardless), so crushing K down to
+// 58 mainly ended up crushing mitigation UP for exactly the low-cost/1-star
+// units that have modest defense to begin with — autos and spells stopped
+// feeling like they did anything. Re-tuned to 92, chosen by checking two
+// signals stay in balance:
+//   - 1v1 sim (Ribombee autos vs. undefended-trait 1-cost 1★s): a plain
+//     bruiser (Graveler) is back to dying almost every time (6% survival,
+//     same as at the original K=100), while a decoy-based tank (Morgrem/
+//     Substitutor) stays meaningfully tanky (72% survival) without being
+//     unkillable — its kit is *supposed* to soak hits, that's not a bug.
+//   - 6v6 sim: a fully-built tank (Tangela, Stalwart procced) is essentially
+//     unchanged from the K=58 result (10.9 hits/11.0s vs. 10.8/11.3s) because
+//     its defense is already past the saturation point — so the original
+//     tankiness goal for real tank comps is preserved even though K moved
+//     most of the way back toward 100.
+const MITIG_CONST = 92
 
 export function mitigationFactor(resistance: number): number {
   if (resistance >= 0) {

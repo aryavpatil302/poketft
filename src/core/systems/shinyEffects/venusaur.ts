@@ -1,7 +1,7 @@
 import type { Unit, CombatState, Team } from '../../types'
 import { registerShinyEffect } from '../shinyEffects'
 
-// Shiny Venusaur: allies standing in the caster's own front 2 rows gain +100
+// Shiny Venusaur: allies standing in the caster's own front 2 rows gain +50
 // max HP at combat start. Board rows: 0-3 = enemy half, 4-7 = player half
 // (hexGrid.ts). "Front" means closest to the row 3/row 4 boundary between
 // the two team halves — the authoritative convention from

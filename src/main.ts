@@ -442,30 +442,53 @@ document.getElementById('app')!.innerHTML = `
         </div>
       </div>
 
-      <!-- Unit info panel (shown when a unit is clicked during combat) -->
+      <!-- Unit info panel (shown when a unit is clicked during combat).
+           Positioned below the round-indicator/terrain-indicator column
+           (which occupies roughly y=8-102px, left-anchored) rather than
+           overlapping it — this panel used to sit at top:14px, directly
+           under that stack, and lost its own header/HP bar to it. -->
       <div id="unit-info-panel" style="
         display: none;
-        position: absolute; top: 14px; left: 14px;
+        position: absolute; top: 120px; left: 14px;
         background: rgba(8,12,24,0.95);
         border: 1px solid #446;
         border-radius: 8px;
         padding: 10px 12px;
-        min-width: 200px;
-        max-width: 240px;
-        font-family: monospace;
+        min-width: 235px;
+        max-width: 265px;
+        font-family: sans-serif;
         font-size: 11px;
         color: #cce;
         backdrop-filter: blur(4px);
-        z-index: 10;
+        z-index: 15;
       ">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px;">
-          <div style="display:flex;align-items:center;gap:6px;min-width:0;">
-            <img id="uip-sprite" style="width:26px;height:26px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;display:none;">
-            <span id="uip-name" style="font-weight:bold;font-size:13px;color:#88aaff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
+        <!-- Header: mirrors unitCardHTML's identity strip (trait icons +
+             sprite box with star pips / cost badge + name/HP/mana), kept
+             narrower than that card's — no side stats column here, those
+             stay in their own section below like the rest of the panel. -->
+        <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;">
+          <div id="uip-traits" style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;padding-top:2px;"></div>
+          <div id="uip-sprite-box" style="position:relative;width:48px;height:48px;flex-shrink:0;">
+            <div style="position:absolute;inset:0;border:2px solid #9aa0a6;border-radius:6px;
+              background:#0a0e1a;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+              <img id="uip-sprite" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;display:none;">
+              <img id="uip-shiny-overlay" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;display:none;">
+            </div>
+            <div id="uip-star-pips" style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);white-space:nowrap;"></div>
+            <div id="uip-cost-badge" style="position:absolute;bottom:-5px;left:-5px;color:#0a0e1a;
+              font-size:9px;font-weight:bold;border-radius:50%;width:15px;height:15px;
+              display:flex;align-items:center;justify-content:center;border:1px solid #0a0e1a;"></div>
+          </div>
+          <div style="flex:1;min-width:0;padding-top:2px;">
+            <span id="uip-name" style="font-weight:bold;font-size:13px;color:#88aaff;display:block;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:5px;"></span>
+            <div id="uip-hp-row"></div>
+            <div id="uip-mana-row" style="margin-top:3px;"></div>
           </div>
           <button id="uip-close" style="
             padding:2px 7px; background:transparent; border:1px solid #334;
             color:#778; cursor:pointer; border-radius:4px; font-size:11px;
+            flex-shrink:0;
           ">✕</button>
         </div>
         <div id="uip-body"></div>
@@ -1071,6 +1094,28 @@ const COST_BORDER: Record<number, string> = {
   3: '#3b82d8',   // blue
   4: '#a855f7',   // purple
   5: '#e8b03e',   // golden yellow
+}
+
+// Unit info panel status line (see updateUnitInfoPanel): only these status
+// ids have a real, visible gameplay effect worth surfacing to a player —
+// everything else on unit.statusEffects is internal bookkeeping (per-ability
+// marks, aura/onDeath triggers, trait stat modifiers already reflected in
+// the panel's own stat rows) that would just read as noise (raw internal ids
+// like "substitutor_onDeath"). IDs match the real status effect ids used
+// across src/core/systems/ and src/core/abilities/ (see statusEffect.ts's
+// own CC_IDS for the crowd-control subset).
+const VISIBLE_STATUS_NAMES: Record<string, string> = {
+  stun: 'Stunned',
+  knockUp: 'Knocked Up',
+  charm: 'Charmed',
+  chill: 'Chilled',
+  blind: 'Blinded',
+  confuse: 'Confused',
+  silence: 'Silenced',
+  slow: 'Slowed',
+  burn: 'Burning',
+  poison: 'Poisoned',
+  healBlock: 'Healing Blocked',
 }
 
 const tooltipEl = document.createElement('div')
@@ -3134,9 +3179,21 @@ function boardIndexAtHex(hex: OffsetCoord): number {
 
 // placedUnits is the live source of truth during planning; run.board is the
 // serialized form. Sync both ways at the phase boundaries.
+//
+// Ascender pillars (cliff_l/cliff_r) are marked isDummy — they never act —
+// but they DO need to fight (take the fall damage that triggers their tumble,
+// die, etc.), so a blanket isDummy exclusion silently dropped them from
+// run.board before every resolveRound: the pillar was visible during planning
+// but never actually entered the recorded fight, so it looked like it just
+// vanished the instant combat started. round.ts's isPillar/fieldedCount split
+// already assumes pillars live in board (that's the whole reason it exists
+// instead of using board.length directly) — this is the one place that
+// wasn't holding up its end of that assumption. Bot boards never hit this
+// path (enemy/generator.ts places their cliffs directly), so only the human
+// player's own pillars were affected.
 function syncBoardToRun(): void {
   humanEcon().board = [...placedUnits.values()]
-    .filter(u => u.team === 'player' && !u.isDummy)
+    .filter(u => u.team === 'player' && (!u.isDummy || isCliffId(u.definitionId)))
     .map(u => ({
       definitionId: u.definitionId, tier: u.tier as 1 | 2 | 3, hexPos: { ...u.hexPos },
       item: u.items[0], isShiny: u.isShiny, chosenTrait: u.chosenTrait,
@@ -3838,11 +3895,20 @@ const UNIT_CARD_WIDTH = 430
 function keenEyeRegenBonus(defId: string, team: 'player' | 'enemy' = 'player'): number | null {
   const source: Iterable<Unit> = combatState ? combatState.units.values() : placedUnits.values()
   const keenSpecies = new Set<string>()
+  let n = 0
   for (const u of source) {
     if (u.isDummy || u.team !== team) continue
     if (u.types.includes('keen_eye')) keenSpecies.add(u.definitionId)
+    // Chosen-trait shiny bonus: mirrors traitMemberCount in
+    // src/core/systems/traitEffects.ts (the combat-side equivalent of this
+    // fix, and the same pattern already applied to getAscenderLevel/the
+    // ruiner-stone preview above) — missed here originally, so this display
+    // undercounted a board relying on a shiny Chosen-Keen-Eye unit to cross
+    // a breakpoint, showing +1 when the real applyKeenEye tick was already
+    // correctly granting +2 (or +3 for a Keen Eye unit itself).
+    if (u.isShiny && u.chosenTrait === 'keen_eye') n++
   }
-  const n = keenSpecies.size
+  n += keenSpecies.size
   if (n < 2) return null
   const tier = n >= 6 ? 3 : n >= 4 ? 2 : 1   // 2/4/6 breakpoints
   const baseRegen = tier                     // +1 / +2 / +3 per second
@@ -5946,18 +6012,51 @@ function updateUnitInfoPanel(): void {
   if (!unit || unit.state === 'dead') { panel.style.display = 'none'; inspectedUnitId = null; return }
 
   const teamColor = unit.team === 'player' ? '#66aaff' : '#ff6666'
-  const stars = '★'.repeat(unit.tier)
-  document.getElementById('uip-name')!.textContent = `${unit.name} ${stars}`
+  const def = UNIT_MAP.get(unit.definitionId)
+  document.getElementById('uip-name')!.textContent = unit.name
   document.getElementById('uip-name')!.style.color = teamColor
 
+  // Header identity block — mirrors unitCardHTML's sprite box/trait column/
+  // star pips/cost badge (the shop & bench hover card), so the click-to-
+  // inspect panel reads as the same design language instead of a bare
+  // 26px icon with plain "★★" text appended to the name.
+  const border = def ? (COST_BORDER[def.cost] ?? '#9aa0a6') : '#334'
+  const spriteBoxEl = document.getElementById('uip-sprite-box')!
+  ;(spriteBoxEl.firstElementChild as HTMLElement).style.borderColor = border
+
   const spriteEl = document.getElementById('uip-sprite') as HTMLImageElement
-  const spritePath = UNIT_MAP.get(unit.definitionId)?.spritePath
+  const shinyOverlayEl = document.getElementById('uip-shiny-overlay') as HTMLImageElement
+  const spritePath = unit.isShiny ? (def?.shinySpritePath ?? def?.spritePath) : def?.spritePath
   if (spritePath && !unit.isDummy) {
     spriteEl.src = spritePath
     spriteEl.style.display = ''
+    if (unit.isShiny) {
+      shinyOverlayEl.src = SHINY_EFFECT_GIF
+      shinyOverlayEl.style.display = ''
+    } else {
+      shinyOverlayEl.style.display = 'none'
+    }
   } else {
     spriteEl.style.display = 'none'
+    shinyOverlayEl.style.display = 'none'
   }
+
+  const starPipsEl = document.getElementById('uip-star-pips')!
+  starPipsEl.innerHTML = !unit.isDummy ? starPips(unit.tier) : ''
+
+  const costBadgeEl = document.getElementById('uip-cost-badge')!
+  if (def && !unit.isDummy) {
+    costBadgeEl.style.display = 'flex'
+    costBadgeEl.style.background = border
+    costBadgeEl.textContent = String(def.cost)
+  } else {
+    costBadgeEl.style.display = 'none'
+  }
+
+  const traitsEl = document.getElementById('uip-traits')!
+  traitsEl.innerHTML = def && !unit.isDummy
+    ? def.types.map(t => cardTraitRowHTML(t, unit.isShiny === true && t === unit.chosenTrait)).join('')
+    : ''
 
   const hpPct  = unit.maxHp > 0 ? Math.max(0, unit.currentHp / unit.maxHp) : 0
   const totalShield = unit.shields.reduce((s, sh) => s + sh.value, 0)
@@ -5965,6 +6064,27 @@ function updateUnitInfoPanel(): void {
 
   const barBase = `width:100%;height:8px;background:#1a1a2e;border-radius:3px;overflow:hidden;margin-bottom:2px;`
   const hpColor = unit.team === 'player' ? '#22cc44' : '#cc2222'
+
+  document.getElementById('uip-hp-row')!.innerHTML = `
+    <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+      <span style="color:#667;font-size:9px;">HP</span>
+      <span style="color:#a8e0b0;font-size:10px;">${Math.round(unit.currentHp)} / ${unit.maxHp}${totalShield > 0 ? ` <span style="color:#8a97b0;">(+${Math.round(totalShield)})</span>` : ''}</span>
+    </div>
+    <div style="width:100%;height:6px;background:#101828;border-radius:3px;overflow:hidden;">
+      <div style="height:100%;width:${(hpPct*100).toFixed(1)}%;background:${hpColor};display:inline-block;"></div><div style="height:100%;width:${Math.min((1-hpPct)*100, (totalShield/unit.maxHp)*100).toFixed(1)}%;background:#8a97b0;display:inline-block;"></div>
+    </div>`
+
+  document.getElementById('uip-mana-row')!.innerHTML = unit.maxMana > 0 ? `
+    <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+      <span style="color:#667;font-size:9px;">MANA</span>
+      <span style="color:#9db8e8;font-size:10px;">${Math.round(unit.currentMana)} / ${unit.maxMana}${(() => {
+        const regen = keenEyeRegenBonus(unit.definitionId, unit.team)
+        return regen ? ` <span style="color:#5ad0e8;">+${regen}/s</span>` : ''
+      })()}</span>
+    </div>
+    <div style="width:100%;height:4px;background:#0d1a33;border-radius:2px;overflow:hidden;">
+      <div style="height:100%;width:${(manaPct*100).toFixed(1)}%;background:#3377ff;"></div>
+    </div>` : ''
 
   const shieldsHtml = unit.shields.map(sh => {
     const pct = sh.maxValue > 0 ? Math.max(0, sh.value / sh.maxValue) : 0
@@ -5981,8 +6101,17 @@ function updateUnitInfoPanel(): void {
       </div>`
   }).join('')
 
-  const statusHtml = unit.statusEffects.length > 0
-    ? `<div style="color:#aaa;margin-top:4px;">Status: ${[...new Set(unit.statusEffects.map(s => s.id))].join(', ')}</div>`
+  // Only surface statuses with a real, visible gameplay effect (CC + the
+  // common DoT/debuffs) — most of unit.statusEffects is internal bookkeeping
+  // (per-ability marks, aura/onDeath triggers, trait-granted stat modifiers
+  // already reflected in the stat rows above) that means nothing to a player
+  // and was previously dumped verbatim as raw internal ids (e.g.
+  // "substitutor_onDeath", "morgrem_spirit_break_aura").
+  const visibleStatuses = [...new Set(unit.statusEffects.map(s => s.id))]
+    .map(id => VISIBLE_STATUS_NAMES[id])
+    .filter((name): name is string => name !== undefined)
+  const statusHtml = visibleStatuses.length > 0
+    ? `<div style="color:#aaa;margin-top:4px;">Status: ${visibleStatuses.join(', ')}</div>`
     : ''
 
   const beachVibesHtml = (unit.types.includes('beachy') && combatState)
@@ -5997,28 +6126,8 @@ function updateUnitInfoPanel(): void {
     : ''
 
   document.getElementById('uip-body')!.innerHTML = `
-    <div style="margin-bottom:6px;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:1px;">
-        <span style="color:#888;">HP</span>
-        <span style="color:#aaa;">${Math.round(unit.currentHp)} / ${unit.maxHp}${totalShield > 0 ? ` <span style="color:#888;">(+${Math.round(totalShield)} shield)</span>` : ''}</span>
-      </div>
-      <div style="${barBase}">
-        <div style="height:100%;width:${(hpPct*100).toFixed(1)}%;background:${hpColor};border-radius:3px;display:inline-block;"></div><div style="height:100%;width:${Math.min((1-hpPct)*100, (totalShield/unit.maxHp)*100).toFixed(1)}%;background:#888888;display:inline-block;"></div>
-      </div>
-    </div>
+    <div style="padding-top:6px;border-top:1px solid #223;">
     ${unit.shields.length > 0 ? `<div style="margin-bottom:6px;"><div style="color:#99aacc;margin-bottom:3px;font-size:10px;">SHIELDS</div>${shieldsHtml}</div>` : ''}
-    <div style="margin-bottom:6px;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:1px;">
-        <span style="color:#888;">Mana</span>
-        <span style="color:#aaa;">${Math.round(unit.currentMana)} / ${unit.maxMana}${(() => {
-          const regen = unit.maxMana > 0 ? keenEyeRegenBonus(unit.definitionId, unit.team) : null
-          return regen ? ` <span style="color:#5ad0e8;">+${regen}/s</span>` : ''
-        })()}</span>
-      </div>
-      <div style="${barBase}">
-        <div style="height:100%;width:${(manaPct*100).toFixed(1)}%;background:#3377ff;border-radius:3px;"></div>
-      </div>
-    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;color:#aaa;margin-bottom:4px;">
       <span style="color:#556;">ATK</span><span>${Math.round(computeStats(unit).attack)}</span>
       <span style="color:#556;">SP.ATK</span><span>${Math.round(computeStats(unit).special)}</span>
@@ -6076,8 +6185,25 @@ function updateUnitInfoPanel(): void {
         <div style="color:#99aacc;font-size:10px;line-height:1.4;font-family:sans-serif;">${ability.description}</div>
       </div>`
     })()}
+    ${(() => {
+      // Same "✨ Shiny Effect" block the pre-combat hover card shows (see
+      // unitCardHTML's shinyEffectHtml above) — surfacing it here too so a
+      // shiny unit's active combat effect is visible mid-fight, not just
+      // during planning. Many of these effects (e.g. Absol's dash-stacking
+      // attack, which prompted this) grant a stat bonus with no dedicated
+      // status pill of its own; the ATK row above already reflects the
+      // current number, but never explains it came from the shiny effect.
+      if (!unit.isShiny) return ''
+      const shinyEffect = getShinyEffect(unit.definitionId)
+      if (!shinyEffect) return ''
+      return `<div style="margin:6px 0;padding-top:6px;border-top:1px solid #223;">
+        <div style="color:#f4c542;font-weight:bold;font-size:10px;margin-bottom:2px;">✨ Shiny Effect</div>
+        <div style="color:#99aacc;font-size:10px;line-height:1.4;font-family:sans-serif;">${shinyEffect.description}</div>
+      </div>`
+    })()}
     ${statusHtml}
     ${beachVibesHtml}
+    </div>
   `
 }
 
