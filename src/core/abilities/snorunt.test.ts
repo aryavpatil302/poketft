@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { makeUnit } from '../unitFactory'
+import { makeUnit, computeStats } from '../unitFactory'
 import { createCombatState } from '../combatEngine'
 import { triggerAbility, tickAbilityCast } from '../systems/ability'
 import { applyDamage } from '../systems/damage'
+import { tickStatusEffects } from '../systems/statusEffect'
+import { tickAttack, startAttacking } from '../systems/attack'
+import { initTraitEffects } from '../systems/traitEffects'
 import { TICK_RATE } from '../constants'
 import type { Unit, CombatState } from '../types'
 
@@ -119,5 +122,79 @@ describe('Snorunt - Ice Body', () => {
   it('shield has no onExpire callback', () => {
     cast(caster, state)
     expect(caster.shields[0].onExpire).toBeUndefined()
+  })
+})
+
+describe('Snorunt - Froststone mark interaction while shielded', () => {
+  // Froststone activates at 2+ species — Snorunt alone isn't enough. Ice Body
+  // is a pure self-shield (deals no damage), so Snorunt never reaches the
+  // ability-damage "spell hit" consume gate in damage.ts the way every other
+  // Froststone unit's damaging ability does. Without the isSnoruntShielded
+  // carve-out, his marks build to 5 via autos and then sit capped forever.
+  let caster: Unit
+  let ally: Unit
+  let enemy: Unit
+  let state: CombatState
+
+  beforeEach(() => {
+    caster = makeUnit('snorunt', 'player', 1)
+    caster.hexPos = { col: 3, row: 5 }
+    ally = makeUnit('weavile', 'player', 1)   // a second froststone species
+    ally.hexPos = { col: 4, row: 5 }
+    enemy = makeUnit('dummy', 'enemy', 1)
+    enemy.hexPos = { col: 3, row: 4 }
+    state = createCombatState([caster, ally], [enemy])
+    initTraitEffects(state)
+    computeStats(caster)
+  })
+
+  function driveAutos(count: number): number[] {
+    caster.targetId = enemy.id
+    startAttacking(caster)
+    const stacksAfterEachAuto: number[] = []
+    let seen = 0
+    let lastCount = caster.attackCount
+    for (let t = 0; t < 2000 && seen < count; t++) {
+      state.tick++
+      tickStatusEffects(state.units, state)
+      tickAttack(caster, state)
+      if (caster.attackCount > lastCount) {
+        seen++
+        lastCount = caster.attackCount
+        stacksAfterEachAuto.push(enemy.statusEffects.find(fx => fx.stackId === 'froststone_mark')?.magnitude ?? 0)
+      }
+    }
+    return stacksAfterEachAuto
+  }
+
+  it('autos build marks one at a time regardless of shield state', () => {
+    const stacks = driveAutos(4)
+    expect(stacks).toEqual([1, 2, 3, 4])
+  })
+
+  it('an auto consumes an already-5-stacked mark while the Ice Body shield is active', () => {
+    cast(caster, state)
+    expect(caster.shields.some(s => s.sourceAbility === 'snorunt_ice_body' && s.value > 0)).toBe(true)
+    enemy.statusEffects.push({ id: 'froststone_mark', sourceUnitId: ally.id, durationTicks: -1, magnitude: 5, stackId: 'froststone_mark' })
+    const [afterFirstAuto] = driveAutos(1)
+    expect(afterFirstAuto).toBe(0)
+  })
+
+  it('an auto cannot consume an already-5-stacked mark when the shield is NOT active', () => {
+    // No cast() — Snorunt never gained the Ice Body shield.
+    enemy.statusEffects.push({ id: 'froststone_mark', sourceUnitId: ally.id, durationTicks: -1, magnitude: 5, stackId: 'froststone_mark' })
+    const [afterFirstAuto] = driveAutos(1)
+    expect(afterFirstAuto).toBe(5)
+  })
+
+  it('once the shield breaks, autos stop being able to consume', () => {
+    cast(caster, state)
+    // Deplete the shield with a large hit before driving autos.
+    applyDamage(enemy, caster, { baseAmount: 9999, damageType: 'true', canCrit: false, abilityId: 'auto_attack' }, state)
+    expect(caster.shields.some(s => s.sourceAbility === 'snorunt_ice_body' && s.value > 0)).toBe(false)
+
+    enemy.statusEffects.push({ id: 'froststone_mark', sourceUnitId: ally.id, durationTicks: -1, magnitude: 5, stackId: 'froststone_mark' })
+    const [afterFirstAuto] = driveAutos(1)
+    expect(afterFirstAuto).toBe(5)
   })
 })

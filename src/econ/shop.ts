@@ -74,6 +74,19 @@ export function hasShinyOwned(econ: PlayerEcon): boolean {
   return false
 }
 
+// True when THIS SPECIFIC species is already owned as a shiny — bench or
+// board. Unlike hasShinyOwned (any species, gates the pity cadence above),
+// this is a per-species check: the player should never be offered a second
+// shiny copy of a species they already hold one of, even once the pity timer
+// fires. Checked in rollShop's shiny pass, independent of the species
+// cooldown filter below (that one is a soft steer-away with a same-tier
+// fallback; this one is a hard exclude with none — see there).
+function ownsShinySpecies(econ: PlayerEcon, defId: string): boolean {
+  if (econ.bench.some(b => b?.isShiny && b.definitionId === defId)) return true
+  if (econ.board.some(u => u.isShiny && u.definitionId === defId)) return true
+  return false
+}
+
 // Rolls the ONE Chosen trait a newly-shiny candidate gets, from its own
 // UNIT_MAP types, EXCLUDING the single-unit-presence traits in
 // CHOSEN_TRAIT_INELIGIBLE (doubling those is meaningless — they have no real
@@ -151,6 +164,14 @@ export function rollShop(econ: PlayerEcon, pool: Record<string, number>, rng: Rn
   // fallback: a depleted or empty tier is a normal outcome, not retried
   // against another tier.
   //
+  // Species already owned as a shiny (see ownsShinySpecies) are hard-excluded
+  // from the candidate pool at whatever cost tier gets rolled — the pity
+  // timer above guarantees an OFFER on the 4th owning roll, never a specific
+  // species, so this is what stops that guaranteed offer from just handing
+  // back a duplicate of a shiny already held. Unlike the cooldown filter
+  // just below, there's no same-tier fallback: if every candidate at this
+  // cost is already owned, the roll offers nothing.
+  //
   // Species cooldown (see top of function) is independent of the
   // pity/ownership cadence above — it never affects WHETHER a shiny pass
   // fires, only WHICH species gets picked once it does. A passed-on species
@@ -173,7 +194,12 @@ export function rollShop(econ: PlayerEcon, pool: Record<string, number>, rng: Rn
   const shinyOdds = SHINY_COST_ODDS[Math.max(1, Math.min(9, econ.level))]
   const shinyCost = pickWeightedIndex(shinyOdds, rng)
   if (shinyCost === 0) return
-  const shinyCandidates = byCost[shinyCost].filter(u => u.copies >= copiesHeld(SHINY_TIER))
+  // Hard exclude: never offer a species already owned as a shiny (see
+  // ownsShinySpecies) — no same-tier fallback, unlike the cooldown filter
+  // below. If every candidate at this cost happens to already be owned,
+  // this roll simply offers nothing rather than handing back a duplicate.
+  const shinyCandidates = byCost[shinyCost].filter(u =>
+    u.copies >= copiesHeld(SHINY_TIER) && !ownsShinySpecies(econ, u.id))
   if (shinyCandidates.length === 0) return
   // Steer away from species currently on cooldown, but never suppress an
   // offer into nothing when candidates exist at this tier — fall back to

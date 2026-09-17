@@ -415,6 +415,62 @@ describe('shop', () => {
       expect(ok).toBe(true)
       expect(e.shopShiny.filter(Boolean)).toHaveLength(1)
     })
+
+    it('(i) never re-offers a species already owned as a shiny, even on the guaranteed pity roll', () => {
+      // Only two 2-cost species carry pool copies — both real cost-2 units
+      // (venusaur, a_raichu — see src/data/units.ts), both shiny-eligible
+      // (>= copiesHeld(SHINY_TIER)). venusaur (the owned one) is given
+      // overwhelmingly more pool copies than a_raichu, so an UNFILTERED
+      // weighted "id pick" draw would pick venusaur under this exact rng
+      // sequence with near-certainty — proving the exclusion is what
+      // changes the outcome, not coincidence. Post-exclusion only a_raichu
+      // remains, so pickWeightedId's result is deterministic regardless of
+      // the draw's exact value.
+      const pool = freshPool()
+      for (const def of shopEligibleUnits()) {
+        if (def.cost !== 2) continue
+        if (def.id === 'venusaur') pool[def.id] = 1000
+        else if (def.id === 'a_raichu') pool[def.id] = copiesHeld(SHINY_TIER)   // minimum eligible
+        else pool[def.id] = 0
+      }
+      const e = emptyEcon('t', null)
+      e.level = 5
+      e.bench[0] = { definitionId: 'venusaur', tier: 2, isShiny: true }   // already owned
+
+      // Ownership only replaces the probabilistic roll with a pity timer —
+      // it doesn't force an offer immediately. Burn through rolls 1..N-1
+      // (no offer, same as test (c)) before the guaranteed Nth roll.
+      for (let roll = 1; roll < SHINY_PITY_ROLLS; roll++) {
+        rollShop(e, pool, scriptedRng(9, {}))
+        expect(e.shopShiny.every(s => s === false)).toBe(true)
+      }
+
+      const rng = scriptedRng(9, { [SHINY_PASS_START]: tier2DrawAtLevel5() })   // guaranteed pity offer
+      rollShop(e, pool, rng)
+
+      const shinySlots = e.shopShiny.map((s, i) => (s ? i : -1)).filter(i => i >= 0)
+      expect(shinySlots).toEqual([SHOP_SLOTS - 1])
+      expect(e.shop[SHOP_SLOTS - 1]).toBe('a_raichu')   // NOT venusaur, despite dominating the unfiltered weight
+    })
+
+    it('(j) if every candidate at the rolled cost tier is already owned, the roll offers nothing (no cross-tier fallback)', () => {
+      const pool = freshPool()
+      for (const def of shopEligibleUnits()) {
+        if (def.cost === 2 && def.id !== 'venusaur') pool[def.id] = 0
+      }
+      const e = emptyEcon('t', null)
+      e.level = 5
+      e.bench[0] = { definitionId: 'venusaur', tier: 2, isShiny: true }   // the only 2-cost candidate, already owned
+
+      for (let roll = 1; roll < SHINY_PITY_ROLLS; roll++) {
+        rollShop(e, pool, scriptedRng(9, {}))
+      }
+
+      const rng = scriptedRng(9, { [SHINY_PASS_START]: tier2DrawAtLevel5() })
+      rollShop(e, pool, rng)
+
+      expect(e.shopShiny.every(s => s === false)).toBe(true)
+    })
   })
 
   describe('shiny species cooldown', () => {

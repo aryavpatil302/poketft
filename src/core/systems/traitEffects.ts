@@ -1053,9 +1053,24 @@ function applyQuickclaw(state: CombatState): void {
 // separate ability-damage gate in damage.ts) — EXCEPT Mamoswine's own autos
 // while his Thick Fat empowerment is active (canConsume), since that buff is
 // specifically meant to let his autos behave like an ability hit for this.
+//
+// Snorunt needs the same carve-out for a different reason: his ability
+// (Ice Body) is a pure self-shield that deals zero damage, so he can never
+// reach the "spell hit" ability-damage gate in damage.ts at all — without
+// this, his marks build to 5 via autos and then sit capped forever, since
+// nothing he does ever counts as a consuming hit. While his Ice Body shield
+// is up, his autos get the same auto-as-spell-hit treatment Mamoswine's do.
 
 function isMamoswineEmpowered(unit: Unit): boolean {
   return unit.definitionId === 'mamoswine' && unit.attackModifiers.some(m => m.id === 'mamoswine_thick_fat_auto')
+}
+
+function isSnoruntShielded(unit: Unit): boolean {
+  return unit.definitionId === 'snorunt' && unit.shields.some(s => s.sourceAbility === 'snorunt_ice_body' && s.value > 0)
+}
+
+function canAutoConsumeFroststoneMark(unit: Unit): boolean {
+  return isMamoswineEmpowered(unit) || isSnoruntShielded(unit)
 }
 
 function applyFroststoneMark(
@@ -1117,10 +1132,10 @@ function applyFroststone(state: CombatState): void {
         id: 'froststone_mark',
         onAttack(source: Unit, target: Unit, st: CombatState) {
           if (isRanged) return  // ranged units apply mark on projectile hit
-          applyFroststoneMark(source, target, st, perMarkDmg, isMamoswineEmpowered(source))
+          applyFroststoneMark(source, target, st, perMarkDmg, canAutoConsumeFroststoneMark(source))
         },
         onProjectileHit(source: Unit, target: Unit, st: CombatState) {
-          applyFroststoneMark(source, target, st, perMarkDmg, isMamoswineEmpowered(source))
+          applyFroststoneMark(source, target, st, perMarkDmg, canAutoConsumeFroststoneMark(source))
         },
       })
     }
