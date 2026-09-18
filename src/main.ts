@@ -6701,11 +6701,44 @@ function leaveTestMode(): void {
   showTitleScreen(titleScreenHandlers())
 }
 
+// Temporary kill switch: multiplayer is broken and disabled repo-wide until
+// this flips back to false. Single source of truth for both the title
+// screen's greyed-out button (via titleScreenHandlers below) and the actual
+// entry points (onMultiplayer, the ?lobby= deep-link boot router) — flip
+// DISABLE_MULTIPLAYER below to re-enable everything at once.
+//
+// Deliberately NOT `const MULTIPLAYER_DISABLED = true` (a bare boolean
+// literal, even as `let`): esbuild's minifier constant-propagates any
+// module-scope binding it can prove is never reassigned regardless of
+// const/let, folds every `if (MULTIPLAYER_DISABLED)` guard below to a
+// literal, and then tree-shakes the resulting dead branches — which
+// deleted the entire networking module (RoomClient, protocol.ts) from the
+// production bundle, including the VITE_PARTY_HOST embed deploy:preflight's
+// build guard checks for (confirmed by reproducing the exact preflight
+// build and diffing the bundle with the flag flipped both ways). Reading it
+// through a real, possibly-throwing browser API call is not something a
+// minifier evaluates at build time, so the guarded code stays reachable —
+// this is a real escape hatch too, not just a DCE workaround: open devtools
+// and run `localStorage.setItem('pokeTFT_force_multiplayer','1')` to
+// re-enable multiplayer in one already-loaded tab without a redeploy.
+const DISABLE_MULTIPLAYER = true
+function multiplayerDisabled(): boolean {
+  try {
+    if (DISABLE_MULTIPLAYER && localStorage.getItem('pokeTFT_force_multiplayer') === '1') return false
+  } catch {
+    // localStorage can throw (private browsing, disabled site data) — fall
+    // through to the flag's plain value.
+  }
+  return DISABLE_MULTIPLAYER
+}
+const MULTIPLAYER_DISABLED = multiplayerDisabled()
+
 // Both the boot router and leaveLobby() raise the same screen; building the
 // handlers once is what keeps a newly added button from reaching only one of
 // them.
 function titleScreenHandlers(): TitleScreenHandlers {
   return {
+    multiplayerDisabled: MULTIPLAYER_DISABLED,
     onSolo:     () => { void enterFullscreen(); hideTitleScreen(); bootSolo() },
     onMultiplayer,
     onHelp:     () => { showHelpModal() },
@@ -6723,6 +6756,11 @@ function titleScreenHandlers(): TitleScreenHandlers {
 // a second orphan one, and a second click on an already-created lobby is a
 // no-op rather than an abandoned room (T-04-11).
 function onMultiplayer(): void {
+  // See MULTIPLAYER_DISABLED above — the title screen button is already
+  // greyed out and non-clickable when this is true, so reaching here at all
+  // would mean some other path called this directly. Guard anyway: this
+  // function, not the button's disabled state, is the real gate.
+  if (MULTIPLAYER_DISABLED) return
   if (net !== null) return
   if (parseLobbyCode(location.search) !== null) return
 
@@ -6743,13 +6781,22 @@ function onMultiplayer(): void {
 // Solo Game button reaches the solo boot unchanged from before Phase 4.
 const bootLobbyCode = parseLobbyCode(location.search)
 
-if (bootLobbyCode !== null) {
+if (bootLobbyCode !== null && !MULTIPLAYER_DISABLED) {
   // Flow step 1: a link-opened tab never sees the Title Screen. It starts as
   // a guest because the URL alone cannot say who created the room; the
   // welcome frame promotes it if the server hands it seat 0, which is what
   // makes a HOST'S OWN REFRESH land back on a Start button.
   bootNetworked(bootLobbyCode, { isHost: false })
 } else {
+  // MULTIPLAYER_DISABLED with a lobby code present: an existing invite link
+  // must not silently reach the broken networked boot just because the
+  // title screen's disabled button was never in this tab's path. Strip the
+  // code (so refreshing doesn't re-trigger this) and land on the same Title
+  // Screen everyone else sees, with a clear reason instead of a dead link.
+  if (bootLobbyCode !== null) {
+    history.replaceState(null, '', location.pathname)
+    showRejectNotice('Multiplayer is temporarily disabled — please check back soon.')
+  }
   showTitleScreen(titleScreenHandlers())
 }
 

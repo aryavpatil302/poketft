@@ -18,6 +18,11 @@ export interface TitleScreenHandlers {
   onTestMode: () => void
   onOverview: () => void
   onBlog: () => void
+  // Temporary kill switch (src/main.ts owns the actual flag) — greys the
+  // button out and relabels it instead of wiring a click that would reach a
+  // known-broken flow. Optional so every existing caller keeps compiling;
+  // undefined reads the same as false.
+  multiplayerDisabled?: boolean
 }
 
 // ─── Overlay element ──────────────────────────────────────────────────────────
@@ -95,7 +100,24 @@ export function showTitleScreen(handlers: TitleScreenHandlers): void {
   // onclick (not addEventListener) so a re-show replaces the previous handler
   // instead of stacking a second one that would fire the callback twice.
   if (solo !== null) solo.onclick = () => handlers.onSolo()
-  if (multiplayer !== null) multiplayer.onclick = () => handlers.onMultiplayer()
+  if (multiplayer !== null) {
+    // Reset every call (not just when disabled) — the button element
+    // persists across show/hide cycles, so a later re-enable must be able
+    // to clear a still-dimmed, still-relabeled button from an earlier show.
+    if (handlers.multiplayerDisabled) {
+      multiplayer.onclick = null
+      multiplayer.disabled = true
+      multiplayer.style.opacity = '0.5'
+      multiplayer.style.cursor = 'not-allowed'
+      multiplayer.textContent = 'Multiplayer (Temporarily Unavailable)'
+    } else {
+      multiplayer.onclick = () => handlers.onMultiplayer()
+      multiplayer.disabled = false
+      multiplayer.style.opacity = ''
+      multiplayer.style.cursor = ''
+      multiplayer.textContent = 'Start Multiplayer Game'
+    }
+  }
   if (testmode !== null) testmode.onclick = () => handlers.onTestMode()
 
   // Opens the help modal OVER this screen — the Title Screen is deliberately
